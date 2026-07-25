@@ -65,6 +65,25 @@
         <button type="submit">Submit response</button>
         <p id="form-status" class="form-status" role="status"></p>
       </form>
+
+      <section id="submitted-receipt" class="receipt" hidden>
+        <p class="eyebrow">Response submitted</p>
+        <h2>Buyer dashboard updated</h2>
+        <dl class="receipt-grid">
+          <div>
+            <dt>Decision</dt>
+            <dd id="receipt-decision">-</dd>
+          </div>
+          <div>
+            <dt>Availability</dt>
+            <dd id="receipt-availability">-</dd>
+          </div>
+          <div>
+            <dt>Indicative price</dt>
+            <dd id="receipt-price">-</dd>
+          </div>
+        </dl>
+      </section>
     </main>
     <script src="./supplier.js" type="module"></script>
   </body>

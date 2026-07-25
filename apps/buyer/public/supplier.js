@@ -3,6 +3,7 @@ const API_BASE = window.API_BASE_URL || "http://localhost:4000/api";
 const token = new URLSearchParams(window.location.search).get("token") || location.pathname.split("/").pop();
 const form = document.querySelector("#response-form");
 const statusEl = document.querySelector("#form-status");
+const receipt = document.querySelector("#submitted-receipt");
 
 if (!token || token === "supplier.html") {
   setStatus("Missing invitation token.");
@@ -73,12 +74,24 @@ async function submitResponse(event, invitationToken) {
     if (!response.ok) {
       throw new Error(payload.message || "Response was not accepted.");
     }
-    setStatus("Response submitted. The buyer dashboard has been updated.");
-    form.reset();
+    showSubmittedReceipt(payload.supplierResponse || payload.response);
   } catch (error) {
     submitButton.disabled = false;
     setStatus(error instanceof Error ? error.message : "Unable to submit response.");
   }
+}
+
+function showSubmittedReceipt(supplierResponse) {
+  form.querySelectorAll("input, textarea, button").forEach((control) => {
+    control.disabled = true;
+  });
+  form.hidden = true;
+
+  text("#receipt-decision", supplierResponse.canHelp ? "Can help" : "Cannot help");
+  text("#receipt-availability", supplierResponse.earliestAvailability);
+  text("#receipt-price", formatMoney(supplierResponse.indicativePriceAud));
+  receipt.hidden = false;
+  setStatus("");
 }
 
 function text(selector, value) {

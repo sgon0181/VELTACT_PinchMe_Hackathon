@@ -104,6 +104,16 @@ describe("marketplace core routes", () => {
     assert.equal(submitted.body.response.supplierId, "supplier-automation-nsw");
     assert.equal(submitted.body.response.canHelp, true);
 
+    const duplicate = await postJson(`/api/supplier-invitations/${token}/responses`, {
+      canHelp: true,
+      earliestAvailability: "2026-07-29",
+      indicativePriceAud: 19000,
+      relevantExperience: "Accidental duplicate submission.",
+      conditions: "Should not create a second response."
+    });
+    assert.equal(duplicate.status, 201);
+    assert.deepEqual(duplicate.body.response, submitted.body.response);
+
     const responses = await getJson(`/api/needs/${created.body.need.id}/responses`);
 
     assert.equal(responses.status, 200);

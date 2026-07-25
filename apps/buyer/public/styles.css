@@ -497,6 +497,15 @@ dd {
   font-weight: 800;
 }
 
+.response-row.is-declined {
+  background: #f7f2ec;
+  color: var(--muted);
+}
+
+.response-row.is-declined small {
+  color: var(--warn);
+}
+
 .banner {
   display: flex;
   align-items: center;
@@ -520,6 +529,11 @@ dd {
 .is-success {
   background: #e7f4ec;
   color: var(--success);
+}
+
+.is-live {
+  background: #eaf5f7;
+  color: #185b65;
 }
 
 .spinner {

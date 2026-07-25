@@ -14,6 +14,7 @@ const socketWindow = window;
 let stage = "submit";
 let loadState = "idle";
 let errorMessage = "";
+let liveMessage = "";
 let priority = "speed";
 let selectedResponseId = "";
 let workspace;
@@ -102,6 +103,9 @@ function renderProgress() {
   `;
 }
 function renderStateBanner() {
+    if (liveMessage) {
+        return `<div class="banner is-live">${escapeHtml(liveMessage)}</div>`;
+    }
     if (loadState === "loading") {
         return `<div class="banner is-loading"><span class="spinner"></span>Updating RapidMatch workspace...</div>`;
     }
@@ -287,13 +291,16 @@ function renderResponseTable(data) {
       ${data.responses
         .map((response) => {
         const supplier = data.suppliers.find((item) => item.id === response.supplierId);
+        const canHelp = response.decision === "can_help";
         return `
-            <label class="response-row" role="row">
+            <label class="response-row ${canHelp ? "" : "is-declined"}" role="row">
               <span><strong>${escapeHtml(supplier?.companyName ?? response.supplierId)}</strong><small>${formatStatus(response.decision)}</small></span>
               <span>${escapeHtml(response.availability ?? "Not supplied")}</span>
               <span>${response.indicativePrice ? money(response.indicativePrice.amount, response.indicativePrice.currency) : "Not supplied"}</span>
               <span>${escapeHtml(response.relevantExperience ?? "Not supplied")}</span>
-              <span><input type="radio" name="supplierResponse" value="${response.id}" ${selectedResponseId === response.id ? "checked" : ""}></span>
+              <span>${canHelp
+            ? `<input type="radio" name="supplierResponse" value="${response.id}" ${selectedResponseId === response.id ? "checked" : ""}>`
+            : "Unavailable"}</span>
             </label>
           `;
     })
@@ -405,7 +412,7 @@ function bindEvents() {
             return;
         await run(async () => {
             workspace = await service.submitPriority(currentWorkspace.needProfile, priority);
-            selectedResponseId = workspace.responses[0]?.id ?? "";
+            selectedResponseId = firstHelpfulResponseId(workspace) ?? "";
             stage = "matches";
         });
     });
@@ -421,7 +428,7 @@ function bindEvents() {
             return;
         await run(async () => {
             workspace = await service.refreshWorkspace(currentWorkspace, priority);
-            selectedResponseId = workspace.responses[0]?.id ?? selectedResponseId;
+            selectedResponseId = firstHelpfulResponseId(workspace) ?? selectedResponseId;
             stage = "matches";
         });
     });
@@ -506,17 +513,17 @@ async function initialiseRealtimeSocket(needProfileId) {
     });
     realtimeSocket.on(rapidMatchSocketEvent.supplierResponseSubmitted, (payload) => {
         if (payload.needProfileId === workspace?.needProfile.id) {
-            void refreshLiveState({ forceRender: true });
+            void refreshLiveState({ forceRender: true, liveMessage: "Live supplier response received." });
         }
     });
     realtimeSocket.on(rapidMatchSocketEvent.paymentStatusUpdated, (payload) => {
         if (payload.needProfileId === workspace?.needProfile.id) {
-            void refreshLiveState({ forceRender: true });
+            void refreshLiveState({ forceRender: true, liveMessage: "Live payment status update received." });
         }
     });
     realtimeSocket.on(rapidMatchSocketEvent.engagementSecured, (payload) => {
         if (payload.needProfileId === workspace?.needProfile.id) {
-            void refreshLiveState({ forceRender: true });
+            void refreshLiveState({ forceRender: true, liveMessage: "Live secured engagement update received." });
         }
     });
     if (workspace?.needProfile.id === needProfileId) {
@@ -553,10 +560,14 @@ async function refreshLiveState(options = {}) {
         if (stage === "matches") {
             workspace = await service.refreshWorkspace(workspace, priority);
             if (!selectedResponseId && workspace.responses[0]) {
-                selectedResponseId = workspace.responses[0].id;
+                selectedResponseId = firstHelpfulResponseId(workspace) ?? "";
+            }
+            if (selectedResponseId && !workspace.responses.some((response) => response.id === selectedResponseId && response.decision === "can_help")) {
+                selectedResponseId = firstHelpfulResponseId(workspace) ?? "";
             }
             const nextResponseIds = workspace.responses.map((response) => response.id).join(",");
             if (options.forceRender || nextResponseIds !== previousResponseIds) {
+                showLiveMessage(options.liveMessage);
                 render();
             }
         }
@@ -566,6 +577,7 @@ async function refreshLiveState(options = {}) {
                 stage = "secured";
             }
             if (options.forceRender || workspace.engagement?.status !== previousEngagementStatus || stage === "secured") {
+                showLiveMessage(options.liveMessage);
                 render();
             }
         }
@@ -576,6 +588,18 @@ async function refreshLiveState(options = {}) {
     finally {
         isPolling = false;
     }
+}
+function showLiveMessage(message) {
+    if (!message) {
+        return;
+    }
+    liveMessage = message;
+    window.setTimeout(() => {
+        if (liveMessage === message) {
+            liveMessage = "";
+            render();
+        }
+    }, 2200);
 }
 async function run(action) {
     loadState = "loading";
@@ -649,6 +673,9 @@ function selectedSupplier(data) {
     const response = data.responses.find((item) => item.id === selectedResponseId);
     const supplier = data.suppliers.find((item) => item.id === response?.supplierId);
     return response && supplier ? { response, supplier } : undefined;
+}
+function firstHelpfulResponseId(data) {
+    return data.responses.find((response) => response.decision === "can_help")?.id;
 }
 function value(form, name) {
     return String(form.get(name) ?? "").trim();

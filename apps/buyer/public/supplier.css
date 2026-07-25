@@ -21,14 +21,16 @@ body {
 }
 
 .summary,
-.response-form {
+.response-form,
+.receipt {
   background: #ffffff;
   border: 1px solid #dbe2df;
   border-radius: 8px;
   padding: 20px;
 }
 
-.response-form {
+.response-form,
+.receipt {
   margin-top: 16px;
 }
 
@@ -53,6 +55,23 @@ h1 {
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
   margin: 20px 0;
+}
+
+.receipt h2 {
+  margin: 0 0 16px;
+  font-size: 1.7rem;
+}
+
+.receipt-grid {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.receipt-grid div {
+  border: 1px solid #e1e7e4;
+  border-radius: 6px;
+  padding: 10px;
 }
 
 .summary-grid div {

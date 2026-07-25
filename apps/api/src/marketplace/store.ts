@@ -79,6 +79,13 @@ export function submitSupplierResponse(
     return undefined;
   }
 
+  const existingResponse = [...responses.values()].find(
+    (response) => response.needId === invitation.needId && response.supplierId === invitation.supplierId
+  );
+  if (existingResponse) {
+    return existingResponse;
+  }
+
   const submittedAt = new Date().toISOString();
   const response: SupplierResponse = {
     id: randomUUID(),
