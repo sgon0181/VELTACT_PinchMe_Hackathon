@@ -293,15 +293,19 @@ marketplaceRouter.post("/engagements/:engagementId/payment-link", async (request
   }
 
   try {
+    const returnUrl = new URL(env.PINCH_RETURN_URL);
+    returnUrl.pathname = `/api/pinch/return/${engagement.id}`;
+    returnUrl.search = "";
+    returnUrl.hash = "";
     const paymentLink = await getPaymentProvider().createHostedPaymentLink({
       engagementId: engagement.id,
       needId: engagement.needId,
       supplierId: engagement.supplierId,
       buyerEmail: need.buyerEmail,
       buyerName: need.profile.title,
-      amount: need.profile.budgetAud ?? 1000,
+      amount: (need.profile.budgetAud ?? 1000) * 100,
       description: `Veltact engagement ${engagement.id}`,
-      returnUrl: new URL(`/api/pinch/return/${engagement.id}`, env.API_PUBLIC_URL).toString()
+      returnUrl: returnUrl.toString()
     });
 
     const updatedEngagement = attachPaymentLinkToEngagement({

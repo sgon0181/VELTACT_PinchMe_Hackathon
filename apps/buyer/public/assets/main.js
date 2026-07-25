@@ -597,22 +597,25 @@ function bindEvents() {
             const structured = result.generatedProfile;
             aiIntakeResult = result;
             const formData = new FormData(form);
+            const existingBudgetRange = value(formData, "budgetRange");
             intakeDraft = {
                 companyName: value(formData, "companyName") || demoInput.companyName,
                 contactName: value(formData, "contactName") || demoInput.contactName,
                 contactEmail: value(formData, "contactEmail") || demoInput.contactEmail,
                 title: structured.title,
                 description: structured.problemSummary,
-                category: structured.category,
-                equipmentOrTechnology: structured.equipmentOrTechnology,
-                requiredCapabilities: structured.requiredCapabilities,
-                location: structured.location ?? "",
-                requiredBy: structured.urgency ?? "",
-                budgetRange: structured.budgetRange ?? "",
-                budgetAmount: parseBudgetAmount(structured.budgetRange ?? ""),
-                constraints: structured.certificationsOrConstraints
+                category: structured.category || value(formData, "category"),
+                equipmentOrTechnology: mergeFieldValues(csvValues(formData, "equipmentOrTechnology"), structured.equipmentOrTechnology),
+                requiredCapabilities: mergeFieldValues(csvValues(formData, "requiredCapabilities"), structured.requiredCapabilities),
+                location: structured.location ?? value(formData, "location"),
+                requiredBy: structured.urgency ??
+                    value(formData, "requiredBy") ??
+                    value(formData, "urgencySignal"),
+                budgetRange: structured.budgetRange ?? existingBudgetRange,
+                budgetAmount: parseBudgetAmount(structured.budgetRange ?? existingBudgetRange),
+                constraints: mergeFieldValues(csvValues(formData, "constraints"), structured.certificationsOrConstraints)
             };
-            intakeUrgencySignal = structured.urgency ?? "";
+            intakeUrgencySignal = structured.urgency ?? value(formData, "urgencySignal");
             priority = structured.buyerPriority ?? "speed";
             structuredDraftMessage = "Requirement structured into a supplier-ready draft. Review missing fields before matching.";
         });
@@ -625,15 +628,16 @@ function bindEvents() {
         if (!form)
             return;
         const structured = aiIntakeResult.generatedProfile;
+        const current = new FormData(form);
         setFormValue(form, "description", structured.problemSummary);
-        setFormValue(form, "category", structured.category);
-        setFormValue(form, "equipmentOrTechnology", structured.equipmentOrTechnology.join(", "));
-        setFormValue(form, "requiredCapabilities", structured.requiredCapabilities.join(", "));
-        setFormValue(form, "location", structured.location ?? "");
-        setFormValue(form, "urgencySignal", structured.urgency ?? "");
-        setFormValue(form, "requiredBy", structured.urgency ?? "");
-        setFormValue(form, "budgetRange", structured.budgetRange ?? "");
-        setFormValue(form, "constraints", structured.certificationsOrConstraints.join(", "));
+        setFormValue(form, "category", structured.category || value(current, "category"));
+        setFormValue(form, "equipmentOrTechnology", mergeFieldValues(csvValues(current, "equipmentOrTechnology"), structured.equipmentOrTechnology).join(", "));
+        setFormValue(form, "requiredCapabilities", mergeFieldValues(csvValues(current, "requiredCapabilities"), structured.requiredCapabilities).join(", "));
+        setFormValue(form, "location", structured.location ?? value(current, "location"));
+        setFormValue(form, "urgencySignal", structured.urgency ?? value(current, "urgencySignal"));
+        setFormValue(form, "requiredBy", structured.urgency ?? value(current, "requiredBy"));
+        setFormValue(form, "budgetRange", structured.budgetRange ?? value(current, "budgetRange"));
+        setFormValue(form, "constraints", mergeFieldValues(csvValues(current, "constraints"), structured.certificationsOrConstraints).join(", "));
         priority = structured.buyerPriority ?? priority;
         syncIntakeDraftFromForm();
         structuredDraftMessage = "Structured draft applied. Manual editing remains available.";
@@ -1180,6 +1184,16 @@ function csvValues(form, name) {
         .split(",")
         .map((item) => item.trim())
         .filter(Boolean);
+}
+function mergeFieldValues(existing, structured) {
+    const seen = new Set();
+    return [...existing, ...structured].filter((item) => {
+        const key = item.trim().toLowerCase();
+        if (!key || seen.has(key))
+            return false;
+        seen.add(key);
+        return true;
+    });
 }
 function parseBudgetAmount(valueText) {
     const match = valueText.match(/(\d[\d,]*)/);

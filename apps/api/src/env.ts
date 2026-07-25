@@ -12,7 +12,7 @@ dotenv.config({
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
-  WEB_ORIGIN: z.string().url().default("http://localhost:5173"),
+  WEB_ORIGIN: z.string().url().default("http://localhost:4000"),
   API_PUBLIC_URL: z.string().url().optional(),
   EMAIL_PROVIDER: z.enum(["local_demo", "resend", "sendgrid"]).default("local_demo"),
   EMAIL_FROM: z.string().trim().min(1).optional(),
@@ -46,5 +46,5 @@ export const env = {
   ...parsedEnv,
   API_PUBLIC_URL: parsedEnv.API_PUBLIC_URL ?? `http://localhost:${parsedEnv.PORT}`,
   PINCH_RETURN_URL:
-    parsedEnv.PINCH_RETURN_URL ?? new URL("/pinch/return", parsedEnv.WEB_ORIGIN).toString()
+    parsedEnv.PINCH_RETURN_URL ?? new URL("/api/pinch/return", parsedEnv.WEB_ORIGIN).toString()
 };

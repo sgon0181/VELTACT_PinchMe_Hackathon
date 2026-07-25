@@ -21,13 +21,13 @@ Fill `apps/api/.env` with Pinch test credentials from the Pinch developer portal
 ```bash
 NODE_ENV=development
 PORT=4000
-WEB_ORIGIN=http://localhost:5173
+WEB_ORIGIN=http://localhost:4000
 PINCH_CLIENT_ID=your-pinch-test-client-id
 PINCH_SECRET_KEY=your-pinch-test-secret-key
 PINCH_AUTH_URL=https://auth.getpinch.com.au/connect/token
 PINCH_API_BASE_URL=https://api.getpinch.com.au/test
 PINCH_API_VERSION=2020.1
-PINCH_RETURN_URL=http://localhost:5173/pinch/return
+PINCH_RETURN_URL=http://localhost:4000/api/pinch/return
 PINCH_WEBHOOK_SECRET=whsec_replace_with_pinch_webhook_secret
 ```
 

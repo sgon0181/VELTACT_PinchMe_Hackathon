@@ -30,6 +30,8 @@ beforeEach(async () => {
   process.env.PINCH_WEBHOOK_SECRET = "whsec_test_secret";
   setPaymentProviderForTest({
     async createHostedPaymentLink(input) {
+      assert.equal(input.amount, 2_000_000);
+      assert.match(input.returnUrl, new RegExp(`/api/pinch/return/${input.engagementId}$`));
       return {
         provider: "pinch",
         payerId: `pyr_${input.engagementId}`,
