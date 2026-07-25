@@ -100,7 +100,7 @@ pinchRouter.get("/return/:engagementId?", (request, response) => {
     <main>
       <h1>Payment awaiting confirmation</h1>
       <p>Pinch redirected you back to Veltact. This page does not confirm payment success.</p>
-      <p>We will update the engagement after Veltact receives a verified Pinch payment event.</p>
+      <p>Return to Veltact and refresh the payment status. The engagement is secured only after the backend verifies payment with Pinch.</p>
     </main>
   </body>
 </html>`);
