@@ -7,6 +7,8 @@ let errorMessage = "";
 let priority = "speed";
 let selectedResponseId = "";
 let workspace;
+let pollHandle;
+let isPolling = false;
 const defaultInput = {
     companyName: "",
     contactName: "",
@@ -48,6 +50,7 @@ function render() {
     </section>
   `;
     bindEvents();
+    configurePolling();
 }
 function renderStatusPanel() {
     const engagement = workspace?.engagement;
@@ -302,18 +305,21 @@ function renderSelection(data) {
   `;
 }
 function renderPayment(data) {
+    const checkoutUrl = data.hostedCheckoutUrl ?? data.engagement?.hostedCheckoutUrl;
     return `
     <section class="panel payment-panel">
       <p class="eyebrow">Step 8</p>
       <h2>Awaiting payment</h2>
-      <p>The API payment-link route would redirect the buyer to Pinch sandbox. This fixture keeps the browser behind the same service boundary.</p>
-      <a class="checkout-link" href="${data.hostedCheckoutUrl}" target="_blank" rel="noreferrer">Open hosted checkout</a>
+      <p>Veltact created a Pinch-hosted payment link through the API. The supplier is secured only after the backend receives verified payment evidence.</p>
+      ${checkoutUrl
+        ? `<a class="checkout-link" href="${escapeHtml(checkoutUrl)}" target="_blank" rel="noreferrer">Open Pinch hosted checkout</a>`
+        : renderEmpty("Payment link unavailable", "Try creating the payment link again.")}
       <dl class="profile-list">
         ${detail("Engagement status", data.engagement?.status ?? "payment_link_created")}
         ${detail("Payment status", data.engagement?.paymentStatus ?? "link_created")}
       </dl>
       <div class="actions">
-        <button id="secured-button" class="primary" type="button">Simulate Verified Webhook State</button>
+        <button id="payment-status-button" class="primary" type="button">Refresh Payment Status</button>
       </div>
     </section>
   `;
@@ -423,15 +429,63 @@ function bindEvents() {
             stage = "payment";
         });
     });
-    document.querySelector("#secured-button")?.addEventListener("click", async () => {
+    document.querySelector("#payment-status-button")?.addEventListener("click", async () => {
         const currentWorkspace = workspace;
         if (!currentWorkspace)
             return;
         await run(async () => {
-            workspace = await service.confirmSupplierSecured(currentWorkspace);
-            stage = "secured";
+            workspace = await service.refreshEngagement(currentWorkspace);
+            stage = workspace.engagement?.status === "supplier_secured" ? "secured" : "payment";
         });
     });
+}
+function configurePolling() {
+    const shouldPoll = workspace && (stage === "matches" || stage === "payment");
+    if (!shouldPoll && pollHandle !== undefined) {
+        window.clearInterval(pollHandle);
+        pollHandle = undefined;
+        return;
+    }
+    if (shouldPoll && pollHandle === undefined) {
+        pollHandle = window.setInterval(() => {
+            void refreshLiveState();
+        }, stage === "payment" ? 3000 : 5000);
+    }
+}
+async function refreshLiveState() {
+    if (!workspace || isPolling || loadState === "loading") {
+        return;
+    }
+    isPolling = true;
+    try {
+        const previousResponseIds = workspace.responses.map((response) => response.id).join(",");
+        const previousEngagementStatus = workspace.engagement?.status;
+        if (stage === "matches") {
+            workspace = await service.refreshWorkspace(workspace, priority);
+            if (!selectedResponseId && workspace.responses[0]) {
+                selectedResponseId = workspace.responses[0].id;
+            }
+            const nextResponseIds = workspace.responses.map((response) => response.id).join(",");
+            if (nextResponseIds !== previousResponseIds) {
+                render();
+            }
+        }
+        if (stage === "payment") {
+            workspace = await service.refreshEngagement(workspace);
+            if (workspace.engagement?.status === "supplier_secured") {
+                stage = "secured";
+            }
+            if (workspace.engagement?.status !== previousEngagementStatus || stage === "secured") {
+                render();
+            }
+        }
+    }
+    catch {
+        // Manual refresh keeps user-facing errors explicit; polling should not interrupt the demo flow.
+    }
+    finally {
+        isPolling = false;
+    }
 }
 async function run(action) {
     loadState = "loading";

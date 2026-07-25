@@ -5,7 +5,7 @@ import { pinchClient, PinchApiError } from "./pinchClient.js";
 import { verifyPinchWebhookSignature, PinchWebhookError } from "./webhookVerifier.js";
 import { listWebhookEvents, recordWebhookEvent } from "./webhookStore.js";
 import { recordAuthoritativePinchPayment } from "../marketplace/store.js";
-import { emitPaymentStatusUpdated } from "../realtime.js";
+import { emitEngagementSecured, emitPaymentStatusUpdated } from "../realtime.js";
 
 export const pinchRouter = Router();
 
@@ -126,6 +126,9 @@ pinchRouter.post("/webhooks", (request, response) => {
 
       if (result.engagement && !result.duplicate) {
         emitPaymentStatusUpdated(result.engagement);
+        if (result.engagement.status === "supplier_secured") {
+          emitEngagementSecured(result.engagement);
+        }
       }
     }
 

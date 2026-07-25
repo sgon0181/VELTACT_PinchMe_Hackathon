@@ -1,5 +1,6 @@
-const API_BASE = "http://localhost:4000/api";
-const FRONTEND_BASE = "http://localhost:5173";
+const runtimeWindow = window;
+const API_BASE = runtimeWindow.API_BASE_URL ?? "http://localhost:4000/api";
+const FRONTEND_BASE = runtimeWindow.FRONTEND_BASE_URL ?? window.location.origin;
 export class RapidMatchService {
     apiNeeds = new Map();
     async createNeedProfile(input) {
@@ -35,10 +36,13 @@ export class RapidMatchService {
     async refreshWorkspace(workspace, priority) {
         const need = await this.loadNeed(workspace.needProfile.id);
         const responses = await this.loadResponses(need.id);
+        const engagement = workspace.engagement
+            ? await this.loadEngagement(workspace.engagement.id)
+            : undefined;
         return {
             ...this.toWorkspace(need, workspace.needProfile, priority, responses),
-            engagement: workspace.engagement,
-            hostedCheckoutUrl: workspace.hostedCheckoutUrl
+            engagement,
+            hostedCheckoutUrl: engagement?.hostedCheckoutUrl ?? workspace.hostedCheckoutUrl
         };
     }
     async selectSupplier(workspace, supplierResponseId) {
@@ -63,7 +67,11 @@ export class RapidMatchService {
         const engagement = mapEngagement(payload.engagement);
         return {
             ...workspace,
-            needProfile: { ...workspace.needProfile, status: "payment_pending", updatedAt: engagement.updatedAt },
+            needProfile: {
+                ...workspace.needProfile,
+                status: engagement.status === "supplier_secured" ? "secured" : "payment_pending",
+                updatedAt: engagement.updatedAt
+            },
             engagement,
             hostedCheckoutUrl: payload.hostedCheckoutUrl ?? engagement.hostedCheckoutUrl
         };
@@ -72,8 +80,7 @@ export class RapidMatchService {
         if (!workspace.engagement) {
             throw new Error("Payment cannot be confirmed without an engagement.");
         }
-        const payload = await requestJson(`/engagements/${encodeURIComponent(workspace.engagement.id)}`, { method: "GET" });
-        const engagement = mapEngagement(payload.engagement);
+        const engagement = await this.loadEngagement(workspace.engagement.id);
         return {
             ...workspace,
             needProfile: {
@@ -84,6 +91,9 @@ export class RapidMatchService {
             engagement
         };
     }
+    async refreshEngagement(workspace) {
+        return this.confirmSupplierSecured(workspace);
+    }
     async loadNeed(needId) {
         const payload = await requestJson(`/need-profiles/${encodeURIComponent(needId)}`, { method: "GET" });
         this.apiNeeds.set(payload.needProfile.id, payload.needProfile);
@@ -92,6 +102,10 @@ export class RapidMatchService {
     async loadResponses(needId) {
         const payload = await requestJson(`/need-profiles/${encodeURIComponent(needId)}/responses`, { method: "GET" });
         return payload.supplierResponses ?? payload.responses ?? [];
+    }
+    async loadEngagement(engagementId) {
+        const payload = await requestJson(`/engagements/${encodeURIComponent(engagementId)}`, { method: "GET" });
+        return mapEngagement(payload.engagement);
     }
     toWorkspace(need, needProfile, priority, responses) {
         const suppliers = mapSuppliers(need);

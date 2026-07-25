@@ -48,6 +48,15 @@ export function emitPaymentStatusUpdated(engagement: Engagement) {
   });
 }
 
+export function emitEngagementSecured(engagement: Engagement) {
+  io?.to(needProfileRoom(engagement.needId)).emit(rapidMatchSocketEvent.engagementSecured, {
+    needProfileId: engagement.needId,
+    engagementId: engagement.id,
+    paymentStatus: engagement.paymentStatus,
+    engagement
+  });
+}
+
 function needProfileRoom(needProfileId: string) {
   return `need-profile:${needProfileId}`;
 }

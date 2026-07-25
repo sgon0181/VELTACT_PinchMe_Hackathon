@@ -8,8 +8,12 @@ import type {
 } from "@veltact/contracts";
 import type { BuyerRequirementInput, BuyerWorkspace, PrioritySignal, SupplierMatchView } from "./types";
 
-const API_BASE = "http://localhost:4000/api";
-const FRONTEND_BASE = "http://localhost:5173";
+const runtimeWindow = window as Window & {
+  API_BASE_URL?: string;
+  FRONTEND_BASE_URL?: string;
+};
+const API_BASE = runtimeWindow.API_BASE_URL ?? "http://localhost:4000/api";
+const FRONTEND_BASE = runtimeWindow.FRONTEND_BASE_URL ?? window.location.origin;
 
 type ApiNeedProfile = {
   title: string;
@@ -135,10 +139,13 @@ export class RapidMatchService {
   async refreshWorkspace(workspace: BuyerWorkspace, priority: PrioritySignal): Promise<BuyerWorkspace> {
     const need = await this.loadNeed(workspace.needProfile.id);
     const responses = await this.loadResponses(need.id);
+    const engagement = workspace.engagement
+      ? await this.loadEngagement(workspace.engagement.id)
+      : undefined;
     return {
       ...this.toWorkspace(need, workspace.needProfile, priority, responses),
-      engagement: workspace.engagement,
-      hostedCheckoutUrl: workspace.hostedCheckoutUrl
+      engagement,
+      hostedCheckoutUrl: engagement?.hostedCheckoutUrl ?? workspace.hostedCheckoutUrl
     };
   }
 
@@ -174,7 +181,11 @@ export class RapidMatchService {
 
     return {
       ...workspace,
-      needProfile: { ...workspace.needProfile, status: "payment_pending", updatedAt: engagement.updatedAt },
+      needProfile: {
+        ...workspace.needProfile,
+        status: engagement.status === "supplier_secured" ? "secured" : "payment_pending",
+        updatedAt: engagement.updatedAt
+      },
       engagement,
       hostedCheckoutUrl: payload.hostedCheckoutUrl ?? engagement.hostedCheckoutUrl
     };
@@ -185,11 +196,7 @@ export class RapidMatchService {
       throw new Error("Payment cannot be confirmed without an engagement.");
     }
 
-    const payload = await requestJson<ApiEngagementResponse>(
-      `/engagements/${encodeURIComponent(workspace.engagement.id)}`,
-      { method: "GET" }
-    );
-    const engagement = mapEngagement(payload.engagement);
+    const engagement = await this.loadEngagement(workspace.engagement.id);
 
     return {
       ...workspace,
@@ -200,6 +207,10 @@ export class RapidMatchService {
       },
       engagement
     };
+  }
+
+  async refreshEngagement(workspace: BuyerWorkspace): Promise<BuyerWorkspace> {
+    return this.confirmSupplierSecured(workspace);
   }
 
   private async loadNeed(needId: string) {
@@ -217,6 +228,14 @@ export class RapidMatchService {
       { method: "GET" }
     );
     return payload.supplierResponses ?? payload.responses ?? [];
+  }
+
+  private async loadEngagement(engagementId: string) {
+    const payload = await requestJson<ApiEngagementResponse>(
+      `/engagements/${encodeURIComponent(engagementId)}`,
+      { method: "GET" }
+    );
+    return mapEngagement(payload.engagement);
   }
 
   private toWorkspace(
