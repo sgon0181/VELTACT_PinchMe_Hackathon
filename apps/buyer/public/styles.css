@@ -48,6 +48,11 @@ textarea {
   margin-bottom: 18px;
 }
 
+.hero-intake {
+  grid-template-columns: minmax(0, 880px);
+  margin-bottom: 24px;
+}
+
 .hero h1,
 .panel h2 {
   margin: 0;
@@ -160,6 +165,87 @@ textarea {
   gap: 16px;
 }
 
+.intake-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  padding: 30px;
+}
+
+.requirement-field {
+  min-height: 260px;
+}
+
+.requirement-field span,
+.priority-section > span,
+.secondary-heading span {
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.requirement-field textarea {
+  min-height: 220px;
+  border-color: rgba(31, 122, 90, 0.32);
+  background: linear-gradient(180deg, #ffffff, #fbfcfa);
+  font-size: 1.05rem;
+  line-height: 1.55;
+}
+
+.primary-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(180px, 0.8fr) minmax(160px, 0.65fr);
+  gap: 14px;
+}
+
+.priority-section,
+.secondary-fields {
+  display: grid;
+  gap: 12px;
+}
+
+.priority-grid-compact {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.priority-grid-compact .priority-card {
+  min-height: 96px;
+}
+
+.secondary-fields {
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.secondary-heading {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.secondary-fields .field span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.secondary-fields input {
+  background: rgba(251, 252, 250, 0.72);
+}
+
+.secondary-action {
+  min-height: 36px;
+  border: 1px solid rgba(31, 122, 90, 0.28);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #eef7f1;
+  color: var(--accent-strong);
+  cursor: pointer;
+  font-weight: 800;
+}
+
 .field,
 .stack {
   display: grid;
@@ -212,6 +298,13 @@ textarea {
 .primary:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
 }
 
 .split {
@@ -347,6 +440,19 @@ dd {
   color: var(--muted);
 }
 
+.supplier-link {
+  display: inline-flex;
+  margin-top: 6px;
+  color: var(--accent-strong);
+  font-size: 0.88rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.supplier-link:hover {
+  text-decoration: underline;
+}
+
 .activity-dot {
   width: 12px;
   height: 12px;
@@ -468,9 +574,12 @@ dd {
   }
 
   .hero,
+  .hero-intake,
   .grid-two,
   .split,
-  .form-grid {
+  .form-grid,
+  .primary-fields,
+  .secondary-fields {
     grid-template-columns: 1fr;
   }
 
@@ -492,4 +601,3 @@ dd {
     padding: 18px;
   }
 }
-

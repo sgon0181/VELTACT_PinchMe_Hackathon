@@ -15,6 +15,18 @@ let selectedResponseId = "";
 let workspace: BuyerWorkspace | undefined;
 
 const defaultInput: BuyerRequirementInput = {
+  companyName: "",
+  contactName: "",
+  contactEmail: "",
+  title: "",
+  description: "",
+  category: "",
+  location: "",
+  requiredBy: "",
+  budgetAmount: 0
+};
+
+const demoInput: BuyerRequirementInput = {
   companyName: "HarbourPack Manufacturing",
   contactName: "Elena Morris",
   contactEmail: "elena.morris@harbourpack.example",
@@ -30,13 +42,13 @@ const defaultInput: BuyerRequirementInput = {
 function render() {
   if (!app) return;
   app.innerHTML = `
-    <section class="hero">
+    <section class="hero ${workspace ? "" : "hero-intake"}">
       <div>
-        <p class="eyebrow">Veltact RapidMatch</p>
-        <h1>Buyer workflow</h1>
-        <p class="hero-copy">Submit an industrial need, compare explainable supplier responses and secure the selected supplier through the payment step.</p>
+        <p class="eyebrow">Veltact</p>
+        <h1>Describe what you need. The right industrial suppliers respond.</h1>
+        <p class="hero-copy">Submit one requirement and receive comparable responses from relevant, available providers.</p>
       </div>
-      ${renderStatusPanel()}
+      ${workspace ? renderStatusPanel() : ""}
     </section>
     ${renderProgress()}
     ${renderStateBanner()}
@@ -111,25 +123,44 @@ function renderCurrentStage() {
 
 function renderSubmit() {
   return `
-    <form id="requirement-form" class="panel form-grid">
+    <form id="requirement-form" class="panel intake-form">
       <div class="panel-heading">
         <p class="eyebrow">Step 1</p>
-        <h2>Submit an industrial requirement</h2>
+        <h2>Start a supplier response brief</h2>
+        <p class="muted">Focus on the operational problem, site constraints and what a qualified provider needs to know before responding.</p>
       </div>
-      ${field("companyName", "Company", defaultInput.companyName)}
-      ${field("contactName", "Contact", defaultInput.contactName)}
-      ${field("contactEmail", "Email", defaultInput.contactEmail, "email")}
-      ${field("title", "Requirement title", defaultInput.title)}
-      <label class="field field-wide">
-        <span>Description</span>
-        <textarea name="description" rows="5">${escapeHtml(defaultInput.description)}</textarea>
+      <label class="field requirement-field">
+        <span>Requirement</span>
+        <textarea name="description" rows="8" placeholder="Describe the equipment, failure or service need, operating environment, access constraints and what outcome you need.">${escapeHtml(defaultInput.description)}</textarea>
       </label>
-      ${field("category", "Category", defaultInput.category)}
-      ${field("location", "Location", defaultInput.location)}
-      ${field("requiredBy", "Required by", defaultInput.requiredBy)}
-      ${field("budgetAmount", "Budget AUD", String(defaultInput.budgetAmount), "number")}
+      <div class="primary-fields">
+        ${field("location", "Location", defaultInput.location, "text", "Site, region or service area")}
+        ${basicField("urgencySignal", "Urgency", "", "text", "Immediate, this week, planned")}
+        ${field("budgetAmount", "Budget", defaultInput.budgetAmount ? String(defaultInput.budgetAmount) : "", "number", "Indicative AUD")}
+      </div>
+      <section class="priority-section">
+        <span>Buyer priority</span>
+        <div class="priority-grid priority-grid-compact">
+          ${priorityButton("speed", "Speed", "Fastest response and onsite availability")}
+          ${priorityButton("technical_fit", "Technical fit", "Closest capability match")}
+          ${priorityButton("quality", "Quality", "Depth of relevant evidence")}
+          ${priorityButton("trust", "Trust", "Verification and response confidence")}
+          ${priorityButton("price", "Price", "Best value submitted")}
+        </div>
+      </section>
+      <section class="secondary-fields">
+        <div class="secondary-heading">
+          <span>Buyer details</span>
+          <button id="demo-fill-button" class="secondary-action" type="button">Use demo data</button>
+        </div>
+        ${field("companyName", "Company", defaultInput.companyName, "text", "Company name")}
+        ${field("contactName", "Contact", defaultInput.contactName, "text", "Primary contact")}
+        ${field("contactEmail", "Email", defaultInput.contactEmail, "email", "buyer@example.com")}
+        ${field("category", "Category", defaultInput.category, "text", "Industrial automation, fabrication, maintenance")}
+        ${field("requiredBy", "Required date", defaultInput.requiredBy, "text", "Today, 25 July, next shutdown window")}
+      </section>
       <div class="actions field-wide">
-        <button class="primary" type="submit">Generate Need Profile</button>
+        <button class="primary" type="submit">Find matching suppliers</button>
       </div>
     </form>
   `;
@@ -201,6 +232,7 @@ function renderMatches(data: BuyerWorkspace) {
       </div>
       ${data.responses.length ? renderResponseTable(data) : renderEmpty("No responses yet", "Supplier invitations have been sent. Responses will appear here.")}
       <div class="actions">
+        <button id="refresh-responses-button" class="secondary-action" type="button">Refresh supplier responses</button>
         <button id="select-button" class="primary" type="button" ${selectedResponseId ? "" : "disabled"}>Select Supplier</button>
       </div>
     </section>
@@ -234,6 +266,7 @@ function renderActivity(data: BuyerWorkspace) {
               <div>
                 <strong>${escapeHtml(supplier?.companyName ?? invitation.supplierId)}</strong>
                 <p>${formatStatus(invitation.status)}${response ? ` - response submitted ${formatTime(response.submittedAt)}` : " - awaiting supplier response"}</p>
+                <a class="supplier-link" href="${escapeHtml(invitation.responseUrl)}" target="_blank" rel="noreferrer">Open supplier link</a>
               </div>
             </li>
           `;
@@ -325,19 +358,38 @@ function bindEvents() {
     event.preventDefault();
     const form = new FormData(event.currentTarget as HTMLFormElement);
     await run(async () => {
+      const description = value(form, "description");
       const needProfile = await service.createNeedProfile({
         companyName: value(form, "companyName"),
         contactName: value(form, "contactName"),
         contactEmail: value(form, "contactEmail"),
-        title: value(form, "title"),
-        description: value(form, "description"),
+        title: titleFromRequirement(description),
+        description,
         category: value(form, "category"),
         location: value(form, "location"),
-        requiredBy: value(form, "requiredBy"),
+        requiredBy: value(form, "requiredBy") || value(form, "urgencySignal"),
         budgetAmount: Number(value(form, "budgetAmount"))
       });
       workspace = { needProfile, suppliers: [], matches: [], invitations: [], responses: [] };
       stage = "profile";
+    });
+  });
+
+  document.querySelector<HTMLButtonElement>("#demo-fill-button")?.addEventListener("click", () => {
+    const form = document.querySelector<HTMLFormElement>("#requirement-form");
+    if (!form) return;
+    setFormValue(form, "companyName", demoInput.companyName);
+    setFormValue(form, "contactName", demoInput.contactName);
+    setFormValue(form, "contactEmail", demoInput.contactEmail);
+    setFormValue(form, "description", demoInput.description);
+    setFormValue(form, "category", demoInput.category);
+    setFormValue(form, "location", demoInput.location);
+    setFormValue(form, "urgencySignal", "Immediate production impact");
+    setFormValue(form, "requiredBy", demoInput.requiredBy);
+    setFormValue(form, "budgetAmount", String(demoInput.budgetAmount));
+    priority = "speed";
+    document.querySelectorAll<HTMLButtonElement>("[data-priority]").forEach((button) => {
+      button.classList.toggle("is-selected", button.dataset.priority === priority);
     });
   });
 
@@ -362,6 +414,16 @@ function bindEvents() {
     input.addEventListener("change", () => {
       selectedResponseId = input.value;
       render();
+    });
+  });
+
+  document.querySelector<HTMLButtonElement>("#refresh-responses-button")?.addEventListener("click", async () => {
+    const currentWorkspace = workspace;
+    if (!currentWorkspace) return;
+    await run(async () => {
+      workspace = await service.refreshWorkspace(currentWorkspace, priority);
+      selectedResponseId = workspace.responses[0]?.id ?? selectedResponseId;
+      stage = "matches";
     });
   });
 
@@ -413,13 +475,38 @@ async function run(action: () => Promise<void>) {
   }
 }
 
-function field(name: keyof BuyerRequirementInput, label: string, valueText: string, type = "text") {
+function field(
+  name: keyof BuyerRequirementInput,
+  label: string,
+  valueText: string,
+  type = "text",
+  placeholder = ""
+) {
+  return basicField(name, label, valueText, type, placeholder);
+}
+
+function basicField(name: string, label: string, valueText: string, type = "text", placeholder = "") {
   return `
     <label class="field">
       <span>${label}</span>
-      <input name="${name}" type="${type}" value="${escapeHtml(valueText)}" />
+      <input name="${name}" type="${type}" value="${escapeHtml(valueText)}" placeholder="${escapeHtml(placeholder)}" />
     </label>
   `;
+}
+
+function setFormValue(form: HTMLFormElement, name: string, valueText: string) {
+  const fieldElement = form.elements.namedItem(name);
+  if (fieldElement instanceof HTMLInputElement || fieldElement instanceof HTMLTextAreaElement) {
+    fieldElement.value = valueText;
+  }
+}
+
+function titleFromRequirement(description: string) {
+  const firstSentence = description.split(/[.!?]/)[0]?.trim();
+  if (firstSentence) {
+    return firstSentence.slice(0, 90);
+  }
+  return "Industrial supplier requirement";
 }
 
 function priorityButton(valueText: PrioritySignal, label: string, description: string) {
