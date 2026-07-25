@@ -71,9 +71,16 @@ function render() {
     if (!app)
         return;
     app.innerHTML = `
+    <header class="product-header">
+      <a class="product-wordmark" href="./landing.html" aria-label="Veltact home">
+        <span class="product-wordmark-notch" aria-hidden="true"></span>
+        <span>Veltact</span>
+      </a>
+      <p class="product-context">RapidMatch / Buyer workspace</p>
+    </header>
     <section class="hero ${workspace ? "" : "hero-intake"}">
       <div>
-        <p class="eyebrow">Veltact</p>
+        <p class="eyebrow">Industrial supplier response</p>
         <h1>Describe what you need. The right industrial suppliers respond.</h1>
         <p class="hero-copy">Submit one requirement and receive comparable responses from relevant, available providers.</p>
       </div>
@@ -158,7 +165,7 @@ function renderSubmit() {
     return `
     <form id="requirement-form" class="panel intake-form">
       <div class="panel-heading">
-        <p class="eyebrow">Step 1</p>
+        <p class="eyebrow">Buyer intake</p>
         <h2>AI-assisted intake</h2>
         <p class="muted">Paste messy factory context, structure it into a supplier-ready requirement, then review or edit every field manually before matching.</p>
       </div>
@@ -292,7 +299,7 @@ function renderProfile(data) {
     return `
     <section class="panel split">
       <div>
-        <p class="eyebrow">Step 2</p>
+        <p class="eyebrow">Need Profile</p>
         <h2>Review structured Need Profile</h2>
         <p class="muted">${escapeHtml(profile.description)}</p>
         <dl class="profile-list">
@@ -311,7 +318,7 @@ function renderProfile(data) {
     </section>
     <section class="panel">
       <div class="panel-heading">
-        <p class="eyebrow">Step 3</p>
+        <p class="eyebrow">Matching priority</p>
         <h2>Select matching priority</h2>
       </div>
       <div class="priority-grid">
@@ -334,14 +341,14 @@ function renderMatches(data) {
     <section class="grid-two">
       <div class="panel">
         <div class="panel-heading">
-          <p class="eyebrow">Step 4</p>
+          <p class="eyebrow">Explainable match</p>
           <h2>Explainable supplier matches</h2>
         </div>
         <div class="card-list">${data.matches.map(renderMatchCard).join("")}</div>
       </div>
       <div class="panel">
         <div class="panel-heading">
-          <p class="eyebrow">Step 5</p>
+          <p class="eyebrow">Supplier response</p>
           <h2>Invitation and response activity</h2>
           <p class="muted">Each supplier responds from their own secure opportunity link. Open one in another tab or copy it to a second device for the recorded demo.</p>
         </div>
@@ -350,7 +357,7 @@ function renderMatches(data) {
     </section>
     <section class="panel">
       <div class="panel-heading">
-        <p class="eyebrow">Step 6</p>
+        <p class="eyebrow">Response comparison</p>
         <h2>Compare standardised supplier responses</h2>
         <p class="muted">Pick the response that best matches the buyer priority. Unavailable suppliers stay visible so coverage is honest.</p>
       </div>
@@ -489,7 +496,7 @@ function renderSelection(data) {
     const selected = selectedSupplier(data);
     return `
     <section class="panel success-panel">
-      <p class="eyebrow">Step 7</p>
+      <p class="eyebrow">Supplier selection</p>
       <h2>Supplier selected</h2>
       <p>${escapeHtml(selected?.supplier.companyName ?? "Selected supplier")} is ready for engagement creation. Payment has not started.</p>
       <dl class="profile-list">
@@ -506,7 +513,7 @@ function renderPayment(data) {
     const checkoutUrl = data.hostedCheckoutUrl ?? data.engagement?.hostedCheckoutUrl;
     return `
     <section class="panel payment-panel">
-      <p class="eyebrow">Step 8</p>
+      <p class="eyebrow">Pinch payment</p>
       <h2>Awaiting payment</h2>
       <p>Veltact created a Pinch-hosted payment link through the API. The supplier is secured only after the backend verifies payment with Pinch.</p>
       ${checkoutUrl
@@ -528,7 +535,7 @@ function renderSecured(data) {
     const isDemoPayment = data.engagement?.pinchPaymentId?.startsWith("demo_");
     return `
     <section class="panel secured-panel">
-      <p class="eyebrow">Step 9</p>
+      <p class="eyebrow">Verified engagement</p>
       <h2>Supplier secured</h2>
       <p>${escapeHtml(selected?.supplier.companyName ?? "The supplier")} is secured after ${isDemoPayment
         ? "the local demo recorded a sandbox payment approval."

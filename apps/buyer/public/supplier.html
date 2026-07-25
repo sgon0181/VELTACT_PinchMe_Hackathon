@@ -10,19 +10,23 @@
       href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./supplier.css" />
+    <link rel="stylesheet" href="./supplier.css?v=alloy-3" />
   </head>
   <body>
+    <a class="skip-link" href="#supplier-content">Skip to supplier opportunity</a>
     <main class="supplier-shell">
       <header class="brand-header">
         <div>
-          <p class="brand-mark">Veltact</p>
-          <p class="brand-copy">Secure supplier response link</p>
+          <a class="brand-identity" href="./landing.html" aria-label="Veltact home">
+            <span class="brand-notch" aria-hidden="true"></span>
+            <span class="brand-mark">Veltact</span>
+          </a>
+          <p class="brand-copy">RapidMatch / Supplier response</p>
         </div>
-        <span>No login required</span>
+        <span class="access-badge">No login required</span>
       </header>
 
-      <section class="summary" aria-live="polite">
+      <section id="supplier-content" class="summary" aria-live="polite">
         <p class="eyebrow">Supplier opportunity</p>
         <h1 id="need-title">Loading opportunity...</h1>
         <dl class="summary-grid">
@@ -107,6 +111,6 @@
         </dl>
       </section>
     </main>
-    <script src="./supplier.js" type="module"></script>
+    <script src="./supplier.js?v=alloy-3" type="module"></script>
   </body>
 </html>
