@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alloy preview — RapidMatch buyer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <div class="hero hero-intake">
+        <div>
+          <p class="eyebrow">Veltact RapidMatch · Buyer</p>
+          <h1>Machined Procurement</h1>
+          <p class="hero-copy">
+            Describe the need once. RapidMatch surfaces vetted suppliers, runs multi-channel
+            outreach and lets you compare standardised responses live.
+          </p>
+        </div>
+        <div class="status-panel">
+          <span class="status-label">Live status</span>
+          <strong style="font-size: 1.4rem">4 suppliers matched</strong>
+          <span class="muted">Outreach sent · awaiting responses</span>
+        </div>
+      </div>
+
+      <div class="progress">
+        <div class="progress-step is-active"><span>1</span>Intake</div>
+        <div class="progress-step is-active"><span>2</span>Match</div>
+        <div class="progress-step is-active"><span>3</span>Outreach</div>
+        <div class="progress-step"><span>4</span>Compare</div>
+        <div class="progress-step"><span>5</span>Select</div>
+        <div class="progress-step"><span>6</span>Secure</div>
+      </div>
+
+      <div class="ai-intake-panel">
+        <div>
+          <strong>AI intake assistant</strong>
+          <p>Paste an email or message — we extract structured requirements automatically.</p>
+        </div>
+        <button class="primary">Parse with AI</button>
+      </div>
+
+      <section class="panel intake-form" style="margin-top: 18px">
+        <div class="panel-heading"><h2>Requirement</h2></div>
+        <div class="draft-banner">Draft restored from your last session.</div>
+        <label class="field requirement-field">
+          <span>Describe what you need</span>
+          <textarea>Need a certified structural welder for a 3-week bridge maintenance job in Newcastle. Must hold WTIA cert and provide own rig.</textarea>
+        </label>
+        <div class="priority-section">
+          <span>What matters most?</span>
+          <div class="priority-grid priority-grid-compact">
+            <button class="priority-card is-selected">Speed<span>Fastest availability</span></button>
+            <button class="priority-card">Price<span>Best indicative rate</span></button>
+            <button class="priority-card">Quality<span>Proven track record</span></button>
+            <button class="priority-card">Local<span>Nearest to site</span></button>
+            <button class="priority-card">Compliance<span>Certs verified</span></button>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="primary">Find suppliers</button>
+          <span class="muted">Takes about 20 seconds</span>
+        </div>
+      </section>
+
+      <section class="panel outreach-panel is-sent" style="margin-top: 18px">
+        <div>
+          <p class="eyebrow">Outreach</p>
+          <h2 style="font-family: 'Archivo'; text-transform: uppercase">Sent to 4 suppliers</h2>
+          <p class="muted">Across email, SMS and WhatsApp · 2 viewed, 1 responded</p>
+        </div>
+        <div class="outreach-stats">
+          <span>Sent<strong>4</strong></span>
+          <span>Viewed<strong>2</strong></span>
+          <span>Replied<strong>1</strong></span>
+        </div>
+        <button class="primary outreach-button">Resend to pending</button>
+        <div class="channel-grid">
+          <div class="channel-card">
+            NorthWeld Co<i class="status-pill status-responded">Responded</i>
+            <small>Email · viewed 4m ago</small>
+          </div>
+          <div class="channel-card">
+            Harbour Rigging<i class="status-pill status-viewed">Viewed</i>
+            <small>SMS · viewed 11m ago</small>
+          </div>
+          <div class="channel-card">
+            Coastal Fabrication<i class="status-pill status-sent">Sent</i>
+            <small>WhatsApp · delivered</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" style="margin-top: 18px">
+        <div class="panel-heading"><h2>Compare responses</h2></div>
+        <div class="response-cards">
+          <div class="response-card is-selected">
+            <input class="response-radio" type="radio" checked />
+            <div class="response-topline">
+              <strong>NorthWeld Co</strong>
+              <small>Can help</small>
+            </div>
+            <div class="response-metrics">
+              <span><b>Available</b>Mon 28 Jul</span>
+              <span><b>Indicative</b>$8,400</span>
+              <span><b>Distance</b>12 km</span>
+            </div>
+            <div class="response-evidence"><b>Experience</b>14 bridge jobs, WTIA certified crew of 3.</div>
+            <div class="response-select-copy">Selected</div>
+          </div>
+          <div class="response-card">
+            <input class="response-radio" type="radio" />
+            <div class="response-topline">
+              <strong>Harbour Rigging</strong>
+              <small>Can help</small>
+            </div>
+            <div class="response-metrics">
+              <span><b>Available</b>Wed 30 Jul</span>
+              <span><b>Indicative</b>$7,950</span>
+              <span><b>Distance</b>28 km</span>
+            </div>
+            <div class="response-evidence"><b>Experience</b>Marine rigging specialist, 9 yrs.</div>
+            <div class="response-select-copy">Select supplier</div>
+          </div>
+        </div>
+      </section>
+
+      <div class="banner is-live" style="margin-top: 18px">
+        <span class="spinner"></span> Listening for live supplier responses…
+      </div>
+      <div class="banner is-success">Engagement secured with NorthWeld Co.</div>
+      <div class="banner is-error">Payment verification failed — retry the Pinch return.</div>
+    </main>
+  </body>
+</html>
