@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Veltact RapidMatch Supplier</title>
+    <link rel="stylesheet" href="./supplier.css" />
+  </head>
+  <body>
+    <main class="supplier-shell">
+      <section class="summary" aria-live="polite">
+        <p class="eyebrow">Supplier opportunity</p>
+        <h1 id="need-title">Loading opportunity...</h1>
+        <dl class="summary-grid">
+          <div>
+            <dt>Location</dt>
+            <dd id="need-location">-</dd>
+          </div>
+          <div>
+            <dt>Urgency</dt>
+            <dd id="need-urgency">-</dd>
+          </div>
+          <div>
+            <dt>Budget</dt>
+            <dd id="need-budget">-</dd>
+          </div>
+        </dl>
+        <p id="need-description" class="description"></p>
+        <div id="capabilities" class="chips" aria-label="Required capabilities"></div>
+      </section>
+
+      <form id="response-form" class="response-form">
+        <fieldset>
+          <legend>Can you help?</legend>
+          <label class="choice">
+            <input type="radio" name="canHelp" value="true" checked />
+            <span>Can help</span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="canHelp" value="false" />
+            <span>Cannot help</span>
+          </label>
+        </fieldset>
+
+        <label>
+          <span>Earliest availability</span>
+          <input name="earliestAvailability" type="date" required />
+        </label>
+
+        <label>
+          <span>Indicative price (AUD)</span>
+          <input name="indicativePriceAud" type="number" min="0" step="100" inputmode="numeric" required />
+        </label>
+
+        <label>
+          <span>Relevant experience</span>
+          <textarea name="relevantExperience" rows="4" required></textarea>
+        </label>
+
+        <label>
+          <span>Conditions</span>
+          <textarea name="conditions" rows="3" required></textarea>
+        </label>
+
+        <button type="submit">Submit response</button>
+        <p id="form-status" class="form-status" role="status"></p>
+      </form>
+    </main>
+    <script src="./supplier.js" type="module"></script>
+  </body>
+</html>
