@@ -4,6 +4,7 @@ import type {
   Supplier,
   SupplierInvitation,
   SupplierMatch,
+  SupplierOutreachDelivery,
   SupplierResponse
 } from "@veltact/contracts";
 
@@ -16,9 +17,13 @@ export type BuyerRequirementInput = {
   title: string;
   description: string;
   category: string;
+  equipmentOrTechnology: string[];
+  requiredCapabilities: string[];
   location: string;
   requiredBy: string;
+  budgetRange: string;
   budgetAmount: number;
+  constraints: string[];
 };
 
 export type SupplierMatchView = SupplierMatch & {
@@ -32,8 +37,8 @@ export type BuyerWorkspace = {
   suppliers: Supplier[];
   matches: SupplierMatchView[];
   invitations: SupplierInvitation[];
+  outreachDeliveries: SupplierOutreachDelivery[];
   responses: SupplierResponse[];
   engagement?: Engagement;
   hostedCheckoutUrl?: string;
 };
-

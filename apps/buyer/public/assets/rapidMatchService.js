@@ -11,8 +11,10 @@ export class RapidMatchService {
             industry: "Food manufacturing",
             location: input.location,
             urgencyDays: urgencyDays(input.requiredBy),
-            budgetAud: input.budgetAmount || undefined,
-            requiredCapabilities: inferCapabilities(input.description)
+            budgetAud: input.budgetAmount || parseBudgetAmount(input.budgetRange),
+            requiredCapabilities: input.requiredCapabilities.length
+                ? input.requiredCapabilities
+                : inferCapabilities(input.description)
         };
         const payload = await requestJson("/need-profiles", {
             method: "POST",
@@ -44,6 +46,15 @@ export class RapidMatchService {
             engagement,
             hostedCheckoutUrl: engagement?.hostedCheckoutUrl ?? workspace.hostedCheckoutUrl
         };
+    }
+    async sendSupplierOutreach(workspace, priority) {
+        const payload = await requestJson(`/need-profiles/${encodeURIComponent(workspace.needProfile.id)}/invitations/send`, {
+            method: "POST",
+            body: {}
+        });
+        const need = payload.need ?? payload.needProfile ?? (await this.loadNeed(workspace.needProfile.id));
+        const responses = await this.loadResponses(need.id);
+        return this.toWorkspace(need, workspace.needProfile, priority, responses, payload.supplierOutreachDeliveries);
     }
     async selectSupplier(workspace, supplierResponseId) {
         const payload = await requestJson(`/need-profiles/${encodeURIComponent(workspace.needProfile.id)}/engagements`, {
@@ -107,7 +118,7 @@ export class RapidMatchService {
         const payload = await requestJson(`/engagements/${encodeURIComponent(engagementId)}`, { method: "GET" });
         return mapEngagement(payload.engagement);
     }
-    toWorkspace(need, needProfile, priority, responses) {
+    toWorkspace(need, needProfile, priority, responses, outreachDeliveriesOverride) {
         const suppliers = mapSuppliers(need);
         const responseViews = responses.map((response) => mapSupplierResponse(response, need));
         const matches = mapMatches(need, priority, responseViews);
@@ -120,6 +131,7 @@ export class RapidMatchService {
             suppliers,
             matches,
             invitations: need.invitations.map((invitation, index) => mapInvitation(invitation, index)),
+            outreachDeliveries: (outreachDeliveriesOverride ?? need.supplierOutreachDeliveries ?? []).map(mapOutreachDelivery),
             responses: responseViews
         };
     }
@@ -151,9 +163,18 @@ function mapNeedProfile(need, input) {
         budget: need.profile.budgetAud === undefined
             ? undefined
             : { amount: need.profile.budgetAud * 100, currency: "AUD" },
-        mustHaves: need.profile.requiredCapabilities ?? [],
+        mustHaves: [
+            ...(input.equipmentOrTechnology.length
+                ? input.equipmentOrTechnology.map((item) => `Equipment: ${item}`)
+                : []),
+            ...(need.profile.requiredCapabilities ?? [])
+        ],
         niceToHaves: ["Comparable supplier response", "Clear availability and commercial conditions"],
-        constraints: [need.profile.industry, availabilityLabel(need.profile.urgencyDays)].filter(Boolean),
+        constraints: [
+            need.profile.industry,
+            availabilityLabel(need.profile.urgencyDays),
+            ...input.constraints
+        ].filter(Boolean),
         status: "submitted",
         createdAt: need.createdAt,
         updatedAt: need.createdAt
@@ -200,8 +221,9 @@ function mapMatches(need, priority, responses) {
 }
 function mapInvitation(invitation, index) {
     const status = invitation.status === "invited" ? "sent" : invitation.status === "viewed" ? "opened" : "responded";
+    const id = invitation.id ?? `${invitation.needId}-invitation-${index + 1}`;
     return {
-        id: `${invitation.needId}-invitation-${index + 1}`,
+        id,
         needProfileId: invitation.needId,
         supplierId: invitation.supplierId,
         matchId: `${invitation.needId}-match-${invitation.supplierId}`,
@@ -212,6 +234,17 @@ function mapInvitation(invitation, index) {
         expiresAt: new Date(Date.parse(invitation.createdAt) + 3 * 24 * 60 * 60 * 1000).toISOString(),
         createdAt: invitation.createdAt,
         updatedAt: invitation.respondedAt ?? invitation.viewedAt ?? invitation.createdAt
+    };
+}
+function mapOutreachDelivery(delivery) {
+    return {
+        invitationId: delivery.invitationId,
+        supplierId: delivery.supplierId,
+        channel: delivery.channel,
+        destination: delivery.destination,
+        deliveryStatus: delivery.deliveryStatus,
+        sentAt: delivery.sentAt,
+        errorMessage: delivery.errorMessage
     };
 }
 function mapSupplierResponse(response, need) {
@@ -290,6 +323,10 @@ function urgencyDays(requiredBy) {
     if (normalised.includes("week"))
         return 7;
     return undefined;
+}
+function parseBudgetAmount(budgetRange) {
+    const match = budgetRange.match(/(\d[\d,]*)/);
+    return match ? Number(match[1].replaceAll(",", "")) : undefined;
 }
 function availabilityLabel(days) {
     if (!days)

@@ -4,6 +4,7 @@ import type {
   Supplier,
   SupplierInvitation,
   SupplierMatchStatus,
+  SupplierOutreachDelivery,
   SupplierResponse
 } from "@veltact/contracts";
 import type { BuyerRequirementInput, BuyerWorkspace, PrioritySignal, SupplierMatchView } from "./types";
@@ -34,6 +35,7 @@ type ApiMatch = {
 };
 
 type ApiInvitation = {
+  id?: string;
   token: string;
   needId: string;
   supplierId: string;
@@ -44,6 +46,16 @@ type ApiInvitation = {
   respondedAt?: string;
 };
 
+type ApiOutreachDelivery = {
+  invitationId: string;
+  supplierId: string;
+  channel: "email" | "sms";
+  destination: string;
+  deliveryStatus: "not_sent" | "queued" | "sent" | "failed";
+  sentAt?: string;
+  errorMessage?: string;
+};
+
 type ApiNeed = {
   id: string;
   buyerEmail: string;
@@ -51,6 +63,7 @@ type ApiNeed = {
   createdAt: string;
   matches: ApiMatch[];
   invitations: ApiInvitation[];
+  supplierOutreachDeliveries?: ApiOutreachDelivery[];
 };
 
 type ApiSupplierResponse = {
@@ -106,6 +119,12 @@ type ApiEngagementResponse = {
   hostedCheckoutUrl?: string;
 };
 
+type ApiOutreachResponse = {
+  need?: ApiNeed;
+  needProfile?: ApiNeed;
+  supplierOutreachDeliveries?: ApiOutreachDelivery[];
+};
+
 export class RapidMatchService {
   private apiNeeds = new Map<string, ApiNeed>();
 
@@ -117,8 +136,10 @@ export class RapidMatchService {
       industry: "Food manufacturing",
       location: input.location,
       urgencyDays: urgencyDays(input.requiredBy),
-      budgetAud: input.budgetAmount || undefined,
-      requiredCapabilities: inferCapabilities(input.description)
+      budgetAud: input.budgetAmount || parseBudgetAmount(input.budgetRange),
+      requiredCapabilities: input.requiredCapabilities.length
+        ? input.requiredCapabilities
+        : inferCapabilities(input.description)
     };
 
     const payload = await requestJson<ApiNeedResponse>("/need-profiles", {
@@ -155,6 +176,19 @@ export class RapidMatchService {
       engagement,
       hostedCheckoutUrl: engagement?.hostedCheckoutUrl ?? workspace.hostedCheckoutUrl
     };
+  }
+
+  async sendSupplierOutreach(workspace: BuyerWorkspace, priority: PrioritySignal): Promise<BuyerWorkspace> {
+    const payload = await requestJson<ApiOutreachResponse>(
+      `/need-profiles/${encodeURIComponent(workspace.needProfile.id)}/invitations/send`,
+      {
+        method: "POST",
+        body: {}
+      }
+    );
+    const need = payload.need ?? payload.needProfile ?? (await this.loadNeed(workspace.needProfile.id));
+    const responses = await this.loadResponses(need.id);
+    return this.toWorkspace(need, workspace.needProfile, priority, responses, payload.supplierOutreachDeliveries);
   }
 
   async selectSupplier(workspace: BuyerWorkspace, supplierResponseId: string): Promise<BuyerWorkspace> {
@@ -250,7 +284,8 @@ export class RapidMatchService {
     need: ApiNeed,
     needProfile: NeedProfile,
     priority: PrioritySignal,
-    responses: ApiSupplierResponse[]
+    responses: ApiSupplierResponse[],
+    outreachDeliveriesOverride?: ApiOutreachDelivery[]
   ): BuyerWorkspace {
     const suppliers = mapSuppliers(need);
     const responseViews = responses.map((response) => mapSupplierResponse(response, need));
@@ -264,6 +299,7 @@ export class RapidMatchService {
       suppliers,
       matches,
       invitations: need.invitations.map((invitation, index) => mapInvitation(invitation, index)),
+      outreachDeliveries: (outreachDeliveriesOverride ?? need.supplierOutreachDeliveries ?? []).map(mapOutreachDelivery),
       responses: responseViews
     };
   }
@@ -298,9 +334,18 @@ function mapNeedProfile(need: ApiNeed, input: BuyerRequirementInput): NeedProfil
       need.profile.budgetAud === undefined
         ? undefined
         : { amount: need.profile.budgetAud * 100, currency: "AUD" },
-    mustHaves: need.profile.requiredCapabilities ?? [],
+    mustHaves: [
+      ...(input.equipmentOrTechnology.length
+        ? input.equipmentOrTechnology.map((item) => `Equipment: ${item}`)
+        : []),
+      ...(need.profile.requiredCapabilities ?? [])
+    ],
     niceToHaves: ["Comparable supplier response", "Clear availability and commercial conditions"],
-    constraints: [need.profile.industry, availabilityLabel(need.profile.urgencyDays)].filter(Boolean),
+    constraints: [
+      need.profile.industry,
+      availabilityLabel(need.profile.urgencyDays),
+      ...input.constraints
+    ].filter(Boolean),
     status: "submitted",
     createdAt: need.createdAt,
     updatedAt: need.createdAt
@@ -354,8 +399,9 @@ function mapMatches(
 
 function mapInvitation(invitation: ApiInvitation, index: number): SupplierInvitation {
   const status = invitation.status === "invited" ? "sent" : invitation.status === "viewed" ? "opened" : "responded";
+  const id = invitation.id ?? `${invitation.needId}-invitation-${index + 1}`;
   return {
-    id: `${invitation.needId}-invitation-${index + 1}`,
+    id,
     needProfileId: invitation.needId,
     supplierId: invitation.supplierId,
     matchId: `${invitation.needId}-match-${invitation.supplierId}`,
@@ -366,6 +412,18 @@ function mapInvitation(invitation: ApiInvitation, index: number): SupplierInvita
     expiresAt: new Date(Date.parse(invitation.createdAt) + 3 * 24 * 60 * 60 * 1000).toISOString(),
     createdAt: invitation.createdAt,
     updatedAt: invitation.respondedAt ?? invitation.viewedAt ?? invitation.createdAt
+  };
+}
+
+function mapOutreachDelivery(delivery: ApiOutreachDelivery): SupplierOutreachDelivery {
+  return {
+    invitationId: delivery.invitationId,
+    supplierId: delivery.supplierId,
+    channel: delivery.channel,
+    destination: delivery.destination,
+    deliveryStatus: delivery.deliveryStatus,
+    sentAt: delivery.sentAt,
+    errorMessage: delivery.errorMessage
   };
 }
 
@@ -446,6 +504,11 @@ function urgencyDays(requiredBy: string) {
   if (normalised.includes("today") || normalised.includes("immediate")) return 1;
   if (normalised.includes("week")) return 7;
   return undefined;
+}
+
+function parseBudgetAmount(budgetRange: string) {
+  const match = budgetRange.match(/(\d[\d,]*)/);
+  return match ? Number(match[1].replaceAll(",", "")) : undefined;
 }
 
 function availabilityLabel(days?: number) {

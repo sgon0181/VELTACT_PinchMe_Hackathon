@@ -1,5 +1,7 @@
+import { DemoAiIntakeService } from "./aiIntakeService.js";
 import { RapidMatchService } from "./rapidMatchService.js";
 const service = new RapidMatchService();
+const aiIntakeService = new DemoAiIntakeService();
 const app = document.querySelector("#app");
 const runtimeWindow = window;
 const realtimeOrigin = new URL(runtimeWindow.API_BASE_URL ?? "http://localhost:4000/api").origin;
@@ -21,6 +23,7 @@ let selectedResponseId = "";
 let workspace;
 let outreachSent = false;
 let structuredDraftMessage = "";
+let aiIntakeResult;
 let pollHandle;
 let isPolling = false;
 let realtimeSocket;
@@ -33,9 +36,13 @@ const defaultInput = {
     title: "",
     description: "",
     category: "",
+    equipmentOrTechnology: [],
+    requiredCapabilities: [],
     location: "",
     requiredBy: "",
-    budgetAmount: 0
+    budgetRange: "",
+    budgetAmount: 0,
+    constraints: []
 };
 let intakeDraft = { ...defaultInput };
 let intakeUrgencySignal = "";
@@ -46,9 +53,13 @@ const demoInput = {
     title: "Urgent PLC fault on packaging conveyor",
     description: "Main packaging conveyor stopped after intermittent PLC faults. We need an industrial automation supplier to diagnose the fault, restore safe production and advise on any replacement parts.",
     category: "Industrial automation",
+    equipmentOrTechnology: ["Siemens PLC", "Packaging conveyor"],
+    requiredCapabilities: ["Siemens PLC diagnostics", "PLC fault finding", "Same-day onsite support"],
     location: "Western Sydney, NSW",
     requiredBy: "Today",
-    budgetAmount: 1800
+    budgetRange: "Up to AUD 1,800 callout tolerance",
+    budgetAmount: 1800,
+    constraints: ["Production environment", "Minimal downtime"]
 };
 function render() {
     if (!app)
@@ -148,11 +159,12 @@ function renderSubmit() {
       <section class="ai-intake-panel">
         <div>
           <strong>Messy problem text</strong>
-          <p>Use the assistant to extract the likely title, location, urgency, category and budget. It does not diagnose the machine.</p>
+          <p>Use the intake adapter to extract a supplier-ready profile. It structures the request; it does not diagnose the machine.</p>
         </div>
         <button id="structure-button" class="primary" type="button">Structure requirement</button>
       </section>
       ${structuredDraftMessage ? `<div class="draft-banner">${escapeHtml(structuredDraftMessage)}</div>` : ""}
+      ${aiIntakeResult ? renderAiIntakeResult(aiIntakeResult) : ""}
       <label class="field requirement-field">
         <span>Requirement</span>
         <textarea name="description" rows="8" placeholder="Describe the equipment, failure or service need, operating environment, access constraints and what outcome you need.">${escapeHtml(intakeDraft.description)}</textarea>
@@ -160,8 +172,13 @@ function renderSubmit() {
       <div class="primary-fields">
         ${field("location", "Location", intakeDraft.location, "text", "Site, region or service area")}
         ${basicField("urgencySignal", "Urgency", intakeUrgencySignal, "text", "Immediate, this week, planned")}
-        ${field("budgetAmount", "Budget", intakeDraft.budgetAmount ? String(intakeDraft.budgetAmount) : "", "number", "Indicative AUD")}
+        ${field("budgetRange", "Budget or callout tolerance", intakeDraft.budgetRange, "text", "Unknown, callout tolerance, or indicative AUD")}
       </div>
+      <section class="structured-fields">
+        ${arrayField("equipmentOrTechnology", "Equipment / technology", intakeDraft.equipmentOrTechnology, "Siemens PLC, packaging conveyor")}
+        ${arrayField("requiredCapabilities", "Required capabilities", intakeDraft.requiredCapabilities, "PLC diagnostics, same-day onsite support")}
+        ${arrayField("constraints", "Constraints", intakeDraft.constraints, "Minimal downtime, production environment")}
+      </section>
       <section class="priority-section">
         <span>Buyer priority</span>
         <div class="priority-grid priority-grid-compact">
@@ -187,6 +204,45 @@ function renderSubmit() {
         <button class="primary" type="submit">Find matching suppliers</button>
       </div>
     </form>
+  `;
+}
+function renderAiIntakeResult(result) {
+    const profile = result.generatedProfile;
+    return `
+    <section class="ai-result-panel">
+      <div class="ai-result-header">
+        <div>
+          <p class="eyebrow">Structured draft</p>
+          <h3>${escapeHtml(profile.title)}</h3>
+        </div>
+        <span class="confidence-meter">${Math.round((result.confidence ?? 0) * 100)}% confidence</span>
+      </div>
+      <div class="ai-result-grid">
+        ${aiResultItem("Problem summary", profile.problemSummary)}
+        ${aiResultItem("Category", profile.category)}
+        ${aiResultItem("Equipment / technology", profile.equipmentOrTechnology.join(", ") || "Missing")}
+        ${aiResultItem("Capabilities", profile.requiredCapabilities.join(", ") || "Missing")}
+        ${aiResultItem("Location", profile.location ?? "Missing")}
+        ${aiResultItem("Urgency", profile.urgency ?? "Missing")}
+        ${aiResultItem("Budget tolerance", profile.budgetRange ?? "Missing")}
+        ${aiResultItem("Buyer priority", profile.buyerPriority ? priorityLabel(profile.buyerPriority) : "Missing")}
+      </div>
+      ${result.missingFields.length
+        ? `<div class="missing-fields"><strong>Missing fields to review</strong>${result.missingFields.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>`
+        : `<div class="missing-fields is-complete"><strong>Ready for buyer review</strong><span>No obvious missing fields detected.</span></div>`}
+      <div class="actions">
+        <button id="apply-structured-button" class="secondary-action" type="button">Apply structured draft</button>
+      </div>
+    </section>
+  `;
+}
+function aiResultItem(label, valueText) {
+    const missing = valueText === "Missing";
+    return `
+    <span class="ai-result-item ${missing ? "is-missing" : ""}">
+      <b>${label}</b>
+      ${escapeHtml(valueText)}
+    </span>
   `;
 }
 function renderProfile(data) {
@@ -444,41 +500,78 @@ function bindEvents() {
                 title: titleFromRequirement(description),
                 description,
                 category: value(form, "category"),
+                equipmentOrTechnology: csvValues(form, "equipmentOrTechnology"),
+                requiredCapabilities: csvValues(form, "requiredCapabilities"),
                 location: value(form, "location"),
                 requiredBy: value(form, "requiredBy") || value(form, "urgencySignal"),
-                budgetAmount: Number(value(form, "budgetAmount"))
+                budgetRange: value(form, "budgetRange"),
+                budgetAmount: parseBudgetAmount(value(form, "budgetRange")),
+                constraints: csvValues(form, "constraints")
             });
-            workspace = { needProfile, suppliers: [], matches: [], invitations: [], responses: [] };
+            workspace = {
+                needProfile,
+                suppliers: [],
+                matches: [],
+                invitations: [],
+                outreachDeliveries: [],
+                responses: []
+            };
             stage = "profile";
         });
     });
-    document.querySelector("#structure-button")?.addEventListener("click", () => {
+    document.querySelector("#structure-button")?.addEventListener("click", async () => {
         const form = document.querySelector("#requirement-form");
         if (!form)
             return;
         const descriptionElement = form.elements.namedItem("description");
         const description = descriptionElement instanceof HTMLTextAreaElement ? descriptionElement.value.trim() : "";
-        const structured = structureRequirement(description || demoInput.description);
-        intakeDraft = {
-            companyName: value(new FormData(form), "companyName") || structured.companyName,
-            contactName: value(new FormData(form), "contactName") || structured.contactName,
-            contactEmail: value(new FormData(form), "contactEmail") || structured.contactEmail,
-            title: structured.title,
-            description: structured.description,
-            category: structured.category,
-            location: structured.location,
-            requiredBy: structured.requiredBy,
-            budgetAmount: structured.budgetAmount
-        };
-        intakeUrgencySignal = structured.urgencySignal;
-        setFormValue(form, "description", structured.description);
+        await run(async () => {
+            const result = await aiIntakeService.structureRequirement({
+                rawRequirement: description || demoInput.description
+            });
+            const structured = result.generatedProfile;
+            aiIntakeResult = result;
+            const formData = new FormData(form);
+            intakeDraft = {
+                companyName: value(formData, "companyName") || demoInput.companyName,
+                contactName: value(formData, "contactName") || demoInput.contactName,
+                contactEmail: value(formData, "contactEmail") || demoInput.contactEmail,
+                title: structured.title,
+                description: structured.problemSummary,
+                category: structured.category,
+                equipmentOrTechnology: structured.equipmentOrTechnology,
+                requiredCapabilities: structured.requiredCapabilities,
+                location: structured.location ?? "",
+                requiredBy: structured.urgency ?? "",
+                budgetRange: structured.budgetRange ?? "",
+                budgetAmount: parseBudgetAmount(structured.budgetRange ?? ""),
+                constraints: structured.certificationsOrConstraints
+            };
+            intakeUrgencySignal = structured.urgency ?? "";
+            priority = structured.buyerPriority ?? "speed";
+            structuredDraftMessage = "Requirement structured into a supplier-ready draft. Review missing fields before matching.";
+        });
+        render();
+    });
+    document.querySelector("#apply-structured-button")?.addEventListener("click", () => {
+        if (!aiIntakeResult)
+            return;
+        const form = document.querySelector("#requirement-form");
+        if (!form)
+            return;
+        const structured = aiIntakeResult.generatedProfile;
+        setFormValue(form, "description", structured.problemSummary);
         setFormValue(form, "category", structured.category);
-        setFormValue(form, "location", structured.location);
-        setFormValue(form, "urgencySignal", structured.urgencySignal);
-        setFormValue(form, "requiredBy", structured.requiredBy);
-        setFormValue(form, "budgetAmount", String(structured.budgetAmount));
-        priority = structured.priority;
-        structuredDraftMessage = "Requirement structured. Review the generated Need Profile fields before supplier outreach.";
+        setFormValue(form, "equipmentOrTechnology", structured.equipmentOrTechnology.join(", "));
+        setFormValue(form, "requiredCapabilities", structured.requiredCapabilities.join(", "));
+        setFormValue(form, "location", structured.location ?? "");
+        setFormValue(form, "urgencySignal", structured.urgency ?? "");
+        setFormValue(form, "requiredBy", structured.urgency ?? "");
+        setFormValue(form, "budgetRange", structured.budgetRange ?? "");
+        setFormValue(form, "constraints", structured.certificationsOrConstraints.join(", "));
+        priority = structured.buyerPriority ?? priority;
+        syncIntakeDraftFromForm();
+        structuredDraftMessage = "Structured draft applied. Manual editing remains available.";
         document.querySelectorAll("[data-priority]").forEach((button) => {
             button.classList.toggle("is-selected", button.dataset.priority === priority);
         });
@@ -493,10 +586,13 @@ function bindEvents() {
         setFormValue(form, "contactEmail", demoInput.contactEmail);
         setFormValue(form, "description", demoInput.description);
         setFormValue(form, "category", demoInput.category);
+        setFormValue(form, "equipmentOrTechnology", demoInput.equipmentOrTechnology.join(", "));
+        setFormValue(form, "requiredCapabilities", demoInput.requiredCapabilities.join(", "));
         setFormValue(form, "location", demoInput.location);
         setFormValue(form, "urgencySignal", "Immediate production impact");
         setFormValue(form, "requiredBy", demoInput.requiredBy);
-        setFormValue(form, "budgetAmount", String(demoInput.budgetAmount));
+        setFormValue(form, "budgetRange", demoInput.budgetRange);
+        setFormValue(form, "constraints", demoInput.constraints.join(", "));
         intakeDraft = { ...demoInput };
         intakeUrgencySignal = "Immediate production impact";
         priority = "speed";
@@ -766,6 +862,14 @@ function basicField(name, label, valueText, type = "text", placeholder = "") {
     </label>
   `;
 }
+function arrayField(name, label, values, placeholder = "") {
+    return `
+    <label class="field">
+      <span>${label}</span>
+      <input name="${name}" type="text" value="${escapeHtml(values.join(", "))}" placeholder="${escapeHtml(placeholder)}" />
+    </label>
+  `;
+}
 function setFormValue(form, name, valueText) {
     const fieldElement = form.elements.namedItem(name);
     if (fieldElement instanceof HTMLInputElement || fieldElement instanceof HTMLTextAreaElement) {
@@ -784,9 +888,13 @@ function syncIntakeDraftFromForm() {
         title: titleFromRequirement(value(formData, "description")),
         description: value(formData, "description"),
         category: value(formData, "category"),
+        equipmentOrTechnology: csvValues(formData, "equipmentOrTechnology"),
+        requiredCapabilities: csvValues(formData, "requiredCapabilities"),
         location: value(formData, "location"),
         requiredBy: value(formData, "requiredBy"),
-        budgetAmount: Number(value(formData, "budgetAmount"))
+        budgetRange: value(formData, "budgetRange"),
+        budgetAmount: parseBudgetAmount(value(formData, "budgetRange")),
+        constraints: csvValues(formData, "constraints")
     };
     intakeUrgencySignal = value(formData, "urgencySignal");
 }
@@ -850,30 +958,6 @@ function outreachStatusCopy(status) {
     };
     return labels[status];
 }
-function structureRequirement(description) {
-    const normalised = description.toLowerCase();
-    const isUrgent = /today|urgent|immediate|stopped|down|line stop|fault/.test(normalised);
-    const location = normalised.includes("western sydney")
-        ? "Western Sydney, NSW"
-        : normalised.includes("sydney")
-            ? "Sydney, NSW"
-            : demoInput.location;
-    const category = /plc|automation|conveyor|scada|hmi/.test(normalised)
-        ? "Industrial automation"
-        : "Industrial services";
-    const budgetMatch = description.match(/\$?\s?(\d{3,5})(?:\s?aud)?/i);
-    return {
-        ...demoInput,
-        description,
-        title: titleFromRequirement(description),
-        category,
-        location,
-        requiredBy: isUrgent ? "Today" : "This week",
-        urgencySignal: isUrgent ? "Immediate production impact" : "Supplier response required this week",
-        budgetAmount: budgetMatch ? Number(budgetMatch[1]) : demoInput.budgetAmount,
-        priority: isUrgent ? "speed" : "technical_fit"
-    };
-}
 async function copyText(text) {
     if (navigator.clipboard) {
         await navigator.clipboard.writeText(text);
@@ -895,6 +979,26 @@ function shortUrl(url) {
 }
 function value(form, name) {
     return String(form.get(name) ?? "").trim();
+}
+function csvValues(form, name) {
+    return value(form, name)
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+function parseBudgetAmount(valueText) {
+    const match = valueText.match(/(\d[\d,]*)/);
+    return match ? Number(match[1].replaceAll(",", "")) : 0;
+}
+function priorityLabel(valueText) {
+    const labels = {
+        speed: "Speed",
+        technical_fit: "Technical fit",
+        quality: "Quality",
+        trust: "Trust",
+        price: "Price"
+    };
+    return labels[valueText];
 }
 function money(amount, currency) {
     return new Intl.NumberFormat("en-AU", { style: "currency", currency }).format(amount / 100);
