@@ -37,7 +37,7 @@ type ApiInvitation = {
   token: string;
   needId: string;
   supplierId: string;
-  supplierName: string;
+  supplierName?: string;
   status: "invited" | "viewed" | "responded";
   createdAt: string;
   viewedAt?: string;
@@ -56,13 +56,21 @@ type ApiNeed = {
 type ApiSupplierResponse = {
   id: string;
   needId: string;
+  needProfileId?: string;
   supplierId: string;
   supplierName: string;
-  canHelp: boolean;
-  earliestAvailability: string;
-  indicativePriceAud: number;
+  invitationId?: string;
+  canHelp?: boolean;
+  decision?: "can_help" | "cannot_help";
+  earliestAvailability?: string;
+  availability?: string;
+  indicativePriceAud?: number;
+  indicativePrice?: {
+    amount: number;
+    currency: "AUD";
+  };
   relevantExperience: string;
-  conditions: string;
+  conditions: string | string[];
   submittedAt: string;
 };
 
@@ -302,7 +310,7 @@ function mapNeedProfile(need: ApiNeed, input: BuyerRequirementInput): NeedProfil
 function mapSuppliers(need: ApiNeed): Supplier[] {
   return need.matches.map((match) => ({
     id: match.supplierId,
-    companyName: match.supplierName,
+    companyName: match.supplierName || match.supplierId,
     contactEmail: `${match.supplierId}@veltact-demo.example`,
     categories: [need.profile.category],
     serviceRegions: [need.profile.location],
@@ -363,17 +371,32 @@ function mapInvitation(invitation: ApiInvitation, index: number): SupplierInvita
 
 function mapSupplierResponse(response: ApiSupplierResponse, need: ApiNeed): SupplierResponse {
   const invitation = need.invitations.find((item) => item.supplierId === response.supplierId);
+  const canHelp = response.canHelp ?? response.decision === "can_help";
+  const availability = response.earliestAvailability ?? response.availability;
+  const indicativePrice =
+    response.indicativePrice ??
+    (response.indicativePriceAud === undefined
+      ? undefined
+      : { amount: response.indicativePriceAud * 100, currency: "AUD" as const });
+  const conditions = Array.isArray(response.conditions)
+    ? response.conditions
+    : response.conditions
+      ? [response.conditions]
+      : [];
+
   return {
     id: response.id,
-    needProfileId: response.needId,
+    needProfileId: response.needId ?? response.needProfileId ?? need.id,
     supplierId: response.supplierId,
-    invitationId: invitation ? `${response.needId}-invitation-${need.invitations.indexOf(invitation) + 1}` : response.supplierId,
-    decision: response.canHelp ? "can_help" : "cannot_help",
-    availability: response.earliestAvailability,
-    indicativePrice: { amount: response.indicativePriceAud * 100, currency: "AUD" },
+    invitationId:
+      response.invitationId ??
+      (invitation ? `${need.id}-invitation-${need.invitations.indexOf(invitation) + 1}` : response.supplierId),
+    decision: canHelp ? "can_help" : "cannot_help",
+    availability,
+    indicativePrice,
     relevantExperience: response.relevantExperience,
-    conditions: response.conditions ? [response.conditions] : [],
-    message: response.canHelp ? `${response.supplierName} has confirmed commercial intent.` : undefined,
+    conditions,
+    message: canHelp ? `${response.supplierName ?? "Supplier"} has confirmed commercial intent.` : undefined,
     status: "submitted",
     submittedAt: response.submittedAt,
     createdAt: response.submittedAt,

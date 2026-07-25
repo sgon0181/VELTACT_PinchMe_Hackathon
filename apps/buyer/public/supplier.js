@@ -96,7 +96,7 @@ async function submitResponse(event, invitationToken) {
     if (!response.ok) {
       throw new Error(payload.message || "Response was not accepted.");
     }
-    showSubmittedReceipt(payload.supplierResponse || payload.response);
+    showSubmittedReceipt(payload.response || payload.supplierResponse);
   } catch (error) {
     submitButton.disabled = false;
     setStatus(error instanceof Error ? error.message : "Unable to submit response.");
@@ -104,14 +104,20 @@ async function submitResponse(event, invitationToken) {
 }
 
 function showSubmittedReceipt(supplierResponse) {
+  const canHelp = supplierResponse.canHelp ?? supplierResponse.decision === "can_help";
+  const availability = supplierResponse.earliestAvailability ?? supplierResponse.availability;
+  const indicativePriceAud =
+    supplierResponse.indicativePriceAud ??
+    (supplierResponse.indicativePrice ? supplierResponse.indicativePrice.amount / 100 : undefined);
+
   form.querySelectorAll("input, textarea, button").forEach((control) => {
     control.disabled = true;
   });
   form.hidden = true;
 
-  text("#receipt-decision", supplierResponse.canHelp ? "Can help" : "Cannot help");
-  text("#receipt-availability", supplierResponse.earliestAvailability);
-  text("#receipt-price", formatMoney(supplierResponse.indicativePriceAud));
+  text("#receipt-decision", canHelp ? "Can help" : "Cannot help");
+  text("#receipt-availability", availability);
+  text("#receipt-price", indicativePriceAud === undefined ? "-" : formatMoney(indicativePriceAud));
   receipt.hidden = false;
   setStatus("");
 }
