@@ -2,6 +2,7 @@ import { env } from "../env.js";
 import type { NeedRecord, SupplierInvitation, SupplierOutreachDelivery } from "./types.js";
 
 type DeliveryResult = { ok: true } | { ok: false; errorMessage: string };
+const providerTimeoutMs = 10_000;
 
 export async function sendSupplierOpportunity(
   delivery: SupplierOutreachDelivery,
@@ -13,18 +14,25 @@ export async function sendSupplierOpportunity(
   }
 
   const message = supplierOpportunityMessage(invitation, need);
-  if (delivery.channel === "email") {
-    return sendEmail({
-      to: delivery.destination,
-      subject: `Veltact opportunity: ${need.profile.title}`,
-      text: message
-    });
-  }
+  try {
+    if (delivery.channel === "email") {
+      return await sendEmail({
+        to: delivery.destination,
+        subject: `Veltact opportunity: ${need.profile.title}`,
+        text: message
+      });
+    }
 
-  return sendSms({
-    to: delivery.destination,
-    body: message
-  });
+    return await sendTwilioMessage({
+      to: delivery.destination,
+      body: message
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      errorMessage: `${deliveryProviderName(delivery)} delivery request failed: ${providerErrorMessage(error)}`
+    };
+  }
 }
 
 function supplierOpportunityMessage(invitation: SupplierInvitation, need: NeedRecord) {
@@ -80,7 +88,8 @@ async function sendResendEmail(input: { to: string; subject: string; text: strin
       to: [input.to],
       subject: input.subject,
       text: input.text
-    })
+    }),
+    signal: AbortSignal.timeout(providerTimeoutMs)
   });
 
   return providerResult(response, "Resend");
@@ -102,23 +111,27 @@ async function sendSendGridEmail(input: { to: string; subject: string; text: str
       from: { email: env.EMAIL_FROM },
       subject: input.subject,
       content: [{ type: "text/plain", value: input.text }]
-    })
+    }),
+    signal: AbortSignal.timeout(providerTimeoutMs)
   });
 
   return providerResult(response, "SendGrid");
 }
 
-async function sendSms(input: { to: string; body: string }): Promise<DeliveryResult> {
+async function sendTwilioMessage(input: { to: string; body: string }): Promise<DeliveryResult> {
+  const isWhatsApp = input.to.startsWith("whatsapp:");
+  const channelName = isWhatsApp ? "WhatsApp" : "SMS";
   if (env.SMS_PROVIDER === "none") {
-    return { ok: false, errorMessage: "SMS provider is not configured." };
+    return { ok: false, errorMessage: `${channelName} provider is not configured.` };
   }
-  if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN || !env.TWILIO_FROM_NUMBER) {
-    return { ok: false, errorMessage: "Twilio SMS credentials are not configured." };
+  const from = isWhatsApp ? env.TWILIO_WHATSAPP_FROM : env.TWILIO_FROM_NUMBER;
+  if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN || !from) {
+    return { ok: false, errorMessage: `Twilio ${channelName} credentials are not configured.` };
   }
 
   const form = new URLSearchParams({
     To: input.to,
-    From: env.TWILIO_FROM_NUMBER,
+    From: isWhatsApp ? whatsappAddress(from) : from,
     Body: input.body
   });
   const token = Buffer.from(`${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`).toString("base64");
@@ -130,11 +143,12 @@ async function sendSms(input: { to: string; body: string }): Promise<DeliveryRes
         authorization: `Basic ${token}`,
         "content-type": "application/x-www-form-urlencoded"
       },
-      body: form
+      body: form,
+      signal: AbortSignal.timeout(providerTimeoutMs)
     }
   );
 
-  return providerResult(response, "Twilio");
+  return providerResult(response, `Twilio ${channelName}`);
 }
 
 async function providerResult(response: Response, providerName: string): Promise<DeliveryResult> {
@@ -147,4 +161,31 @@ async function providerResult(response: Response, providerName: string): Promise
     ok: false,
     errorMessage: `${providerName} rejected delivery (${response.status})${body ? `: ${body.slice(0, 240)}` : ""}`
   };
+}
+
+function whatsappAddress(phoneNumber: string) {
+  return phoneNumber.startsWith("whatsapp:") ? phoneNumber : `whatsapp:${phoneNumber}`;
+}
+
+function deliveryProviderName(delivery: SupplierOutreachDelivery) {
+  if (delivery.channel === "sms") {
+    return delivery.destination.startsWith("whatsapp:") ? "Twilio WhatsApp" : "Twilio SMS";
+  }
+  if (env.EMAIL_PROVIDER === "sendgrid") {
+    return "SendGrid";
+  }
+  if (env.EMAIL_PROVIDER === "resend") {
+    return "Resend";
+  }
+  return "Local demo email";
+}
+
+function providerErrorMessage(error: unknown) {
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return "request timed out";
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim().slice(0, 240);
+  }
+  return "network request failed";
 }

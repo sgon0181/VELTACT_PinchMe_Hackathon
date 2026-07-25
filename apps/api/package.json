@@ -7,7 +7,7 @@
     "dev": "tsx watch --exclude '../../packages/contracts/dist/**' src/server.ts",
     "build": "tsc -p tsconfig.json",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "NODE_ENV=test PINCH_CLIENT_ID=test-client PINCH_SECRET_KEY=test-secret PINCH_AUTH_URL=https://pinch.test/auth PINCH_API_BASE_URL=https://pinch.test/api tsx --test src/**/*.test.ts",
+    "test": "NODE_ENV=test EMAIL_PROVIDER=local_demo SMS_PROVIDER=none PINCH_CLIENT_ID=test-client PINCH_SECRET_KEY=test-secret PINCH_AUTH_URL=https://pinch.test/auth PINCH_API_BASE_URL=https://pinch.test/api tsx --test src/**/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

@@ -44,6 +44,7 @@ type RealtimePayload = {
   };
   outreachDelivery?: {
     channel?: "email" | "sms";
+    destination?: string;
     deliveryStatus?: "not_sent" | "queued" | "sent" | "failed";
   };
 };
@@ -430,12 +431,13 @@ function renderOutreachPanel(data: BuyerWorkspace) {
   const respondedCount = data.responses.length;
   const emailStatus = aggregateDeliveryStatus(data, "email");
   const smsStatus = aggregateDeliveryStatus(data, "sms");
+  const mobileChannelLabel = mobileDeliveryLabel(data);
   return `
     <section class="panel outreach-panel ${outreachSent ? "is-sent" : ""}">
       <div>
         <p class="eyebrow">Parallel outreach</p>
         <h2>${outreachSent ? "Supplier outreach updated" : "Send to matched suppliers"}</h2>
-        <p class="muted">${outreachSent ? `${respondedCount} supplier response${respondedCount === 1 ? "" : "s"} received. Email and SMS only show sent when backend delivery confirms it.` : "Email is attempted through the configured delivery adapter. SMS stays unavailable unless a reliable sender is configured. Secure links remain available for every match."}</p>
+        <p class="muted">${outreachSent ? `${respondedCount} supplier response${respondedCount === 1 ? "" : "s"} received. Email and ${mobileChannelLabel} only show sent when backend delivery confirms it.` : `Email and ${mobileChannelLabel} are attempted through configured delivery adapters. Secure links remain available for every match.`}</p>
       </div>
       <div class="outreach-stats">
         <span><strong>${data.matches.length}</strong> matched</span>
@@ -445,7 +447,7 @@ function renderOutreachPanel(data: BuyerWorkspace) {
       <button id="send-outreach-button" class="primary outreach-button" type="button" ${outreachSent ? "disabled" : ""}>Send to matched suppliers</button>
       <div class="channel-grid">
         ${renderChannel("Email", emailStatus.status, emailStatus.detail)}
-        ${renderChannel("SMS", smsStatus.status, smsStatus.detail)}
+        ${renderChannel(mobileChannelLabel, smsStatus.status, smsStatus.detail)}
         ${renderChannel("Secure link fallback", "ready", outreachSent ? "Available for every supplier" : "Available now")}
       </div>
     </section>
@@ -497,7 +499,7 @@ function renderActivity(data: BuyerWorkspace) {
                 <p>${outreachStatusCopy(status)}${response ? ` - response submitted ${formatTime(response.submittedAt)}` : ""}</p>
                 <div class="channel-row">
                   ${renderDeliveryChip("Email", emailDelivery)}
-                  ${renderDeliveryChip("SMS", smsDelivery)}
+                  ${renderDeliveryChip(deliveryChannelLabel(smsDelivery), smsDelivery)}
                   <span>Secure link <b class="status-${status}">${status}</b></span>
                 </div>
                 <div class="supplier-link-row">
@@ -903,7 +905,9 @@ async function initialiseRealtimeSocket(needProfileId: string) {
 
   realtimeSocket.on(rapidMatchSocketEvent.outreachDeliveryUpdated, (payload) => {
     if (payload.needProfileId === workspace?.needProfile.id) {
-      const channel = payload.outreachDelivery?.channel?.toUpperCase() ?? "Outreach";
+      const channel = isWhatsAppDestination(payload.outreachDelivery?.destination)
+        ? "WHATSAPP"
+        : payload.outreachDelivery?.channel?.toUpperCase() ?? "Outreach";
       const status = payload.outreachDelivery?.deliveryStatus ?? "updated";
       void refreshLiveState({
         forceRender: true,
@@ -1226,10 +1230,10 @@ function supplierOutreachStatus(invitationStatus: string, hasResponse: boolean):
 
 function outreachStatusCopy(status: OutreachStatus) {
   const labels: Record<OutreachStatus, string> = {
-    ready: "Ready for Email, SMS if available, or secure-link fallback.",
+    ready: "Ready for configured outreach channels or secure-link fallback.",
     not_sent: "Delivery has not been attempted yet. Secure link fallback is available.",
     queued: "Delivery is queued by the backend. Secure link fallback remains available.",
-    sent: "Secure opportunity link is active. Email/SMS are not marked sent without backend confirmation.",
+    sent: "Secure opportunity link is active. Provider channels are not marked sent without backend confirmation.",
     failed: "Delivery failed. Use the secure supplier link fallback.",
     viewed: "Supplier opened the secure opportunity link.",
     responded: "Supplier submitted a standardised response."
@@ -1280,6 +1284,24 @@ function deliveryForInvitation(
   return data.outreachDeliveries.find(
     (delivery) => delivery.invitationId === invitationId && delivery.channel === channel
   );
+}
+
+function mobileDeliveryLabel(data: BuyerWorkspace) {
+  return data.outreachDeliveries.some(
+    (delivery) => delivery.channel === "sms" && isWhatsAppDestination(delivery.destination)
+  )
+    ? "WhatsApp"
+    : "SMS";
+}
+
+function deliveryChannelLabel(
+  delivery: BuyerWorkspace["outreachDeliveries"][number] | undefined
+) {
+  return isWhatsAppDestination(delivery?.destination) ? "WhatsApp" : "SMS";
+}
+
+function isWhatsAppDestination(destination?: string) {
+  return destination?.startsWith("whatsapp:") ?? false;
 }
 
 async function copyText(text: string) {

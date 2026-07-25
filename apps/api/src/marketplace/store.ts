@@ -69,13 +69,15 @@ export function createNeed(
       destination: env.SUPPLIER_OUTREACH_EMAIL_TO ?? match.supplier.contactEmail,
       deliveryStatus: "not_sent"
     });
-    const smsDestination = env.SUPPLIER_OUTREACH_SMS_TO ?? match.supplier.contactPhone;
-    if (smsDestination) {
+    const mobileDestination = env.SUPPLIER_OUTREACH_WHATSAPP_TO
+      ? whatsappAddress(env.SUPPLIER_OUTREACH_WHATSAPP_TO)
+      : env.SUPPLIER_OUTREACH_SMS_TO ?? match.supplier.contactPhone;
+    if (mobileDestination) {
       outreachDeliveries.set(deliveryKey(invitation.id, "sms"), {
         invitationId: invitation.id,
         supplierId: invitation.supplierId,
         channel: "sms",
-        destination: smsDestination,
+        destination: mobileDestination,
         deliveryStatus: "not_sent"
       });
     }
@@ -273,6 +275,10 @@ function expireInvitationIfNeeded(invitation: SupplierInvitation, currentTime: D
 
 function deliveryKey(invitationId: string, channel: SupplierOutreachDelivery["channel"]) {
   return `${invitationId}:${channel}`;
+}
+
+function whatsappAddress(phoneNumber: string) {
+  return phoneNumber.startsWith("whatsapp:") ? phoneNumber : `whatsapp:${phoneNumber}`;
 }
 
 async function sendOutreachDelivery(
