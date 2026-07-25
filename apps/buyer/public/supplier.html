@@ -8,6 +8,14 @@
   </head>
   <body>
     <main class="supplier-shell">
+      <header class="brand-header">
+        <div>
+          <p class="brand-mark">Veltact</p>
+          <p class="brand-copy">Secure supplier response link</p>
+        </div>
+        <span>No login required</span>
+      </header>
+
       <section class="summary" aria-live="polite">
         <p class="eyebrow">Supplier opportunity</p>
         <h1 id="need-title">Loading opportunity...</h1>
@@ -30,6 +38,12 @@
       </section>
 
       <form id="response-form" class="response-form">
+        <div class="form-heading">
+          <p class="eyebrow">Standardised response</p>
+          <h2>Tell the buyer if you can help</h2>
+          <p>Submit availability, indicative pricing, relevant experience and any conditions so the buyer can compare responses live.</p>
+        </div>
+
         <fieldset>
           <legend>Can you help?</legend>
           <label class="choice">
@@ -70,6 +84,7 @@
       <section id="submitted-receipt" class="receipt" hidden>
         <p class="eyebrow">Response submitted</p>
         <h2>Buyer dashboard updated</h2>
+        <p class="receipt-copy">Your response is now visible to the buyer for comparison. Veltact has not created an engagement until the buyer selects a supplier.</p>
         <dl class="receipt-grid">
           <div>
             <dt>Decision</dt>

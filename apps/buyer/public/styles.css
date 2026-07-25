@@ -172,6 +172,35 @@ textarea {
   padding: 30px;
 }
 
+.ai-intake-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  border: 1px solid rgba(31, 122, 90, 0.28);
+  border-radius: 8px;
+  padding: 16px;
+  background: linear-gradient(135deg, #ffffff, #eef7f1);
+}
+
+.ai-intake-panel strong,
+.ai-intake-panel p {
+  margin: 0;
+}
+
+.ai-intake-panel p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.draft-banner {
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #eaf5f7;
+  color: #185b65;
+  font-weight: 800;
+}
+
 .requirement-field {
   min-height: 260px;
 }
@@ -434,6 +463,66 @@ dd {
   min-width: 210px;
 }
 
+.channel-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.channel-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  align-items: start;
+  border: 1px solid rgba(31, 122, 90, 0.18);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.channel-card small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
+.status-pill {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 0.74rem;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.status-ready {
+  background: #edf2f6;
+  color: #50616a;
+}
+
+.status-sent {
+  background: #eaf5f7;
+  color: #185b65;
+}
+
+.status-failed {
+  background: #f8e8eb;
+  color: var(--danger);
+}
+
+.status-viewed {
+  background: #fff5dd;
+  color: var(--warn);
+}
+
+.status-responded {
+  background: #e7f4ec;
+  color: var(--success);
+}
+
 .match-card {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -488,6 +577,37 @@ dd {
 .activity p {
   margin: 2px 0 0;
   color: var(--muted);
+}
+
+.activity-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.channel-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.channel-row span {
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: #f3f6f2;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.channel-row b {
+  margin-left: 4px;
+  border-radius: 999px;
+  padding: 2px 6px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
 }
 
 .supplier-link-row {
@@ -789,11 +909,13 @@ dd {
   .hero-intake,
   .grid-two,
   .split,
+  .ai-intake-panel,
   .form-grid,
   .primary-fields,
   .secondary-fields,
   .outreach-panel,
-  .response-cards {
+  .response-cards,
+  .channel-grid {
     grid-template-columns: 1fr;
   }
 

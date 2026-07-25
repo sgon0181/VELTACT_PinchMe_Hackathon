@@ -20,6 +20,40 @@ body {
   padding: 20px;
 }
 
+.brand-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.brand-header p {
+  margin: 0;
+}
+
+.brand-mark {
+  font-size: 1.3rem;
+  font-weight: 900;
+}
+
+.brand-copy,
+.brand-header span,
+.form-heading p,
+.receipt-copy {
+  color: #51635d;
+}
+
+.brand-header span {
+  border: 1px solid #bfd0c9;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #eef5f2;
+  font-size: 0.84rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .summary,
 .response-form,
 .receipt {
@@ -32,6 +66,20 @@ body {
 .response-form,
 .receipt {
   margin-top: 16px;
+}
+
+.form-heading {
+  margin-bottom: 18px;
+}
+
+.form-heading h2 {
+  margin: 0 0 8px;
+  font-size: 1.5rem;
+}
+
+.form-heading p {
+  margin: 0;
+  line-height: 1.45;
 }
 
 .eyebrow {
@@ -60,6 +108,11 @@ h1 {
 .receipt h2 {
   margin: 0 0 16px;
   font-size: 1.7rem;
+}
+
+.receipt-copy {
+  margin: -8px 0 16px;
+  line-height: 1.45;
 }
 
 .receipt-grid {
@@ -196,8 +249,14 @@ button:disabled {
   }
 
   .summary,
-  .response-form {
+  .response-form,
+  .receipt {
     padding: 16px;
+  }
+
+  .brand-header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .summary-grid,

@@ -12,7 +12,11 @@ import {
   resetMarketplaceStore,
   submitSupplierResponse
 } from "./store.js";
-import { emitPaymentStatusUpdated, emitSupplierResponseSubmitted } from "../realtime.js";
+import {
+  emitPaymentStatusUpdated,
+  emitSupplierInvitationUpdated,
+  emitSupplierResponseSubmitted
+} from "../realtime.js";
 import { env } from "../env.js";
 import { PinchApiError } from "../pinch/pinchClient.js";
 import { getPaymentProvider } from "../payments/providerRegistry.js";
@@ -92,6 +96,8 @@ marketplaceRouter.get("/supplier-invitations/:token", (request, response) => {
     });
     return;
   }
+
+  emitSupplierInvitationUpdated(invitation);
 
   const need = getNeed(invitation.needId);
   response.json({

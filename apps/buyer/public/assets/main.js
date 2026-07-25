@@ -6,6 +6,7 @@ const realtimeOrigin = new URL(runtimeWindow.API_BASE_URL ?? "http://localhost:4
 const rapidMatchSocketEvent = {
     joinNeedProfile: "rapidmatch:need.join",
     leaveNeedProfile: "rapidmatch:need.leave",
+    invitationSent: "rapidmatch:invitation.sent",
     supplierResponseSubmitted: "rapidmatch:response.submitted",
     paymentStatusUpdated: "rapidmatch:payment.status_updated",
     engagementSecured: "rapidmatch:engagement.secured"
@@ -19,6 +20,7 @@ let priority = "speed";
 let selectedResponseId = "";
 let workspace;
 let outreachSent = false;
+let structuredDraftMessage = "";
 let pollHandle;
 let isPolling = false;
 let realtimeSocket;
@@ -35,6 +37,8 @@ const defaultInput = {
     requiredBy: "",
     budgetAmount: 0
 };
+let intakeDraft = { ...defaultInput };
+let intakeUrgencySignal = "";
 const demoInput = {
     companyName: "HarbourPack Manufacturing",
     contactName: "Elena Morris",
@@ -138,17 +142,25 @@ function renderSubmit() {
     <form id="requirement-form" class="panel intake-form">
       <div class="panel-heading">
         <p class="eyebrow">Step 1</p>
-        <h2>Start a supplier response brief</h2>
-        <p class="muted">Focus on the operational problem, site constraints and what a qualified provider needs to know before responding.</p>
+        <h2>AI-assisted intake</h2>
+        <p class="muted">Paste messy factory context, structure it into a supplier-ready requirement, then review or edit every field manually before matching.</p>
       </div>
+      <section class="ai-intake-panel">
+        <div>
+          <strong>Messy problem text</strong>
+          <p>Use the assistant to extract the likely title, location, urgency, category and budget. It does not diagnose the machine.</p>
+        </div>
+        <button id="structure-button" class="primary" type="button">Structure requirement</button>
+      </section>
+      ${structuredDraftMessage ? `<div class="draft-banner">${escapeHtml(structuredDraftMessage)}</div>` : ""}
       <label class="field requirement-field">
         <span>Requirement</span>
-        <textarea name="description" rows="8" placeholder="Describe the equipment, failure or service need, operating environment, access constraints and what outcome you need.">${escapeHtml(defaultInput.description)}</textarea>
+        <textarea name="description" rows="8" placeholder="Describe the equipment, failure or service need, operating environment, access constraints and what outcome you need.">${escapeHtml(intakeDraft.description)}</textarea>
       </label>
       <div class="primary-fields">
-        ${field("location", "Location", defaultInput.location, "text", "Site, region or service area")}
-        ${basicField("urgencySignal", "Urgency", "", "text", "Immediate, this week, planned")}
-        ${field("budgetAmount", "Budget", defaultInput.budgetAmount ? String(defaultInput.budgetAmount) : "", "number", "Indicative AUD")}
+        ${field("location", "Location", intakeDraft.location, "text", "Site, region or service area")}
+        ${basicField("urgencySignal", "Urgency", intakeUrgencySignal, "text", "Immediate, this week, planned")}
+        ${field("budgetAmount", "Budget", intakeDraft.budgetAmount ? String(intakeDraft.budgetAmount) : "", "number", "Indicative AUD")}
       </div>
       <section class="priority-section">
         <span>Buyer priority</span>
@@ -165,11 +177,11 @@ function renderSubmit() {
           <span>Buyer details</span>
           <button id="demo-fill-button" class="secondary-action" type="button">Use demo data</button>
         </div>
-        ${field("companyName", "Company", defaultInput.companyName, "text", "Company name")}
-        ${field("contactName", "Contact", defaultInput.contactName, "text", "Primary contact")}
-        ${field("contactEmail", "Email", defaultInput.contactEmail, "email", "buyer@example.com")}
-        ${field("category", "Category", defaultInput.category, "text", "Industrial automation, fabrication, maintenance")}
-        ${field("requiredBy", "Required date", defaultInput.requiredBy, "text", "Today, 25 July, next shutdown window")}
+        ${field("companyName", "Company", intakeDraft.companyName, "text", "Company name")}
+        ${field("contactName", "Contact", intakeDraft.contactName, "text", "Primary contact")}
+        ${field("contactEmail", "Email", intakeDraft.contactEmail, "email", "buyer@example.com")}
+        ${field("category", "Category", intakeDraft.category, "text", "Industrial automation, fabrication, maintenance")}
+        ${field("requiredBy", "Required date", intakeDraft.requiredBy, "text", "Today, 25 July, next shutdown window")}
       </section>
       <div class="actions field-wide">
         <button class="primary" type="submit">Find matching suppliers</button>
@@ -259,7 +271,7 @@ function renderOutreachPanel(data) {
       <div>
         <p class="eyebrow">Parallel outreach</p>
         <h2>${outreachSent ? "Secure links generated" : "Send to matched suppliers"}</h2>
-        <p class="muted">${outreachSent ? `${respondedCount} supplier response${respondedCount === 1 ? "" : "s"} received. Links remain available for the supplier-tab demo.` : "Generate one secure opportunity link per matched supplier. No SMS or email is faked."}</p>
+        <p class="muted">${outreachSent ? `${respondedCount} supplier response${respondedCount === 1 ? "" : "s"} received. Email/SMS are not marked sent unless a backend delivery confirmation exists.` : "Use Email or SMS when delivery is available. Today the confirmed fallback is a secure supplier link for each match."}</p>
       </div>
       <div class="outreach-stats">
         <span><strong>${data.matches.length}</strong> matched</span>
@@ -267,7 +279,21 @@ function renderOutreachPanel(data) {
         <span><strong>${respondedCount}</strong> responded</span>
       </div>
       <button id="send-outreach-button" class="primary outreach-button" type="button" ${outreachSent ? "disabled" : ""}>Send to matched suppliers</button>
+      <div class="channel-grid">
+        ${renderChannel("Email", "ready", "Waiting for backend delivery confirmation")}
+        ${renderChannel("SMS", "ready", "Used only when a confirmed sender is available")}
+        ${renderChannel("Secure link fallback", outreachSent ? "sent" : "ready", outreachSent ? "Links generated and ready to open or copy" : "Available now")}
+      </div>
     </section>
+  `;
+}
+function renderChannel(label, status, detailText) {
+    return `
+    <span class="channel-card">
+      <b>${label}</b>
+      <em class="status-pill status-${status}">${status}</em>
+      <small>${detailText}</small>
+    </span>
   `;
 }
 function renderMatchCard(match) {
@@ -290,12 +316,21 @@ function renderActivity(data) {
         .map((invitation) => {
         const supplier = data.suppliers.find((item) => item.id === invitation.supplierId);
         const response = data.responses.find((item) => item.invitationId === invitation.id);
+        const status = supplierOutreachStatus(invitation.status, Boolean(response));
         return `
             <li>
               <span class="activity-dot ${response ? "is-done" : ""}"></span>
               <div>
-                <strong>${escapeHtml(supplier?.companyName ?? invitation.supplierId)}</strong>
-                <p>${formatStatus(invitation.status)}${response ? ` - response submitted ${formatTime(response.submittedAt)}` : " - awaiting supplier response"}</p>
+                <div class="activity-heading">
+                  <strong>${escapeHtml(supplier?.companyName ?? invitation.supplierId)}</strong>
+                  <span class="status-pill status-${status}">${status}</span>
+                </div>
+                <p>${outreachStatusCopy(status)}${response ? ` - response submitted ${formatTime(response.submittedAt)}` : ""}</p>
+                <div class="channel-row">
+                  <span>Email <b class="status-ready">ready</b></span>
+                  <span>SMS <b class="status-ready">ready</b></span>
+                  <span>Secure link <b class="status-${status}">${status}</b></span>
+                </div>
                 <div class="supplier-link-row">
                   <a class="supplier-link" href="${escapeHtml(invitation.responseUrl)}" target="_blank" rel="noreferrer">Open secure link</a>
                   <button class="copy-link-button" type="button" data-copy-link="${escapeHtml(invitation.responseUrl)}">Copy link</button>
@@ -417,6 +452,38 @@ function bindEvents() {
             stage = "profile";
         });
     });
+    document.querySelector("#structure-button")?.addEventListener("click", () => {
+        const form = document.querySelector("#requirement-form");
+        if (!form)
+            return;
+        const descriptionElement = form.elements.namedItem("description");
+        const description = descriptionElement instanceof HTMLTextAreaElement ? descriptionElement.value.trim() : "";
+        const structured = structureRequirement(description || demoInput.description);
+        intakeDraft = {
+            companyName: value(new FormData(form), "companyName") || structured.companyName,
+            contactName: value(new FormData(form), "contactName") || structured.contactName,
+            contactEmail: value(new FormData(form), "contactEmail") || structured.contactEmail,
+            title: structured.title,
+            description: structured.description,
+            category: structured.category,
+            location: structured.location,
+            requiredBy: structured.requiredBy,
+            budgetAmount: structured.budgetAmount
+        };
+        intakeUrgencySignal = structured.urgencySignal;
+        setFormValue(form, "description", structured.description);
+        setFormValue(form, "category", structured.category);
+        setFormValue(form, "location", structured.location);
+        setFormValue(form, "urgencySignal", structured.urgencySignal);
+        setFormValue(form, "requiredBy", structured.requiredBy);
+        setFormValue(form, "budgetAmount", String(structured.budgetAmount));
+        priority = structured.priority;
+        structuredDraftMessage = "Requirement structured. Review the generated Need Profile fields before supplier outreach.";
+        document.querySelectorAll("[data-priority]").forEach((button) => {
+            button.classList.toggle("is-selected", button.dataset.priority === priority);
+        });
+        render();
+    });
     document.querySelector("#demo-fill-button")?.addEventListener("click", () => {
         const form = document.querySelector("#requirement-form");
         if (!form)
@@ -430,13 +497,17 @@ function bindEvents() {
         setFormValue(form, "urgencySignal", "Immediate production impact");
         setFormValue(form, "requiredBy", demoInput.requiredBy);
         setFormValue(form, "budgetAmount", String(demoInput.budgetAmount));
+        intakeDraft = { ...demoInput };
+        intakeUrgencySignal = "Immediate production impact";
         priority = "speed";
+        structuredDraftMessage = "";
         document.querySelectorAll("[data-priority]").forEach((button) => {
             button.classList.toggle("is-selected", button.dataset.priority === priority);
         });
     });
     document.querySelectorAll("[data-priority]").forEach((button) => {
         button.addEventListener("click", () => {
+            syncIntakeDraftFromForm();
             priority = button.dataset.priority;
             render();
         });
@@ -562,9 +633,21 @@ async function initialiseRealtimeSocket(needProfileId) {
         transports: ["websocket"],
         reconnection: true
     });
+    realtimeSocket.on(rapidMatchSocketEvent.invitationSent, (payload) => {
+        if (payload.needProfileId === workspace?.needProfile.id) {
+            const status = payload.supplierInvitation?.status;
+            const message = status === "opened"
+                ? "Live update: supplier opened the opportunity link."
+                : "Live supplier invitation status updated.";
+            void refreshLiveState({ forceRender: true, liveMessage: message });
+        }
+    });
     realtimeSocket.on(rapidMatchSocketEvent.supplierResponseSubmitted, (payload) => {
         if (payload.needProfileId === workspace?.needProfile.id) {
-            void refreshLiveState({ forceRender: true, liveMessage: "Live supplier response received." });
+            const message = payload.supplierResponse?.decision === "cannot_help"
+                ? "Live update: supplier declined this opportunity."
+                : "Live update: supplier submitted a response.";
+            void refreshLiveState({ forceRender: true, liveMessage: message });
         }
     });
     realtimeSocket.on(rapidMatchSocketEvent.paymentStatusUpdated, (payload) => {
@@ -689,6 +772,24 @@ function setFormValue(form, name, valueText) {
         fieldElement.value = valueText;
     }
 }
+function syncIntakeDraftFromForm() {
+    const form = document.querySelector("#requirement-form");
+    if (!form)
+        return;
+    const formData = new FormData(form);
+    intakeDraft = {
+        companyName: value(formData, "companyName"),
+        contactName: value(formData, "contactName"),
+        contactEmail: value(formData, "contactEmail"),
+        title: titleFromRequirement(value(formData, "description")),
+        description: value(formData, "description"),
+        category: value(formData, "category"),
+        location: value(formData, "location"),
+        requiredBy: value(formData, "requiredBy"),
+        budgetAmount: Number(value(formData, "budgetAmount"))
+    };
+    intakeUrgencySignal = value(formData, "urgencySignal");
+}
 function titleFromRequirement(description) {
     const firstSentence = description.split(/[.!?]/)[0]?.trim();
     if (firstSentence) {
@@ -727,6 +828,51 @@ function selectedSupplier(data) {
 }
 function firstHelpfulResponseId(data) {
     return data.responses.find((response) => response.decision === "can_help")?.id;
+}
+function supplierOutreachStatus(invitationStatus, hasResponse) {
+    if (hasResponse || invitationStatus === "responded")
+        return "responded";
+    if (invitationStatus === "opened")
+        return "viewed";
+    if (invitationStatus === "failed")
+        return "failed";
+    if (outreachSent)
+        return "sent";
+    return "ready";
+}
+function outreachStatusCopy(status) {
+    const labels = {
+        ready: "Ready for Email, SMS if available, or secure-link fallback.",
+        sent: "Secure opportunity link is active. Email/SMS are not marked sent without backend confirmation.",
+        failed: "Delivery failed. Use the secure supplier link fallback.",
+        viewed: "Supplier opened the secure opportunity link.",
+        responded: "Supplier submitted a standardised response."
+    };
+    return labels[status];
+}
+function structureRequirement(description) {
+    const normalised = description.toLowerCase();
+    const isUrgent = /today|urgent|immediate|stopped|down|line stop|fault/.test(normalised);
+    const location = normalised.includes("western sydney")
+        ? "Western Sydney, NSW"
+        : normalised.includes("sydney")
+            ? "Sydney, NSW"
+            : demoInput.location;
+    const category = /plc|automation|conveyor|scada|hmi/.test(normalised)
+        ? "Industrial automation"
+        : "Industrial services";
+    const budgetMatch = description.match(/\$?\s?(\d{3,5})(?:\s?aud)?/i);
+    return {
+        ...demoInput,
+        description,
+        title: titleFromRequirement(description),
+        category,
+        location,
+        requiredBy: isUrgent ? "Today" : "This week",
+        urgencySignal: isUrgent ? "Immediate production impact" : "Supplier response required this week",
+        budgetAmount: budgetMatch ? Number(budgetMatch[1]) : demoInput.budgetAmount,
+        priority: isUrgent ? "speed" : "technical_fit"
+    };
 }
 async function copyText(text) {
     if (navigator.clipboard) {
