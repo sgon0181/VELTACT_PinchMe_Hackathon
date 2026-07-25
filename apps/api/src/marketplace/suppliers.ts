@@ -76,7 +76,7 @@ export const seededSuppliers: Supplier[] = [
     equipmentBrands: ["siemens", "schneider", "rockwell"],
     certifications: ["licensed electrical contractor", "arc flash trained"],
     trustSignals: ["Industrial electrical compliance record", "After-hours callout roster"],
-    availabilityDays: 2,
+    availabilityDays: 1,
     minimumBudgetAud: 8000,
     maximumBudgetAud: 200000,
     verified: true

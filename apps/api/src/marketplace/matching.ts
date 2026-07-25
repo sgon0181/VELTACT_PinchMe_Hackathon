@@ -20,19 +20,23 @@ function scoreSupplier(need: NeedProfile, supplier: Supplier, timestamp: string)
     [
       need.title,
       need.description,
+      need.problemSummary,
       need.category,
       need.industry,
       need.location,
-      ...(need.requiredCapabilities ?? [])
+      ...(need.equipmentTechnology ?? []),
+      ...(need.constraints ?? []),
+      ...requiredCapabilityValues(need)
     ].join(" ")
   );
 
-  const requiredCapabilities = need.requiredCapabilities ?? [];
+  const requiredCapabilities = requiredCapabilityValues(need);
+  const equipmentTechnology = need.equipmentTechnology ?? [];
   const capabilityMatches = supplier.capabilities.filter((capability) =>
     isCapabilityMatch(capability, requiredCapabilities, terms)
   );
   const brandMatches = supplier.equipmentBrands.filter((brand) =>
-    tokensForPhrase(brand).some((token) => terms.has(token))
+    isStructuredPhraseMatch(brand, equipmentTechnology, terms)
   );
   const industryMatches = supplier.industries.filter((industry) =>
     tokensForPhrase(industry).some((token) => terms.has(token))
@@ -48,7 +52,13 @@ function scoreSupplier(need: NeedProfile, supplier: Supplier, timestamp: string)
     (need.budgetAud >= supplier.minimumBudgetAud && need.budgetAud <= supplier.maximumBudgetAud);
   const urgencyFit = need.urgencyDays === undefined || supplier.availabilityDays <= need.urgencyDays;
   const certificationFit = supplier.certifications.length > 0;
-  const speedPriorityFit = (need.urgencyDays ?? Number.POSITIVE_INFINITY) <= 1 && supplier.availabilityDays <= 1;
+  const speedPriorityFit =
+    need.buyerPriority === "speed" &&
+    (need.urgencyDays === undefined || supplier.availabilityDays <= need.urgencyDays);
+  const technicalPriorityFit =
+    need.buyerPriority === "technical_fit" && (capabilityMatches.length > 0 || brandMatches.length > 0);
+  const trustPriorityFit = need.buyerPriority === "trust" && supplier.verified;
+  const pricePriorityFit = need.buyerPriority === "price" && budgetFit;
 
   let score = Math.min(capabilityMatches.length, 4) * 18;
   score += Math.min(brandMatches.length, 2) * 12;
@@ -66,6 +76,15 @@ function scoreSupplier(need: NeedProfile, supplier: Supplier, timestamp: string)
   }
   if (speedPriorityFit) {
     score += 10;
+  }
+  if (technicalPriorityFit) {
+    score += 10;
+  }
+  if (trustPriorityFit) {
+    score += 8;
+  }
+  if (pricePriorityFit) {
+    score += 6;
   }
   if (certificationFit) {
     score += 5;
@@ -86,7 +105,11 @@ function scoreSupplier(need: NeedProfile, supplier: Supplier, timestamp: string)
       locationMatch,
       budgetFit,
       urgencyFit,
-      speedPriorityFit
+      speedPriorityFit,
+      technicalPriorityFit,
+      trustPriorityFit,
+      pricePriorityFit,
+      buyerPriority: need.buyerPriority
     }),
     risks: buildRisks({ budgetFit, urgencyFit, locationMatch, capabilityMatches, brandMatches }),
     status: "matched",
@@ -105,6 +128,10 @@ function buildReasons(input: {
   budgetFit: boolean;
   urgencyFit: boolean;
   speedPriorityFit: boolean;
+  technicalPriorityFit: boolean;
+  trustPriorityFit: boolean;
+  pricePriorityFit: boolean;
+  buyerPriority?: NeedProfile["buyerPriority"];
 }) {
   const reasons: string[] = [];
   if (input.capabilityMatches.length > 0) {
@@ -124,6 +151,15 @@ function buildReasons(input: {
   }
   if (input.speedPriorityFit) {
     reasons.push("Buyer priority fit: same-day response supports the speed-first requirement.");
+  }
+  if (input.technicalPriorityFit) {
+    reasons.push("Buyer priority fit: technical match is strong for Siemens PLC diagnostics.");
+  }
+  if (input.trustPriorityFit) {
+    reasons.push("Buyer priority fit: verified supplier status supports the trust requirement.");
+  }
+  if (input.pricePriorityFit) {
+    reasons.push("Buyer priority fit: commercial range supports the price requirement.");
   }
   if (input.budgetFit) {
     reasons.push("Commercial fit: within the stated diagnostic or callout tolerance.");
@@ -193,4 +229,21 @@ function isCapabilityMatch(capability: string, requiredCapabilities: string[], t
   return capabilityTokens.length <= 2
     ? capabilityTokens.every((token) => terms.has(token))
     : capabilityTokens.filter((token) => terms.has(token)).length >= 2;
+}
+
+function requiredCapabilityValues(need: NeedProfile) {
+  return need.requiredCapability ?? need.requiredCapabilities ?? [];
+}
+
+function isStructuredPhraseMatch(phrase: string, structuredValues: string[], terms: Set<string>) {
+  const phraseTokens = tokensForPhrase(phrase);
+  const structuredMatch = structuredValues.some((value) => {
+    const valueTokens = tokensForPhrase(value);
+    return phraseTokens.every((token) => valueTokens.includes(token)) ||
+      valueTokens.every((token) => phraseTokens.includes(token));
+  });
+  if (structuredMatch) {
+    return true;
+  }
+  return phraseTokens.some((token) => terms.has(token));
 }

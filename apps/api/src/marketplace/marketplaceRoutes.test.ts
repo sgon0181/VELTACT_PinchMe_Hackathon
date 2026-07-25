@@ -103,6 +103,40 @@ describe("marketplace core routes", () => {
     assert.deepEqual(retrieved.body.need.invitations, created.body.need.invitations);
   });
 
+  test("uses structured AI intake fields for strong Siemens PLC packaging-line matches", async () => {
+    const created = await postJson("/api/need-profiles", {
+      buyerEmail: "ops.manager@westernfoods.example",
+      profile: structuredSiemensNeed()
+    });
+
+    assert.equal(created.status, 201);
+    const need = created.body.need;
+    assert.equal(need.needProfile.description, structuredSiemensNeed().problemSummary);
+    assert.deepEqual(need.needProfile.mustHaves, [
+      "Siemens PLC diagnostics",
+      "Conveyor fault recovery",
+      "Onsite breakdown support",
+      "Siemens S7 PLC",
+      "Packaging conveyor"
+    ]);
+    assert.deepEqual(
+      need.matches.map((match: { supplierId: string }) => match.supplierId),
+      ["supplier-automation-nsw", "supplier-controls-western-sydney", "supplier-electrical-sydney"]
+    );
+
+    for (const match of need.matches as Array<{ score: number; explanation: string[] }>) {
+      assert.ok(match.score >= 80);
+      const reasons = match.explanation.join(" ");
+      assert.match(reasons, /Technical fit:/);
+      assert.match(reasons, /Equipment fit:/);
+      assert.match(reasons, /Industry fit:/);
+      assert.match(reasons, /Location fit:/);
+      assert.match(reasons, /Availability fit:/);
+      assert.match(reasons, /Buyer priority fit:/);
+      assert.match(reasons, /Trust fit:/);
+    }
+  });
+
   test("accepts supplier responses through invitation token and exposes standardised buyer responses", async () => {
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",
@@ -343,5 +377,27 @@ function automationNeed() {
     urgencyDays: 1,
     budgetAud: 20000,
     requiredCapabilities: ["siemens", "plc", "conveyor"]
+  };
+}
+
+function structuredSiemensNeed() {
+  return {
+    title: "Packaging conveyor Siemens PLC line stop",
+    description: "Production has stopped and the buyer needs a supplier response.",
+    problemSummary:
+      "Packaging line stopped after intermittent Siemens PLC faults. Buyer needs safe production restored today.",
+    category: "industrial automation",
+    industry: "food packaging manufacturing",
+    equipmentTechnology: ["Siemens S7 PLC", "Packaging conveyor"],
+    location: "Western Sydney NSW",
+    urgencyDays: 1,
+    budgetAud: 20000,
+    constraints: ["Food manufacturing site access", "Licensed electrical work required"],
+    buyerPriority: "speed",
+    requiredCapability: [
+      "Siemens PLC diagnostics",
+      "Conveyor fault recovery",
+      "Onsite breakdown support"
+    ]
   };
 }
