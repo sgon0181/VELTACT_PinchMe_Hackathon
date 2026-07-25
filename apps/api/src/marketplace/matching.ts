@@ -27,35 +27,45 @@ function scoreSupplier(need: NeedProfile, supplier: Supplier, timestamp: string)
     ].join(" ")
   );
 
+  const requiredCapabilities = need.requiredCapabilities ?? [];
   const capabilityMatches = supplier.capabilities.filter((capability) =>
-    tokensForPhrase(capability).some((token) => terms.has(token))
+    isCapabilityMatch(capability, requiredCapabilities, terms)
   );
   const brandMatches = supplier.equipmentBrands.filter((brand) =>
     tokensForPhrase(brand).some((token) => terms.has(token))
   );
-  const industryMatch = terms.has(normalise(supplier.industries[0])) || supplier.industries.some((item) => terms.has(normalise(item)));
+  const industryMatches = supplier.industries.filter((industry) =>
+    tokensForPhrase(industry).some((token) => terms.has(token))
+  );
+  const industryMatch = industryMatches.length > 0;
   const locationMatch = supplier.locations.some((item) =>
-    tokensForPhrase(item).every((token) => terms.has(token)) || tokensForPhrase(item).some((token) => terms.has(token))
+    tokensForPhrase(item).length > 1
+      ? tokensForPhrase(item).every((token) => terms.has(token))
+      : tokensForPhrase(item).some((token) => terms.has(token))
   );
   const budgetFit =
     need.budgetAud === undefined ||
     (need.budgetAud >= supplier.minimumBudgetAud && need.budgetAud <= supplier.maximumBudgetAud);
   const urgencyFit = need.urgencyDays === undefined || supplier.availabilityDays <= need.urgencyDays;
   const certificationFit = supplier.certifications.length > 0;
+  const speedPriorityFit = (need.urgencyDays ?? Number.POSITIVE_INFINITY) <= 1 && supplier.availabilityDays <= 1;
 
-  let score = capabilityMatches.length * 30;
-  score += brandMatches.length * 15;
+  let score = Math.min(capabilityMatches.length, 4) * 18;
+  score += Math.min(brandMatches.length, 2) * 12;
   if (industryMatch) {
-    score += 20;
+    score += 12;
   }
   if (locationMatch) {
-    score += 15;
+    score += 18;
   }
   if (budgetFit) {
-    score += 10;
+    score += 8;
   }
   if (urgencyFit) {
     score += 15;
+  }
+  if (speedPriorityFit) {
+    score += 10;
   }
   if (certificationFit) {
     score += 5;
@@ -71,12 +81,14 @@ function scoreSupplier(need: NeedProfile, supplier: Supplier, timestamp: string)
       supplier,
       capabilityMatches,
       brandMatches,
+      industryMatches,
       industryMatch,
       locationMatch,
       budgetFit,
-      urgencyFit
+      urgencyFit,
+      speedPriorityFit
     }),
-    risks: buildRisks({ budgetFit, urgencyFit, locationMatch }),
+    risks: buildRisks({ budgetFit, urgencyFit, locationMatch, capabilityMatches, brandMatches }),
     status: "matched",
     createdAt: timestamp,
     updatedAt: timestamp
@@ -87,32 +99,37 @@ function buildReasons(input: {
   supplier: Supplier;
   capabilityMatches: string[];
   brandMatches: string[];
+  industryMatches: string[];
   industryMatch: boolean;
   locationMatch: boolean;
   budgetFit: boolean;
   urgencyFit: boolean;
+  speedPriorityFit: boolean;
 }) {
   const reasons: string[] = [];
   if (input.capabilityMatches.length > 0) {
-    reasons.push(`Supports ${input.capabilityMatches.join(", ")} for the required work.`);
+    reasons.push(`Technical fit: supports ${input.capabilityMatches.join(", ")} for the required work.`);
   }
   if (input.brandMatches.length > 0) {
-    reasons.push(`Has relevant ${input.brandMatches.join(", ")} equipment experience.`);
+    reasons.push(`Equipment fit: has ${input.brandMatches.join(", ")} experience for PLC fault work.`);
   }
   if (input.industryMatch) {
-    reasons.push("Has relevant industrial or manufacturing experience.");
+    reasons.push(`Industry fit: services ${input.industryMatches.join(", ")} environments.`);
   }
   if (input.locationMatch) {
-    reasons.push("Covers the requested service region.");
+    reasons.push("Location fit: covers Western Sydney or the requested service region.");
   }
   if (input.urgencyFit) {
-    reasons.push(`Can respond within ${input.supplier.availabilityDays} day${input.supplier.availabilityDays === 1 ? "" : "s"}.`);
+    reasons.push(`Availability fit: can respond within ${input.supplier.availabilityDays} day${input.supplier.availabilityDays === 1 ? "" : "s"}.`);
+  }
+  if (input.speedPriorityFit) {
+    reasons.push("Buyer priority fit: same-day response supports the speed-first requirement.");
   }
   if (input.budgetFit) {
-    reasons.push("Fits the stated budget or callout tolerance.");
+    reasons.push("Commercial fit: within the stated diagnostic or callout tolerance.");
   }
   if (input.supplier.certifications.length > 0) {
-    reasons.push(`Relevant credentials: ${input.supplier.certifications.join(", ")}.`);
+    reasons.push(`Trust fit: ${input.supplier.certifications.join(", ")}.`);
   }
   if (input.supplier.trustSignals.length > 0) {
     reasons.push(input.supplier.trustSignals.join("; "));
@@ -120,8 +137,20 @@ function buildReasons(input: {
   return reasons.length > 0 ? reasons : ["Seeded industrial supplier with partial marketplace fit."];
 }
 
-function buildRisks(input: { budgetFit: boolean; urgencyFit: boolean; locationMatch: boolean }) {
+function buildRisks(input: {
+  budgetFit: boolean;
+  urgencyFit: boolean;
+  locationMatch: boolean;
+  capabilityMatches: string[];
+  brandMatches: string[];
+}) {
   const risks: string[] = [];
+  if (input.capabilityMatches.length === 0) {
+    risks.push("No direct technical capability match was found.");
+  }
+  if (input.brandMatches.length === 0) {
+    risks.push("Siemens equipment experience should be confirmed.");
+  }
   if (!input.budgetFit) {
     risks.push("Budget may be outside this supplier's usual range.");
   }
@@ -150,4 +179,18 @@ function normalise(value: string): string {
 
 function tokensForPhrase(value: string): string[] {
   return [...tokenise(value)];
+}
+
+function isCapabilityMatch(capability: string, requiredCapabilities: string[], terms: Set<string>) {
+  const capabilityTokens = tokensForPhrase(capability);
+  const requiredMatch = requiredCapabilities.some((required) => {
+    const requiredTokens = tokensForPhrase(required);
+    return requiredTokens.every((token) => capabilityTokens.includes(token));
+  });
+  if (requiredMatch) {
+    return true;
+  }
+  return capabilityTokens.length <= 2
+    ? capabilityTokens.every((token) => terms.has(token))
+    : capabilityTokens.filter((token) => terms.has(token)).length >= 2;
 }

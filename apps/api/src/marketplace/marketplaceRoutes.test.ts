@@ -78,9 +78,12 @@ describe("marketplace core routes", () => {
     assert.equal(created.body.need.matches.length, 3);
     assert.deepEqual(
       created.body.need.matches.map((match: { supplierId: string }) => match.supplierId),
-      ["supplier-automation-nsw", "supplier-robotics-vic", "supplier-fabrication-sa"]
+      ["supplier-automation-nsw", "supplier-controls-western-sydney", "supplier-electrical-sydney"]
     );
-    assert.match(created.body.need.matches[0].explanation.join(" "), /siemens|respond within 1 day/i);
+    assert.match(
+      created.body.need.matches[0].explanation.join(" "),
+      /Technical fit:|Equipment fit:|Location fit:|Availability fit:|Buyer priority fit:/i
+    );
     assert.doesNotThrow(() => supplierMatchSchema.parse(created.body.need.supplierMatches[0]));
     assert.equal(created.body.need.invitations.length, 3);
     assert.equal(created.body.need.invitations[0].status, "invited");
