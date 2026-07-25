@@ -24,6 +24,8 @@ const envSchema = z.object({
   TWILIO_FROM_NUMBER: z.string().trim().min(1).optional(),
   SUPPLIER_OUTREACH_EMAIL_TO: z.string().trim().email().optional(),
   SUPPLIER_OUTREACH_SMS_TO: z.string().trim().min(1).optional(),
+  OPENAI_API_KEY: z.string().trim().min(1).optional(),
+  OPENAI_MODEL: z.string().trim().min(1).default("gpt-5.6"),
   PINCH_CLIENT_ID: z.string().min(1, "PINCH_CLIENT_ID is required"),
   PINCH_SECRET_KEY: z.string().min(1, "PINCH_SECRET_KEY is required"),
   PINCH_AUTH_URL: z.string().url(),

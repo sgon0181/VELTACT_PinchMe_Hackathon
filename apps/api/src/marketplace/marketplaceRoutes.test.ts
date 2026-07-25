@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import {
+  aiIntakeResultSchema,
   engagementSchema,
   needProfileSchema,
   rapidMatchSocketEvent,
@@ -67,6 +68,27 @@ afterEach(async () => {
 });
 
 describe("marketplace core routes", () => {
+  test("structures messy buyer intake into a contract-valid need profile draft", async () => {
+    const structured = await postJson("/api/ai-intake/structure", {
+      rawRequirement:
+        "Packaging line stopped after intermittent Siemens PLC faults in Western Sydney. Need someone today. Speed matters.",
+      evidence: [
+        {
+          kind: "written",
+          name: "Operator notes",
+          extractedText: "Fault repeats after restart. No budget confirmed yet."
+        }
+      ]
+    });
+
+    assert.equal(structured.status, 200);
+    assert.equal(structured.body.source, "local_demo");
+    assert.doesNotThrow(() => aiIntakeResultSchema.parse(structured.body.aiIntakeResult));
+    assert.equal(structured.body.aiIntakeResult.generatedProfile.buyerPriority, "speed");
+    assert.match(structured.body.aiIntakeResult.generatedProfile.location, /Western Sydney/);
+    assert.ok(structured.body.aiIntakeResult.generatedProfile.requiredCapabilities.length > 0);
+  });
+
   test("creates and retrieves a need with deterministic explainable matches and invitation tokens", async () => {
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",

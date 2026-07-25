@@ -1,5 +1,11 @@
 import type { AiIntakeResult } from "@veltact/contracts";
 
+const runtimeWindow = window as Window & {
+  API_BASE_URL?: string;
+};
+
+const API_BASE = runtimeWindow.API_BASE_URL ?? "http://localhost:4000/api";
+
 export type StructureRequirementInput = {
   rawRequirement: string;
   evidence?: IntakeEvidence[];
@@ -8,16 +14,54 @@ export type StructureRequirementInput = {
 export type IntakeEvidence = {
   kind: "written" | "pdf" | "photo";
   name: string;
+  mimeType?: string;
   extractedText?: string;
+  dataUrl?: string;
 };
 
 export interface AiIntakeAdapter {
   structureRequirement(input: StructureRequirementInput): Promise<AiIntakeResult>;
 }
 
+export class BackendAiIntakeService implements AiIntakeAdapter {
+  private readonly fallback = new DemoAiIntakeService();
+
+  async structureRequirement(input: StructureRequirementInput): Promise<AiIntakeResult> {
+    try {
+      const response = await fetch(`${API_BASE}/ai-intake/structure`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(input)
+      });
+      const payload = (await response.json()) as {
+        aiIntakeResult?: AiIntakeResult;
+        result?: AiIntakeResult;
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message ?? "Unable to structure the requirement.");
+      }
+
+      const result = payload.aiIntakeResult ?? payload.result;
+      if (!result) {
+        throw new Error("AI intake service returned an empty result.");
+      }
+      return result;
+    } catch (error) {
+      if (error instanceof TypeError) {
+        return this.fallback.structureRequirement(input);
+      }
+      throw error;
+    }
+  }
+}
+
 export class DemoAiIntakeService implements AiIntakeAdapter {
   async structureRequirement(input: StructureRequirementInput): Promise<AiIntakeResult> {
-    // Replace this deterministic adapter with a POST to the future AI intake endpoint.
+    // Local-only fallback for demo environments where the API server is not running.
     await delay(320);
     const evidenceText = (input.evidence ?? [])
       .map((item) => item.extractedText)

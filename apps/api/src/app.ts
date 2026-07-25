@@ -2,6 +2,7 @@ import cors from "cors";
 import express from "express";
 import type { Request } from "express";
 import { env } from "./env.js";
+import { aiIntakeRouter } from "./aiIntake/aiIntakeRoutes.js";
 import { marketplaceRouter } from "./marketplace/marketplaceRoutes.js";
 import { pinchRouter } from "./pinch/pinchRoutes.js";
 
@@ -14,6 +15,7 @@ app.use(
 );
 app.use(
   express.json({
+    limit: "12mb",
     verify: (request, _response, buffer) => {
       (request as Request).rawBody = buffer;
     }
@@ -30,4 +32,5 @@ app.get("/api/health", (_request, response) => {
 });
 
 app.use("/api/pinch", pinchRouter);
+app.use("/api/ai-intake", aiIntakeRouter);
 app.use("/api", marketplaceRouter);

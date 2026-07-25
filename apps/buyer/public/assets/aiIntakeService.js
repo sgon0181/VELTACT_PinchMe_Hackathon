@@ -1,6 +1,37 @@
+const runtimeWindow = window;
+const API_BASE = runtimeWindow.API_BASE_URL ?? "http://localhost:4000/api";
+export class BackendAiIntakeService {
+    fallback = new DemoAiIntakeService();
+    async structureRequirement(input) {
+        try {
+            const response = await fetch(`${API_BASE}/ai-intake/structure`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(input)
+            });
+            const payload = (await response.json());
+            if (!response.ok) {
+                throw new Error(payload.message ?? "Unable to structure the requirement.");
+            }
+            const result = payload.aiIntakeResult ?? payload.result;
+            if (!result) {
+                throw new Error("AI intake service returned an empty result.");
+            }
+            return result;
+        }
+        catch (error) {
+            if (error instanceof TypeError) {
+                return this.fallback.structureRequirement(input);
+            }
+            throw error;
+        }
+    }
+}
 export class DemoAiIntakeService {
     async structureRequirement(input) {
-        // Replace this deterministic adapter with a POST to the future AI intake endpoint.
+        // Local-only fallback for demo environments where the API server is not running.
         await delay(320);
         const evidenceText = (input.evidence ?? [])
             .map((item) => item.extractedText)

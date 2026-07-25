@@ -1,7 +1,7 @@
-import { DemoAiIntakeService } from "./aiIntakeService.js";
+import { BackendAiIntakeService } from "./aiIntakeService.js";
 import { RapidMatchService } from "./rapidMatchService.js";
 const service = new RapidMatchService();
-const aiIntakeService = new DemoAiIntakeService();
+const aiIntakeService = new BackendAiIntakeService();
 const app = document.querySelector("#app");
 const runtimeWindow = window;
 const realtimeOrigin = new URL(runtimeWindow.API_BASE_URL ?? "http://localhost:4000/api").origin;
@@ -231,11 +231,18 @@ function renderEvidenceSummary(evidence) {
         <span>
           <b>${item.kind.toUpperCase()}</b>
           ${escapeHtml(item.name)}
-          <small>${item.extractedText ? "Text available to structure" : "Metadata only; needs real OCR/extraction service later"}</small>
+          <small>${evidenceStatusLabel(item)}</small>
         </span>
       `).join("")}
     </section>
   `;
+}
+function evidenceStatusLabel(item) {
+    if (item.dataUrl)
+        return "File content sent to API intake wrapper";
+    if (item.extractedText)
+        return "Text sent to API intake wrapper";
+    return "Metadata only; file was too large or unavailable";
 }
 function renderAiIntakeResult(result) {
     const profile = result.generatedProfile;
@@ -988,13 +995,44 @@ function fileFromForm(form, name) {
     return fieldElement.files?.[0];
 }
 async function evidenceFromFile(file, fallbackKind) {
+    const maxUploadBytes = 4 * 1024 * 1024;
     const kind = file.type.startsWith("image/") ? "photo" : file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf") ? "pdf" : fallbackKind;
     const canReadAsText = file.type.startsWith("text/") || file.name.toLowerCase().endsWith(".txt");
+    if (canReadAsText) {
+        return {
+            kind: "written",
+            name: file.name,
+            mimeType: file.type || "text/plain",
+            extractedText: await file.text()
+        };
+    }
+    if (file.size > maxUploadBytes) {
+        return {
+            kind,
+            name: file.name,
+            mimeType: file.type || undefined
+        };
+    }
     return {
         kind,
         name: file.name,
-        extractedText: canReadAsText ? await file.text() : undefined
+        mimeType: file.type || undefined,
+        dataUrl: await fileToDataUrl(file)
     };
+}
+function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.addEventListener("load", () => {
+            if (typeof reader.result === "string") {
+                resolve(reader.result);
+                return;
+            }
+            reject(new Error("Unable to read evidence file."));
+        });
+        reader.addEventListener("error", () => reject(new Error("Unable to read evidence file.")));
+        reader.readAsDataURL(file);
+    });
 }
 function titleFromRequirement(description) {
     const firstSentence = description.split(/[.!?]/)[0]?.trim();
