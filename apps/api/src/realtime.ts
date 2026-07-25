@@ -2,7 +2,12 @@ import type { Server as HttpServer } from "node:http";
 import { rapidMatchSocketEvent } from "@veltact/contracts";
 import { Server } from "socket.io";
 import { env } from "./env.js";
-import type { Engagement, SupplierInvitation, SupplierResponse } from "./marketplace/types.js";
+import type {
+  Engagement,
+  SupplierInvitation,
+  SupplierOutreachDelivery,
+  SupplierResponse
+} from "./marketplace/types.js";
 
 let io: Server | undefined;
 
@@ -43,6 +48,13 @@ export function emitSupplierInvitationUpdated(supplierInvitation: SupplierInvita
   io?.to(needProfileRoom(supplierInvitation.needProfileId)).emit(rapidMatchSocketEvent.invitationSent, {
     needProfileId: supplierInvitation.needProfileId,
     supplierInvitation
+  });
+}
+
+export function emitOutreachDeliveryUpdated(needProfileId: string, outreachDelivery: SupplierOutreachDelivery) {
+  io?.to(needProfileRoom(needProfileId)).emit(rapidMatchSocketEvent.outreachDeliveryUpdated, {
+    needProfileId,
+    outreachDelivery
   });
 }
 

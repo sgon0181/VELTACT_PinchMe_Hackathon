@@ -784,6 +784,16 @@ dd {
   color: var(--steel-silver);
 }
 
+.status-not_sent {
+  background: rgba(169, 181, 191, 0.12);
+  color: var(--steel-silver);
+}
+
+.status-queued {
+  background: rgba(230, 166, 63, 0.16);
+  color: #ebc98c;
+}
+
 .status-sent {
   background: rgba(36, 104, 162, 0.16);
   color: var(--accent-text);

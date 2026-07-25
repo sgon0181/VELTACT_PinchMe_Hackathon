@@ -9,6 +9,7 @@ import {
   rapidMatchSocketEvent,
   supplierInvitationSchema,
   supplierMatchSchema,
+  supplierOutreachDeliverySchema,
   supplierResponseSchema
 } from "@veltact/contracts";
 import { io as createSocketClient, type Socket } from "socket.io-client";
@@ -246,6 +247,43 @@ describe("marketplace core routes", () => {
     assert.equal(update.needProfileId, needProfileId);
     assert.equal(update.supplierInvitation.status, "opened");
     assert.equal(update.supplierInvitation.supplierId, "supplier-automation-nsw");
+  });
+
+  test("sends supplier outreach through the local demo email adapter and emits delivery updates", async () => {
+    const created = await postJson("/api/needs", {
+      buyerEmail: "buyer@example.com",
+      profile: automationNeed()
+    });
+    const needProfileId = created.body.need.id;
+    const client = await connectSocket();
+    const updates: Record<string, any>[] = [];
+
+    client.on(rapidMatchSocketEvent.outreachDeliveryUpdated, (payload) => {
+      updates.push(payload);
+    });
+    client.emit(rapidMatchSocketEvent.joinNeedProfile, { needProfileId });
+    await wait(25);
+
+    const sent = await postJson(`/api/need-profiles/${needProfileId}/invitations/send`, {});
+    await wait(25);
+
+    client.close();
+    assert.equal(sent.status, 200);
+    assert.equal(sent.body.supplierOutreachDeliveries.length, 3);
+    for (const delivery of sent.body.supplierOutreachDeliveries as Record<string, any>[]) {
+      assert.doesNotThrow(() => supplierOutreachDeliverySchema.parse(delivery));
+      assert.equal(delivery.channel, "email");
+      assert.equal(delivery.deliveryStatus, "sent");
+      assert.ok(delivery.sentAt);
+    }
+    assert.ok(
+      updates.some(
+        (update) =>
+          update.needProfileId === needProfileId &&
+          update.outreachDelivery.channel === "email" &&
+          update.outreachDelivery.deliveryStatus === "sent"
+      )
+    );
   });
 
   test("rejects malformed needs and unknown supplier invitation tokens", async () => {

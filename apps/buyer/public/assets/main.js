@@ -9,6 +9,7 @@ const rapidMatchSocketEvent = {
     joinNeedProfile: "rapidmatch:need.join",
     leaveNeedProfile: "rapidmatch:need.leave",
     invitationSent: "rapidmatch:invitation.sent",
+    outreachDeliveryUpdated: "rapidmatch:outreach.delivery_updated",
     supplierResponseSubmitted: "rapidmatch:response.submitted",
     paymentStatusUpdated: "rapidmatch:payment.status_updated",
     engagementSecured: "rapidmatch:engagement.secured"
@@ -322,12 +323,14 @@ function renderMatches(data) {
 }
 function renderOutreachPanel(data) {
     const respondedCount = data.responses.length;
+    const emailStatus = aggregateDeliveryStatus(data, "email");
+    const smsStatus = aggregateDeliveryStatus(data, "sms");
     return `
     <section class="panel outreach-panel ${outreachSent ? "is-sent" : ""}">
       <div>
         <p class="eyebrow">Parallel outreach</p>
-        <h2>${outreachSent ? "Secure links generated" : "Send to matched suppliers"}</h2>
-        <p class="muted">${outreachSent ? `${respondedCount} supplier response${respondedCount === 1 ? "" : "s"} received. Email/SMS are not marked sent unless a backend delivery confirmation exists.` : "Use Email or SMS when delivery is available. Today the confirmed fallback is a secure supplier link for each match."}</p>
+        <h2>${outreachSent ? "Supplier outreach updated" : "Send to matched suppliers"}</h2>
+        <p class="muted">${outreachSent ? `${respondedCount} supplier response${respondedCount === 1 ? "" : "s"} received. Email and SMS only show sent when backend delivery confirms it.` : "Email is attempted through the configured delivery adapter. SMS stays unavailable unless a reliable sender is configured. Secure links remain available for every match."}</p>
       </div>
       <div class="outreach-stats">
         <span><strong>${data.matches.length}</strong> matched</span>
@@ -336,9 +339,9 @@ function renderOutreachPanel(data) {
       </div>
       <button id="send-outreach-button" class="primary outreach-button" type="button" ${outreachSent ? "disabled" : ""}>Send to matched suppliers</button>
       <div class="channel-grid">
-        ${renderChannel("Email", "ready", "Waiting for backend delivery confirmation")}
-        ${renderChannel("SMS", "ready", "Used only when a confirmed sender is available")}
-        ${renderChannel("Secure link fallback", outreachSent ? "sent" : "ready", outreachSent ? "Links generated and ready to open or copy" : "Available now")}
+        ${renderChannel("Email", emailStatus.status, emailStatus.detail)}
+        ${renderChannel("SMS", smsStatus.status, smsStatus.detail)}
+        ${renderChannel("Secure link fallback", "ready", outreachSent ? "Available for every supplier" : "Available now")}
       </div>
     </section>
   `;
@@ -373,6 +376,8 @@ function renderActivity(data) {
         const supplier = data.suppliers.find((item) => item.id === invitation.supplierId);
         const response = data.responses.find((item) => item.invitationId === invitation.id);
         const status = supplierOutreachStatus(invitation.status, Boolean(response));
+        const emailDelivery = deliveryForInvitation(data, invitation.id, "email");
+        const smsDelivery = deliveryForInvitation(data, invitation.id, "sms");
         return `
             <li>
               <span class="activity-dot ${response ? "is-done" : ""}"></span>
@@ -383,8 +388,8 @@ function renderActivity(data) {
                 </div>
                 <p>${outreachStatusCopy(status)}${response ? ` - response submitted ${formatTime(response.submittedAt)}` : ""}</p>
                 <div class="channel-row">
-                  <span>Email <b class="status-ready">ready</b></span>
-                  <span>SMS <b class="status-ready">ready</b></span>
+                  ${renderDeliveryChip("Email", emailDelivery)}
+                  ${renderDeliveryChip("SMS", smsDelivery)}
                   <span>Secure link <b class="status-${status}">${status}</b></span>
                 </div>
                 <div class="supplier-link-row">
@@ -399,6 +404,11 @@ function renderActivity(data) {
         .join("")}
     </ol>
   `;
+}
+function renderDeliveryChip(label, delivery) {
+    const status = delivery?.deliveryStatus ?? "ready";
+    const detail = delivery?.errorMessage ? ` title="${escapeHtml(delivery.errorMessage)}"` : "";
+    return `<span>${label} <b class="status-${status}"${detail}>${formatStatus(status)}</b></span>`;
 }
 function renderResponseTable(data) {
     return `
@@ -635,9 +645,16 @@ function bindEvents() {
             stage = "matches";
         });
     });
-    document.querySelector("#send-outreach-button")?.addEventListener("click", () => {
-        outreachSent = true;
-        showLiveMessage("Secure supplier links are ready. Open one in a supplier tab to submit a real response.");
+    document.querySelector("#send-outreach-button")?.addEventListener("click", async () => {
+        const currentWorkspace = workspace;
+        if (!currentWorkspace)
+            return;
+        await run(async () => {
+            workspace = await service.sendSupplierOutreach(currentWorkspace, priority);
+            outreachSent = true;
+            stage = "matches";
+        });
+        showLiveMessage("Supplier outreach delivery updated. Secure links remain available.");
         render();
     });
     document.querySelectorAll("[data-copy-link]").forEach((button) => {
@@ -736,6 +753,16 @@ async function initialiseRealtimeSocket(needProfileId) {
                 ? "Live update: supplier opened the opportunity link."
                 : "Live supplier invitation status updated.";
             void refreshLiveState({ forceRender: true, liveMessage: message });
+        }
+    });
+    realtimeSocket.on(rapidMatchSocketEvent.outreachDeliveryUpdated, (payload) => {
+        if (payload.needProfileId === workspace?.needProfile.id) {
+            const channel = payload.outreachDelivery?.channel?.toUpperCase() ?? "Outreach";
+            const status = payload.outreachDelivery?.deliveryStatus ?? "updated";
+            void refreshLiveState({
+                forceRender: true,
+                liveMessage: `Live update: ${channel} delivery ${formatStatus(status)}.`
+            });
         }
     });
     realtimeSocket.on(rapidMatchSocketEvent.supplierResponseSubmitted, (payload) => {
@@ -951,12 +978,46 @@ function supplierOutreachStatus(invitationStatus, hasResponse) {
 function outreachStatusCopy(status) {
     const labels = {
         ready: "Ready for Email, SMS if available, or secure-link fallback.",
+        not_sent: "Delivery has not been attempted yet. Secure link fallback is available.",
+        queued: "Delivery is queued by the backend. Secure link fallback remains available.",
         sent: "Secure opportunity link is active. Email/SMS are not marked sent without backend confirmation.",
         failed: "Delivery failed. Use the secure supplier link fallback.",
         viewed: "Supplier opened the secure opportunity link.",
         responded: "Supplier submitted a standardised response."
     };
     return labels[status];
+}
+function aggregateDeliveryStatus(data, channel) {
+    const deliveries = data.outreachDeliveries.filter((delivery) => delivery.channel === channel);
+    if (!deliveries.length) {
+        return channel === "sms"
+            ? { status: "ready", detail: "No reliable SMS sender is configured" }
+            : { status: "ready", detail: "Ready to attempt when outreach is sent" };
+    }
+    const failedCount = deliveries.filter((delivery) => delivery.deliveryStatus === "failed").length;
+    const sentCount = deliveries.filter((delivery) => delivery.deliveryStatus === "sent").length;
+    const queuedCount = deliveries.filter((delivery) => delivery.deliveryStatus === "queued").length;
+    const notSentCount = deliveries.filter((delivery) => delivery.deliveryStatus === "not_sent").length;
+    if (failedCount) {
+        const error = deliveries.find((delivery) => delivery.deliveryStatus === "failed")?.errorMessage;
+        return {
+            status: "failed",
+            detail: `${failedCount} failed${error ? `: ${error}` : ""}`
+        };
+    }
+    if (queuedCount) {
+        return { status: "queued", detail: `${queuedCount} queued by backend` };
+    }
+    if (sentCount) {
+        return { status: "sent", detail: `${sentCount} confirmed sent by delivery adapter` };
+    }
+    if (notSentCount) {
+        return { status: "not_sent", detail: `${notSentCount} destination${notSentCount === 1 ? "" : "s"} ready` };
+    }
+    return { status: "ready", detail: "Ready" };
+}
+function deliveryForInvitation(data, invitationId, channel) {
+    return data.outreachDeliveries.find((delivery) => delivery.invitationId === invitationId && delivery.channel === channel);
 }
 async function copyText(text) {
     if (navigator.clipboard) {

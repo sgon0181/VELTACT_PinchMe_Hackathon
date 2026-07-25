@@ -8,11 +8,13 @@ import type {
   NeedRecord,
   PinchWebhookEvidence,
   SupplierInvitation,
+  SupplierOutreachDelivery,
   SupplierResponse
 } from "./types.js";
 
 const needs = new Map<string, NeedRecord>();
 const invitations = new Map<string, SupplierInvitation>();
+const outreachDeliveries = new Map<string, SupplierOutreachDelivery>();
 const responses = new Map<string, SupplierResponse>();
 const engagements = new Map<string, Engagement>();
 const processedPinchEventIds = new Set<string>();
@@ -43,6 +45,13 @@ export function createNeed(input: { buyerEmail: string; profile: NeedProfile }):
       updatedAt: createdAt
     };
     invitations.set(invitation.token, invitation);
+    outreachDeliveries.set(deliveryKey(invitation.id, "email"), {
+      invitationId: invitation.id,
+      supplierId: invitation.supplierId,
+      channel: "email",
+      destination: match.supplier.contactEmail,
+      deliveryStatus: "not_sent"
+    });
     return invitation;
   });
 
@@ -66,6 +75,49 @@ export function getNeed(id: string): NeedRecord | undefined {
 
 export function getInvitation(token: string): SupplierInvitation | undefined {
   return invitations.get(token);
+}
+
+export async function sendSupplierOutreachForNeed(needId: string): Promise<SupplierOutreachDelivery[] | undefined> {
+  const need = needs.get(needId);
+  if (!need) {
+    return undefined;
+  }
+
+  const updatedDeliveries: SupplierOutreachDelivery[] = [];
+  for (const invitation of need.invitations) {
+    const emailDelivery = outreachDeliveries.get(deliveryKey(invitation.id, "email"));
+    if (!emailDelivery) {
+      continue;
+    }
+
+    if (emailDelivery.deliveryStatus === "sent") {
+      updatedDeliveries.push(emailDelivery);
+      continue;
+    }
+
+    emailDelivery.deliveryStatus = "queued";
+    emailDelivery.errorMessage = undefined;
+    updatedDeliveries.push({ ...emailDelivery });
+
+    const result = await sendEmailInvitation(invitation, emailDelivery.destination, need);
+    const sentAt = new Date().toISOString();
+    emailDelivery.deliveryStatus = result.ok ? "sent" : "failed";
+    emailDelivery.sentAt = result.ok ? sentAt : undefined;
+    emailDelivery.errorMessage = result.ok ? undefined : result.errorMessage;
+    updatedDeliveries.push({ ...emailDelivery });
+  }
+
+  return updatedDeliveries;
+}
+
+export function listOutreachDeliveriesForNeed(needId: string): SupplierOutreachDelivery[] | undefined {
+  const need = needs.get(needId);
+  if (!need) {
+    return undefined;
+  }
+
+  const invitationIds = new Set(need.invitations.map((invitation) => invitation.id));
+  return [...outreachDeliveries.values()].filter((delivery) => invitationIds.has(delivery.invitationId));
 }
 
 export function markInvitationViewed(token: string): SupplierInvitation | undefined {
@@ -163,6 +215,29 @@ function updateMatchResponseStatus(invitation: SupplierInvitation, canHelp: bool
     match.status = canHelp ? "responded" : "declined";
     match.updatedAt = updatedAt;
   }
+}
+
+async function sendEmailInvitation(
+  invitation: SupplierInvitation,
+  destination: string,
+  need: NeedRecord
+): Promise<{ ok: true } | { ok: false; errorMessage: string }> {
+  if (!destination) {
+    return { ok: false, errorMessage: "Supplier email destination is not configured." };
+  }
+
+  if (env.NODE_ENV === "production") {
+    return { ok: false, errorMessage: "Email provider is not configured." };
+  }
+
+  console.info(
+    `[local-demo-email] Sent supplier opportunity ${invitation.id} to ${destination}: ${need.profile.title} ${invitation.responseUrl}`
+  );
+  return { ok: true };
+}
+
+function deliveryKey(invitationId: string, channel: SupplierOutreachDelivery["channel"]) {
+  return `${invitationId}:${channel}`;
 }
 
 export function listResponsesForNeed(needId: string): SupplierResponse[] | undefined {
@@ -291,6 +366,7 @@ export function recordAuthoritativePinchPayment(input: {
 export function resetMarketplaceStore() {
   needs.clear();
   invitations.clear();
+  outreachDeliveries.clear();
   responses.clear();
   engagements.clear();
   processedPinchEventIds.clear();

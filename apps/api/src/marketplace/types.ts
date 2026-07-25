@@ -56,6 +56,16 @@ export type SupplierInvitation = {
   respondedAt?: string;
 };
 
+export type SupplierOutreachDelivery = {
+  invitationId: string;
+  supplierId: string;
+  channel: "email" | "sms";
+  destination: string;
+  deliveryStatus: "not_sent" | "queued" | "sent" | "failed";
+  sentAt?: string;
+  errorMessage?: string;
+};
+
 export type SupplierResponse = {
   id: string;
   needId: string;

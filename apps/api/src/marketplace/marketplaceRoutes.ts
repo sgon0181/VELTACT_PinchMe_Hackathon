@@ -6,13 +6,16 @@ import {
   createNeed,
   getEngagement,
   getNeed,
+  listOutreachDeliveriesForNeed,
   listResponsesForNeed,
   markInvitationViewed,
   recordAuthoritativePinchPayment,
   resetMarketplaceStore,
+  sendSupplierOutreachForNeed,
   submitSupplierResponse
 } from "./store.js";
 import {
+  emitOutreachDeliveryUpdated,
   emitPaymentStatusUpdated,
   emitSupplierInvitationUpdated,
   emitSupplierResponseSubmitted
@@ -163,7 +166,7 @@ marketplaceRouter.get("/need-profiles/:needProfileId/responses", (request, respo
   });
 });
 
-marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", (request, response) => {
+marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", async (request, response) => {
   const need = getNeed(request.params.needProfileId);
   if (!need) {
     response.status(404).json({
@@ -173,9 +176,24 @@ marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", (reques
     return;
   }
 
+  const updatedDeliveries = await sendSupplierOutreachForNeed(request.params.needProfileId);
+  if (!updatedDeliveries) {
+    response.status(404).json({
+      status: "error",
+      message: "Need profile not found"
+    });
+    return;
+  }
+
+  for (const delivery of updatedDeliveries) {
+    emitOutreachDeliveryUpdated(request.params.needProfileId, serialiseOutreachDelivery(delivery));
+  }
+
+  const deliveries = listOutreachDeliveriesForNeed(request.params.needProfileId) ?? [];
   response.json({
     supplierInvitations: need.invitations.map(serialiseSupplierInvitation),
-    invitations: need.invitations.map(serialiseLegacyInvitation)
+    invitations: need.invitations.map(serialiseLegacyInvitation),
+    supplierOutreachDeliveries: deliveries.map(serialiseOutreachDelivery)
   });
 });
 
@@ -398,6 +416,7 @@ function serialiseNeed(need: NonNullable<ReturnType<typeof getNeed>>) {
     needProfile,
     supplierMatches,
     supplierInvitations,
+    supplierOutreachDeliveries: listOutreachDeliveriesForNeed(need.id)?.map(serialiseOutreachDelivery) ?? [],
     suppliers: need.matches.map((match) => ({
       id: match.supplier.id,
       companyName: match.supplier.name,
@@ -423,6 +442,18 @@ function serialiseNeed(need: NonNullable<ReturnType<typeof getNeed>>) {
       updatedAt: match.updatedAt
     })),
     invitations: need.invitations.map(serialiseLegacyInvitation)
+  };
+}
+
+function serialiseOutreachDelivery(delivery: NonNullable<ReturnType<typeof listOutreachDeliveriesForNeed>>[number]) {
+  return {
+    invitationId: delivery.invitationId,
+    supplierId: delivery.supplierId,
+    channel: delivery.channel,
+    destination: delivery.destination,
+    deliveryStatus: delivery.deliveryStatus,
+    sentAt: delivery.sentAt,
+    errorMessage: delivery.errorMessage
   };
 }
 
