@@ -100,6 +100,41 @@ describe("marketplace core routes", () => {
     assert.equal(rejected.body.error, "low_signal_ai_intake_request");
   });
 
+  test("accepts industrial photo evidence with filename context", async () => {
+    const structured = await postJson("/api/ai-intake/structure", {
+      rawRequirement: "",
+      evidence: [
+        {
+          kind: "photo",
+          name: "siemens-plc-fault-packaging-line.jpg",
+          mimeType: "image/jpeg",
+          dataUrl: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2w=="
+        }
+      ]
+    }, { "x-veltact-ai-intake-source": "local_demo" });
+
+    assert.equal(structured.status, 200);
+    assert.equal(structured.body.source, "local_demo");
+    assert.doesNotThrow(() => aiIntakeResultSchema.parse(structured.body.aiIntakeResult));
+  });
+
+  test("rejects context-free photo evidence before a paid model call", async () => {
+    const rejected = await postJson("/api/ai-intake/structure", {
+      rawRequirement: "",
+      evidence: [
+        {
+          kind: "photo",
+          name: "IMG_1234.jpg",
+          mimeType: "image/jpeg",
+          dataUrl: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2w=="
+        }
+      ]
+    });
+
+    assert.equal(rejected.status, 400);
+    assert.equal(rejected.body.error, "low_signal_ai_intake_request");
+  });
+
   test("creates and retrieves a need with deterministic explainable matches and invitation tokens", async () => {
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",

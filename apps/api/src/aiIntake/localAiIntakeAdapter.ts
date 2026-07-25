@@ -16,7 +16,7 @@ export type StructureRequirementRequest = {
 
 export function structureRequirementLocally(input: StructureRequirementRequest): AiIntakeResult {
   const evidenceText = (input.evidence ?? [])
-    .map((item) => item.extractedText)
+    .map((item) => item.extractedText ?? item.name)
     .filter((item): item is string => Boolean(item?.trim()))
     .join("\n");
   const rawRequirement = [input.rawRequirement.trim(), evidenceText].filter(Boolean).join("\n\n");

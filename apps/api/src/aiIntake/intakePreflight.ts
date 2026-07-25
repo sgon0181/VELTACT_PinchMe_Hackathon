@@ -39,7 +39,13 @@ const industrialTerms = [
 ];
 
 export function preflightAiIntake(input: StructureRequirementRequest): IntakePreflightResult {
-  const normalizedText = [input.rawRequirement, ...(input.evidence ?? []).map((item) => item.extractedText ?? "")]
+  const evidence = input.evidence ?? [];
+  const evidenceHasFileContent = evidence.some((item) => Boolean(item.dataUrl));
+  const normalizedText = [
+    input.rawRequirement,
+    ...evidence.map((item) => item.extractedText ?? ""),
+    ...evidence.map((item) => item.name)
+  ]
     .join("\n")
     .replace(/\s+/g, " ")
     .trim();
@@ -48,6 +54,16 @@ export function preflightAiIntake(input: StructureRequirementRequest): IntakePre
     return {
       allowed: false,
       reason: "Enter a short factory problem statement before using AI structuring."
+    };
+  }
+
+  const lowerText = normalizedText.toLowerCase();
+  const hasIndustrialSignal = industrialTerms.some((term) => lowerText.includes(term));
+
+  if (evidenceHasFileContent && hasIndustrialSignal) {
+    return {
+      allowed: true,
+      normalizedText
     };
   }
 
@@ -65,8 +81,6 @@ export function preflightAiIntake(input: StructureRequirementRequest): IntakePre
     };
   }
 
-  const lowerText = normalizedText.toLowerCase();
-  const hasIndustrialSignal = industrialTerms.some((term) => lowerText.includes(term));
   if (!hasIndustrialSignal) {
     return {
       allowed: false,
