@@ -1261,7 +1261,7 @@ function aggregateDeliveryStatus(
     const error = deliveries.find((delivery) => delivery.deliveryStatus === "failed")?.errorMessage;
     return {
       status: "failed",
-      detail: `${failedCount} failed${error ? `: ${error}` : ""}`
+      detail: `${sentCount ? `${sentCount} sent, ` : ""}${failedCount} failed${error ? `: ${error}` : ""}`
     };
   }
   if (queuedCount) {

@@ -2,20 +2,59 @@
 
 Veltact sends each matched supplier a unique, no-login opportunity link when the buyer selects **Send to matched suppliers**. Email and mobile delivery states remain separate from invitation `viewed`, `responded`, and `declined` states. Secure links remain available when a provider is unavailable or rejects delivery.
 
-## Resend Email
+## Phone-Ready Links
 
-Configure the API process in `apps/api/.env`:
+`WEB_ORIGIN` is embedded in newly created invitation links. `http://localhost:4000` works only on the same computer. For a phone demo, expose the Veltact API over HTTPS and set `WEB_ORIGIN` to that public origin:
+
+```dotenv
+WEB_ORIGIN=https://your-public-demo-origin.example
+```
+
+The API serves `supplier.html` and its `/api` routes from the same origin. Restart the API after changing environment values and create a new Need Profile so its invitations use the current origin.
+
+## Email
+
+Development without external delivery:
+
+```dotenv
+EMAIL_PROVIDER=local_demo
+```
+
+`local_demo` records `sent` only in development or test. It logs the accepted message locally and does not send an external email. It fails in production.
+
+Resend:
 
 ```dotenv
 EMAIL_PROVIDER=resend
-EMAIL_FROM=Veltact <onboarding@resend.dev>
-RESEND_API_KEY=replace-with-resend-secret
-SUPPLIER_OUTREACH_EMAIL_TO=your-resend-account-email@example.com
+EMAIL_FROM=Veltact <opportunities@your-verified-domain.example>
+RESEND_API_KEY=replace-with-provider-secret
+SUPPLIER_OUTREACH_EMAIL_TO=demo-supplier@example.com
 ```
 
-`onboarding@resend.dev` can only send to the email address associated with the Resend account. Sending to other recipients requires a verified sending domain.
+SendGrid:
 
-The application calls Resend from the backend. Never embed `RESEND_API_KEY` in browser code or commit it.
+```dotenv
+EMAIL_PROVIDER=sendgrid
+EMAIL_FROM=opportunities@your-verified-domain.example
+SENDGRID_API_KEY=replace-with-provider-secret
+SUPPLIER_OUTREACH_EMAIL_TO=demo-supplier@example.com
+```
+
+The sender must be accepted by the configured provider. When testing Resend with `onboarding@resend.dev`, delivery is restricted to the email address associated with that Resend account. The demo override is required while seeded supplier email addresses use placeholder domains.
+
+## SMS
+
+Twilio:
+
+```dotenv
+SMS_PROVIDER=twilio
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=replace-with-provider-secret
+TWILIO_FROM_NUMBER=+10000000000
+SUPPLIER_OUTREACH_SMS_TO=+61400000000
+```
+
+Use E.164 phone numbers. Twilio trial projects may restrict delivery to verified recipients. The demo override is required while seeded supplier numbers are placeholders.
 
 ## Twilio WhatsApp Sandbox
 
@@ -27,7 +66,7 @@ The application calls Resend from the backend. Never embed `RESEND_API_KEY` in b
 ```dotenv
 SMS_PROVIDER=twilio
 TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-TWILIO_AUTH_TOKEN=replace-with-twilio-secret
+TWILIO_AUTH_TOKEN=replace-with-provider-secret
 TWILIO_WHATSAPP_FROM=+14155238886
 SUPPLIER_OUTREACH_WHATSAPP_TO=+61400000000
 ```
@@ -38,12 +77,11 @@ The Sandbox only sends to users who joined that Sandbox. Veltact currently sends
 
 The shared outreach contract currently permits only `channel: email | sms`. Until A0 adds a WhatsApp contract value, Twilio WhatsApp uses the existing mobile `sms` delivery slot internally. The destination carries the required `whatsapp:` prefix, and the buyer UI labels it **WhatsApp**. No shared contract or Socket.IO event name is changed.
 
-## Phone-Ready Supplier Link
+## Truthful Statuses
 
-`WEB_ORIGIN` is embedded in newly created invitation links. For a phone demo, it must be reachable from the phone:
+- `not_sent`: destination exists but no delivery attempt has started.
+- `queued`: the backend is making the provider/local adapter request.
+- `sent`: the configured provider accepted the request, or `local_demo` confirmed it outside production.
+- `failed`: configuration, provider rejection, timeout, or network failure prevented provider acceptance.
 
-```dotenv
-WEB_ORIGIN=https://your-public-demo-origin.example
-```
-
-Restart the API after changing environment values and create a new Need Profile so its invitations use the current origin.
+Provider secrets belong in `apps/api/.env` or the deployment secret store and must not be committed. Never embed them in browser code.

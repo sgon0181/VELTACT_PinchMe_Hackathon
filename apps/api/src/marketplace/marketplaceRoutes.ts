@@ -6,6 +6,7 @@ import {
   createNeed,
   getEngagement,
   getNeed,
+  getResponseForInvitation,
   listOutreachDeliveriesForNeed,
   listResponsesForNeed,
   markInvitationViewed,
@@ -106,6 +107,7 @@ marketplaceRouter.get("/supplier-invitations/:token", (request, response) => {
   emitSupplierInvitationUpdated(invitation);
 
   const need = getNeed(invitation.needId);
+  const existingResponse = getResponseForInvitation(invitation.id);
   response.json({
     invitation: {
       ...serialiseSupplierInvitation(invitation),
@@ -115,6 +117,8 @@ marketplaceRouter.get("/supplier-invitations/:token", (request, response) => {
       respondedAt: invitation.respondedAt
     },
     supplierInvitation: serialiseSupplierInvitation(invitation),
+    supplierResponse: existingResponse ? serialiseSupplierResponse(existingResponse) : undefined,
+    response: existingResponse,
     need: need ? serialiseNeed(need) : undefined
   });
 });
@@ -179,17 +183,21 @@ marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", async (
     return;
   }
 
-  const updatedDeliveries = await sendSupplierOutreachForNeed(request.params.needProfileId);
+  const updatedDeliveries = await sendSupplierOutreachForNeed(
+    request.params.needProfileId,
+    (delivery) => {
+      emitOutreachDeliveryUpdated(
+        request.params.needProfileId,
+        serialiseOutreachDelivery(delivery)
+      );
+    }
+  );
   if (!updatedDeliveries) {
     response.status(404).json({
       status: "error",
       message: "Need profile not found"
     });
     return;
-  }
-
-  for (const delivery of updatedDeliveries) {
-    emitOutreachDeliveryUpdated(request.params.needProfileId, serialiseOutreachDelivery(delivery));
   }
 
   const deliveries = listOutreachDeliveriesForNeed(request.params.needProfileId) ?? [];

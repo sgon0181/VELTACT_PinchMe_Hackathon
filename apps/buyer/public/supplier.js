@@ -36,6 +36,10 @@ async function loadOpportunity(invitationToken) {
     }
 
     renderOpportunity(payload.need, payload.invitation);
+    const existingResponse = payload.response || payload.supplierResponse;
+    if (existingResponse) {
+      showSubmittedReceipt(existingResponse);
+    }
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Unable to load opportunity.");
     form.hidden = true;

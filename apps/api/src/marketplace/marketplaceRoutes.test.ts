@@ -15,6 +15,7 @@ import {
 } from "@veltact/contracts";
 import { io as createSocketClient, type Socket } from "socket.io-client";
 import { app } from "../app.js";
+import { env } from "../env.js";
 import {
   resetPaymentProviderForTest,
   setPaymentProviderForTest
@@ -328,6 +329,13 @@ describe("marketplace core routes", () => {
     assert.equal(responses.status, 200);
     assert.deepEqual(responses.body.responses, [duplicate.body.response]);
     assert.deepEqual(responses.body.supplierResponses, [duplicate.body.supplierResponse]);
+
+    const reopened = await getJson(`/api/supplier-invitations/${token}`);
+    assert.equal(reopened.status, 200);
+    assert.equal(reopened.body.supplierInvitation.status, "responded");
+    assert.equal(reopened.body.response.id, submitted.body.response.id);
+    assert.equal(reopened.body.supplierResponse.id, submitted.body.supplierResponse.id);
+    assert.equal(reopened.body.supplierResponse.decision, "can_help");
   });
 
   test("enforces one valid supplier selection and closes later supplier response changes", async () => {
@@ -501,9 +509,94 @@ describe("marketplace core routes", () => {
         (update) =>
           update.needProfileId === needProfileId &&
           update.outreachDelivery.channel === "email" &&
+          update.outreachDelivery.deliveryStatus === "queued"
+      )
+    );
+    assert.ok(
+      updates.some(
+        (update) =>
+          update.needProfileId === needProfileId &&
+          update.outreachDelivery.channel === "email" &&
           update.outreachDelivery.deliveryStatus === "sent"
       )
     );
+  });
+
+  test("marks provider network failures as failed and continues every delivery", async () => {
+    const originalEmailProvider = env.EMAIL_PROVIDER;
+    const originalEmailFrom = env.EMAIL_FROM;
+    const originalResendApiKey = env.RESEND_API_KEY;
+    const originalFetch = globalThis.fetch;
+    Object.assign(env, {
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key"
+    });
+    globalThis.fetch = async (input, init) => {
+      if (String(input).startsWith(baseUrl)) {
+        return originalFetch(input, init);
+      }
+      throw new Error("provider connection unavailable");
+    };
+
+    try {
+      const created = await postJson("/api/needs", {
+        buyerEmail: "buyer@example.com",
+        profile: automationNeed()
+      });
+      const needProfileId = created.body.need.id;
+      const client = await connectSocket();
+      const updates: Record<string, any>[] = [];
+      client.on(rapidMatchSocketEvent.outreachDeliveryUpdated, (payload) => {
+        updates.push(payload);
+      });
+      client.emit(rapidMatchSocketEvent.joinNeedProfile, { needProfileId });
+      await wait(25);
+
+      const result = await postJson(`/api/need-profiles/${needProfileId}/invitations/send`, {});
+      await wait(25);
+      client.close();
+
+      assert.equal(result.status, 200);
+      assert.equal(result.body.supplierOutreachDeliveries.length, 6);
+      assert.ok(
+        result.body.supplierOutreachDeliveries.every(
+          (delivery: { deliveryStatus: string }) => delivery.deliveryStatus === "failed"
+        )
+      );
+      const emailDeliveries = result.body.supplierOutreachDeliveries.filter(
+        (delivery: { channel: string }) => delivery.channel === "email"
+      );
+      assert.equal(emailDeliveries.length, 3);
+      assert.ok(
+        emailDeliveries.every((delivery: { errorMessage: string }) =>
+          /Resend delivery request failed: provider connection unavailable/.test(
+            delivery.errorMessage
+          )
+        )
+      );
+      assert.ok(
+        updates.some(
+          (update) =>
+            update.outreachDelivery.channel === "email" &&
+            update.outreachDelivery.deliveryStatus === "queued"
+        )
+      );
+      assert.ok(
+        updates.some(
+          (update) =>
+            update.outreachDelivery.channel === "email" &&
+            update.outreachDelivery.deliveryStatus === "failed"
+        )
+      );
+    } finally {
+      Object.assign(env, {
+        EMAIL_PROVIDER: originalEmailProvider,
+        EMAIL_FROM: originalEmailFrom,
+        RESEND_API_KEY: originalResendApiKey
+      });
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test("rejects malformed needs and unknown supplier invitation tokens", async () => {

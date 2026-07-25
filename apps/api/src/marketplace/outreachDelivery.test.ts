@@ -27,10 +27,28 @@ afterEach(() => {
 });
 
 describe("supplier outreach provider adapters", { concurrency: false }, () => {
+  test("confirms local demo email only outside production", async () => {
+    Object.assign(env, {
+      NODE_ENV: "test",
+      EMAIL_PROVIDER: "local_demo"
+    });
+
+    assert.deepEqual(
+      await sendSupplierOpportunity(emailDelivery(), invitation(), need()),
+      { ok: true }
+    );
+
+    Object.assign(env, { NODE_ENV: "production" });
+    assert.deepEqual(
+      await sendSupplierOpportunity(emailDelivery(), invitation(), need()),
+      { ok: false, errorMessage: "Production email provider is not configured." }
+    );
+  });
+
   test("sends the secure opportunity link through Resend", async () => {
     Object.assign(env, {
       EMAIL_PROVIDER: "resend",
-      EMAIL_FROM: "Veltact <onboarding@resend.dev>",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
       RESEND_API_KEY: "re_test_key"
     });
     let request: { url: string; init?: RequestInit } | undefined;
@@ -48,9 +66,59 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
       "Bearer re_test_key"
     );
     const body = JSON.parse(String(request?.init?.body));
-    assert.equal(body.from, "Veltact <onboarding@resend.dev>");
-    assert.deepEqual(body.to, ["sgon0181@uni.sydney.edu.au"]);
+    assert.equal(body.from, "Veltact <opportunities@veltact.test>");
+    assert.deepEqual(body.to, ["supplier@example.com"]);
     assert.match(body.text, /https:\/\/demo\.veltact\.test\/supplier\.html\?token=token-123/);
+  });
+
+  test("sends the secure link through SendGrid when configured", async () => {
+    Object.assign(env, {
+      EMAIL_PROVIDER: "sendgrid",
+      EMAIL_FROM: "opportunities@veltact.test",
+      SENDGRID_API_KEY: "sg_test_key"
+    });
+    let request: { url: string; init?: RequestInit } | undefined;
+    globalThis.fetch = async (input, init) => {
+      request = { url: String(input), init };
+      return new Response(null, { status: 202 });
+    };
+
+    const result = await sendSupplierOpportunity(emailDelivery(), invitation(), need());
+
+    assert.deepEqual(result, { ok: true });
+    assert.equal(request?.url, "https://api.sendgrid.com/v3/mail/send");
+    const body = JSON.parse(String(request?.init?.body));
+    assert.equal(body.personalizations[0].to[0].email, "supplier@example.com");
+    assert.match(body.content[0].value, /Respond here:/);
+  });
+
+  test("sends the secure opportunity link through Twilio SMS", async () => {
+    Object.assign(env, {
+      SMS_PROVIDER: "twilio",
+      TWILIO_ACCOUNT_SID: "AC123",
+      TWILIO_AUTH_TOKEN: "twilio_test_token",
+      TWILIO_FROM_NUMBER: "+61400000000"
+    });
+    let request: { url: string; init?: RequestInit } | undefined;
+    globalThis.fetch = async (input, init) => {
+      request = { url: String(input), init };
+      return new Response(JSON.stringify({ sid: "SM123", status: "queued" }), { status: 201 });
+    };
+
+    const result = await sendSupplierOpportunity(smsDelivery(), invitation(), need());
+
+    assert.deepEqual(result, { ok: true });
+    assert.equal(
+      request?.url,
+      "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json"
+    );
+    const body = new URLSearchParams(String(request?.init?.body));
+    assert.equal(body.get("To"), "+61411111111");
+    assert.equal(body.get("From"), "+61400000000");
+    assert.match(
+      body.get("Body") ?? "",
+      /https:\/\/demo\.veltact\.test\/supplier\.html\?token=token-123/
+    );
   });
 
   test("sends the secure opportunity link through the Twilio WhatsApp Sandbox", async () => {
@@ -120,31 +188,40 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
     );
   });
 
-  test("converts provider network errors into failed delivery results", async () => {
+  test("returns failed results for provider rejection and network errors", async () => {
     Object.assign(env, {
       EMAIL_PROVIDER: "resend",
-      EMAIL_FROM: "Veltact <onboarding@resend.dev>",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
       RESEND_API_KEY: "re_test_key"
     });
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ message: "sender domain is not verified" }), { status: 422 });
+
+    const rejected = await sendSupplierOpportunity(emailDelivery(), invitation(), need());
+    assert.equal(rejected.ok, false);
+    if (!rejected.ok) {
+      assert.match(rejected.errorMessage, /Resend rejected delivery \(422\)/);
+      assert.match(rejected.errorMessage, /sender domain is not verified/);
+    }
+
     globalThis.fetch = async () => {
       throw new Error("provider connection unavailable");
     };
-
-    assert.deepEqual(
-      await sendSupplierOpportunity(emailDelivery(), invitation(), need()),
-      {
-        ok: false,
-        errorMessage: "Resend delivery request failed: provider connection unavailable"
-      }
-    );
+    const unavailable = await sendSupplierOpportunity(emailDelivery(), invitation(), need());
+    assert.deepEqual(unavailable, {
+      ok: false,
+      errorMessage: "Resend delivery request failed: provider connection unavailable"
+    });
   });
 });
 
 type OutreachEnv = Pick<
   typeof env,
+  | "NODE_ENV"
   | "EMAIL_PROVIDER"
   | "EMAIL_FROM"
   | "RESEND_API_KEY"
+  | "SENDGRID_API_KEY"
   | "SMS_PROVIDER"
   | "TWILIO_ACCOUNT_SID"
   | "TWILIO_AUTH_TOKEN"
@@ -155,9 +232,11 @@ type OutreachEnv = Pick<
 
 function outreachEnv(): OutreachEnv {
   return {
+    NODE_ENV: env.NODE_ENV,
     EMAIL_PROVIDER: env.EMAIL_PROVIDER,
     EMAIL_FROM: env.EMAIL_FROM,
     RESEND_API_KEY: env.RESEND_API_KEY,
+    SENDGRID_API_KEY: env.SENDGRID_API_KEY,
     SMS_PROVIDER: env.SMS_PROVIDER,
     TWILIO_ACCOUNT_SID: env.TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN: env.TWILIO_AUTH_TOKEN,
@@ -172,7 +251,17 @@ function emailDelivery(): SupplierOutreachDelivery {
     invitationId: "invitation-123",
     supplierId: "supplier-123",
     channel: "email",
-    destination: "sgon0181@uni.sydney.edu.au",
+    destination: "supplier@example.com",
+    deliveryStatus: "not_sent"
+  };
+}
+
+function smsDelivery(): SupplierOutreachDelivery {
+  return {
+    invitationId: "invitation-123",
+    supplierId: "supplier-123",
+    channel: "sms",
+    destination: "+61411111111",
     deliveryStatus: "not_sent"
   };
 }

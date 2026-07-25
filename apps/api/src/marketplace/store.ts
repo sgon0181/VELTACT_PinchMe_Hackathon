@@ -106,7 +106,14 @@ export function getInvitation(token: string): SupplierInvitation | undefined {
   return invitations.get(token);
 }
 
-export async function sendSupplierOutreachForNeed(needId: string): Promise<SupplierOutreachDelivery[] | undefined> {
+export function getResponseForInvitation(invitationId: string): SupplierResponse | undefined {
+  return [...responses.values()].find((response) => response.invitationId === invitationId);
+}
+
+export async function sendSupplierOutreachForNeed(
+  needId: string,
+  onDeliveryUpdated?: (delivery: SupplierOutreachDelivery) => void
+): Promise<SupplierOutreachDelivery[] | undefined> {
   const need = needs.get(needId);
   if (!need) {
     return undefined;
@@ -119,7 +126,9 @@ export async function sendSupplierOutreachForNeed(needId: string): Promise<Suppl
       if (!delivery) {
         continue;
       }
-      updatedDeliveries.push(...(await sendOutreachDelivery(delivery, invitation, need)));
+      updatedDeliveries.push(
+        ...(await sendOutreachDelivery(delivery, invitation, need, onDeliveryUpdated))
+      );
     }
   }
 
@@ -284,7 +293,8 @@ function whatsappAddress(phoneNumber: string) {
 async function sendOutreachDelivery(
   delivery: SupplierOutreachDelivery,
   invitation: SupplierInvitation,
-  need: NeedRecord
+  need: NeedRecord,
+  onDeliveryUpdated?: (delivery: SupplierOutreachDelivery) => void
 ) {
   if (delivery.deliveryStatus === "sent") {
     return [{ ...delivery }];
@@ -294,6 +304,7 @@ async function sendOutreachDelivery(
   delivery.errorMessage = undefined;
   updatedNeedTimestamp(need);
   const updates = [{ ...delivery }];
+  onDeliveryUpdated?.(updates[0]);
 
   const result = await sendSupplierOpportunity(delivery, invitation, need);
   const sentAt = new Date().toISOString();
@@ -302,6 +313,7 @@ async function sendOutreachDelivery(
   delivery.errorMessage = result.ok ? undefined : result.errorMessage;
   updatedNeedTimestamp(need);
   updates.push({ ...delivery });
+  onDeliveryUpdated?.(updates[1]);
   return updates;
 }
 
