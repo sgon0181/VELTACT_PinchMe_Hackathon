@@ -2,6 +2,8 @@ import { Router } from "express";
 import type { Response } from "express";
 import { z } from "zod";
 import { pinchClient, PinchApiError } from "./pinchClient.js";
+import { verifyPinchWebhookSignature, PinchWebhookError } from "./webhookVerifier.js";
+import { listWebhookEvents, recordWebhookEvent } from "./webhookStore.js";
 
 export const pinchRouter = Router();
 
@@ -79,6 +81,40 @@ pinchRouter.post("/payment-link", async (request, response) => {
   } catch (error) {
     sendPinchError(response, error);
   }
+});
+
+pinchRouter.post("/webhooks", (request, response) => {
+  try {
+    verifyPinchWebhookSignature({
+      signatureHeader: request.header("pinch-signature"),
+      rawBody: request.rawBody
+    });
+
+    const event = recordWebhookEvent(request.body);
+    response.json({
+      received: true,
+      event
+    });
+  } catch (error) {
+    if (error instanceof PinchWebhookError) {
+      response.status(error.statusCode).json({
+        status: "error",
+        message: error.message
+      });
+      return;
+    }
+
+    response.status(500).json({
+      status: "error",
+      message: "Unexpected Pinch webhook error"
+    });
+  }
+});
+
+pinchRouter.get("/webhooks/events", (_request, response) => {
+  response.json({
+    events: listWebhookEvents()
+  });
 });
 
 function sendPinchError(response: Response, error: unknown) {

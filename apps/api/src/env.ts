@@ -18,7 +18,8 @@ const envSchema = z.object({
   PINCH_AUTH_URL: z.string().url(),
   PINCH_API_BASE_URL: z.string().url(),
   PINCH_API_VERSION: z.string().min(1).default("2020.1"),
-  PINCH_RETURN_URL: z.string().url().optional()
+  PINCH_RETURN_URL: z.string().url().optional(),
+  PINCH_WEBHOOK_SECRET: z.string().min(1).optional()
 });
 
 const rawEnv = {

@@ -27,6 +27,8 @@ PINCH_SECRET_KEY=your-pinch-test-secret-key
 PINCH_AUTH_URL=https://auth.getpinch.com.au/connect/token
 PINCH_API_BASE_URL=https://api.getpinch.com.au/test
 PINCH_API_VERSION=2020.1
+PINCH_RETURN_URL=http://localhost:5173/pinch/return
+PINCH_WEBHOOK_SECRET=whsec_replace_with_pinch_webhook_secret
 ```
 
 Start the API:
@@ -69,4 +71,20 @@ curl -s http://localhost:4000/api/pinch/payment-link \
       "demo": "pinch-checkpoint"
     }
   }'
+```
+
+## Pinch Webhooks
+
+Pinch sends webhook requests with a `pinch-signature` header. The API verifies `v2` as an HMAC-SHA256 signature of `{timestamp}.{raw request body}` using `PINCH_WEBHOOK_SECRET`, and rejects requests outside a five minute timestamp window.
+
+Register the local endpoint with Pinch using a public tunnel URL:
+
+```bash
+https://your-public-tunnel.example.com/api/pinch/webhooks
+```
+
+Recent verified webhook events are held in memory for local demo inspection:
+
+```bash
+curl -s http://localhost:4000/api/pinch/webhooks/events
 ```

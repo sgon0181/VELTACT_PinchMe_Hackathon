@@ -1,5 +1,6 @@
 import cors from "cors";
 import express from "express";
+import type { Request } from "express";
 import { env } from "./env.js";
 import { pinchRouter } from "./pinch/pinchRoutes.js";
 
@@ -10,7 +11,13 @@ app.use(
     origin: env.WEB_ORIGIN
   })
 );
-app.use(express.json());
+app.use(
+  express.json({
+    verify: (request, _response, buffer) => {
+      (request as Request).rawBody = buffer;
+    }
+  })
+);
 
 app.get("/api/health", (_request, response) => {
   response.json({
