@@ -21,7 +21,7 @@ export function verifyPinchWebhookSignature(input: {
   signatureHeader: string | undefined;
   rawBody: Buffer | undefined;
 }): VerifiedWebhook {
-  const webhookSecret = env.PINCH_WEBHOOK_SECRET ?? process.env.PINCH_WEBHOOK_SECRET;
+  const webhookSecret = process.env.PINCH_WEBHOOK_SECRET ?? env.PINCH_WEBHOOK_SECRET;
   if (!webhookSecret) {
     throw new PinchWebhookError("Pinch webhook secret is not configured", 503);
   }

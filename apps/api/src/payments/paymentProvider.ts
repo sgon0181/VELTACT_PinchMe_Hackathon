@@ -16,6 +16,13 @@ export type HostedPaymentLink = {
   hostedCheckoutUrl: string;
 };
 
+export type AuthoritativePaymentResult = {
+  provider: "pinch";
+  paymentId: string;
+  status: "approved";
+};
+
 export interface PaymentProvider {
   createHostedPaymentLink(input: CreateHostedPaymentLinkInput): Promise<HostedPaymentLink>;
+  getApprovedPaymentForLink(paymentLinkId: string): Promise<AuthoritativePaymentResult | undefined>;
 }

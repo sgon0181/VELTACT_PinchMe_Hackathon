@@ -34,6 +34,13 @@ beforeEach(async () => {
         paymentLinkId: `plink_${input.engagementId}`,
         hostedCheckoutUrl: `https://sandbox.getpinch.com.au/pay/${input.engagementId}`
       };
+    },
+    async getApprovedPaymentForLink(paymentLinkId) {
+      return {
+        provider: "pinch",
+        paymentId: `pmt_${paymentLinkId}`,
+        status: "approved"
+      };
     }
   });
   server = createServer(app);

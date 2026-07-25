@@ -1,5 +1,6 @@
 import { env } from "../env.js";
 import type {
+  AuthoritativePaymentResult,
   CreateHostedPaymentLinkInput,
   HostedPaymentLink,
   PaymentProvider
@@ -72,6 +73,28 @@ class PinchClient implements PaymentProvider {
             })
       }
     });
+  }
+
+  async getPaymentLink(paymentLinkId: string) {
+    return this.request<unknown>(`/payment-links/${encodeURIComponent(paymentLinkId)}`, {
+      method: "GET"
+    });
+  }
+
+  async getApprovedPaymentForLink(
+    paymentLinkId: string
+  ): Promise<AuthoritativePaymentResult | undefined> {
+    const paymentLink = await this.getPaymentLink(paymentLinkId);
+    const approvedPayment = findApprovedPayment(paymentLink);
+    if (!approvedPayment) {
+      return undefined;
+    }
+
+    return {
+      provider: "pinch",
+      paymentId: approvedPayment,
+      status: "approved"
+    };
   }
 
   async createHostedPaymentLink(
@@ -295,6 +318,33 @@ function findStringValue(payload: unknown, keys: string[]): string | undefined {
     const nested = findStringValue(value, keys);
     if (nested) {
       return nested;
+    }
+  }
+
+  return undefined;
+}
+
+function findApprovedPayment(payload: unknown): string | undefined {
+  if (typeof payload !== "object" || payload === null) {
+    return undefined;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const payments = record.payments ?? record.Payments;
+  if (!Array.isArray(payments)) {
+    return undefined;
+  }
+
+  for (const payment of payments) {
+    if (typeof payment !== "object" || payment === null) {
+      continue;
+    }
+
+    const paymentRecord = payment as Record<string, unknown>;
+    const status = String(paymentRecord.status ?? paymentRecord.Status ?? "").toLowerCase();
+    const paymentId = paymentRecord.id ?? paymentRecord.Id;
+    if (status === "approved" && typeof paymentId === "string") {
+      return paymentId;
     }
   }
 
