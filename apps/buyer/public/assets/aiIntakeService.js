@@ -2,9 +2,13 @@ export class DemoAiIntakeService {
     async structureRequirement(input) {
         // Replace this deterministic adapter with a POST to the future AI intake endpoint.
         await delay(320);
-        const rawRequirement = input.rawRequirement.trim();
+        const evidenceText = (input.evidence ?? [])
+            .map((item) => item.extractedText)
+            .filter((item) => Boolean(item?.trim()))
+            .join("\n");
+        const rawRequirement = [input.rawRequirement.trim(), evidenceText].filter(Boolean).join("\n\n");
         if (!rawRequirement) {
-            throw new Error("Enter the factory problem before structuring the requirement.");
+            throw new Error("Enter the factory problem or attach intake evidence before structuring the requirement.");
         }
         const normalised = rawRequirement.toLowerCase();
         const isUrgent = /today|urgent|immediate|stopped|down|line stop|fault/.test(normalised);
@@ -12,7 +16,7 @@ export class DemoAiIntakeService {
         const requiredCapabilities = detectCapabilities(normalised, equipmentOrTechnology);
         const location = detectLocation(normalised);
         const budgetRange = detectBudget(rawRequirement);
-        const constraints = detectConstraints(normalised, isUrgent);
+        const constraints = detectConstraints(normalised, isUrgent, input.evidence ?? []);
         return {
             rawRequirement,
             generatedProfile: {
@@ -30,7 +34,14 @@ export class DemoAiIntakeService {
                 buyerPriority: isUrgent ? "speed" : undefined
             },
             confidence: confidenceScore({ location, budgetRange, requiredCapabilities, equipmentOrTechnology }),
-            missingFields: missingFields({ location, budgetRange, requiredCapabilities, equipmentOrTechnology, isUrgent })
+            missingFields: missingFields({
+                location,
+                budgetRange,
+                requiredCapabilities,
+                equipmentOrTechnology,
+                isUrgent,
+                evidence: input.evidence ?? []
+            })
         };
     }
 }
@@ -86,7 +97,7 @@ function detectBudget(rawRequirement) {
     const match = rawRequirement.match(/\$?\s?(\d{3,5})(?:\s?aud)?/i);
     return match ? `Up to AUD ${Number(match[1]).toLocaleString("en-AU")}` : undefined;
 }
-function detectConstraints(normalised, isUrgent) {
+function detectConstraints(normalised, isUrgent, evidence) {
     const constraints = new Set();
     if (normalised.includes("factory") || normalised.includes("line"))
         constraints.add("Production environment");
@@ -94,6 +105,10 @@ function detectConstraints(normalised, isUrgent) {
         constraints.add("Packaging/food manufacturing context");
     if (isUrgent)
         constraints.add("Minimal downtime");
+    if (evidence.some((item) => item.kind === "pdf"))
+        constraints.add("PDF evidence attached for supplier review");
+    if (evidence.some((item) => item.kind === "photo"))
+        constraints.add("Photo evidence attached; visual details require OCR/vision service confirmation");
     return [...constraints];
 }
 function titleFromRequirement(rawRequirement, equipmentOrTechnology) {
@@ -127,5 +142,11 @@ function missingFields(input) {
         missing.push("equipment or technology");
     if (!input.requiredCapabilities.length)
         missing.push("required supplier capability");
+    if (input.evidence.some((item) => item.kind === "photo" && !item.extractedText)) {
+        missing.push("photo OCR or visual interpretation");
+    }
+    if (input.evidence.some((item) => item.kind === "pdf" && !item.extractedText)) {
+        missing.push("PDF text extraction");
+    }
     return missing;
 }

@@ -280,6 +280,61 @@ textarea {
   font-weight: 600;
 }
 
+.evidence-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.8fr) minmax(180px, 0.8fr);
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 14px;
+  background: linear-gradient(180deg, rgba(16, 30, 46, 0.86), rgba(10, 20, 33, 0.86));
+}
+
+.evidence-written textarea {
+  min-height: 112px;
+}
+
+.evidence-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: stretch;
+  border: 1px solid rgba(46, 127, 198, 0.32);
+  border-radius: 6px;
+  padding: 12px;
+  background: rgba(36, 104, 162, 0.1);
+}
+
+.evidence-summary > strong {
+  width: 100%;
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.evidence-summary span {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 10px;
+  background: var(--panel-raised);
+}
+
+.evidence-summary b {
+  color: var(--signal-red);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+}
+
+.evidence-summary small {
+  color: var(--muted);
+}
+
 .ai-result-panel {
   display: grid;
   gap: 16px;
@@ -1266,6 +1321,7 @@ dd {
   .grid-two,
   .split,
   .ai-intake-panel,
+  .evidence-panel,
   .ai-result-grid,
   .structured-fields,
   .form-grid,

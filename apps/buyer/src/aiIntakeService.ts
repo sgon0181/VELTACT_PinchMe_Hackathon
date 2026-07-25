@@ -2,6 +2,13 @@ import type { AiIntakeResult } from "@veltact/contracts";
 
 export type StructureRequirementInput = {
   rawRequirement: string;
+  evidence?: IntakeEvidence[];
+};
+
+export type IntakeEvidence = {
+  kind: "written" | "pdf" | "photo";
+  name: string;
+  extractedText?: string;
 };
 
 export interface AiIntakeAdapter {
@@ -12,9 +19,13 @@ export class DemoAiIntakeService implements AiIntakeAdapter {
   async structureRequirement(input: StructureRequirementInput): Promise<AiIntakeResult> {
     // Replace this deterministic adapter with a POST to the future AI intake endpoint.
     await delay(320);
-    const rawRequirement = input.rawRequirement.trim();
+    const evidenceText = (input.evidence ?? [])
+      .map((item) => item.extractedText)
+      .filter((item): item is string => Boolean(item?.trim()))
+      .join("\n");
+    const rawRequirement = [input.rawRequirement.trim(), evidenceText].filter(Boolean).join("\n\n");
     if (!rawRequirement) {
-      throw new Error("Enter the factory problem before structuring the requirement.");
+      throw new Error("Enter the factory problem or attach intake evidence before structuring the requirement.");
     }
 
     const normalised = rawRequirement.toLowerCase();
@@ -23,7 +34,7 @@ export class DemoAiIntakeService implements AiIntakeAdapter {
     const requiredCapabilities = detectCapabilities(normalised, equipmentOrTechnology);
     const location = detectLocation(normalised);
     const budgetRange = detectBudget(rawRequirement);
-    const constraints = detectConstraints(normalised, isUrgent);
+    const constraints = detectConstraints(normalised, isUrgent, input.evidence ?? []);
 
     return {
       rawRequirement,
@@ -42,7 +53,14 @@ export class DemoAiIntakeService implements AiIntakeAdapter {
         buyerPriority: isUrgent ? "speed" : undefined
       },
       confidence: confidenceScore({ location, budgetRange, requiredCapabilities, equipmentOrTechnology }),
-      missingFields: missingFields({ location, budgetRange, requiredCapabilities, equipmentOrTechnology, isUrgent })
+      missingFields: missingFields({
+        location,
+        budgetRange,
+        requiredCapabilities,
+        equipmentOrTechnology,
+        isUrgent,
+        evidence: input.evidence ?? []
+      })
     };
   }
 }
@@ -90,11 +108,13 @@ function detectBudget(rawRequirement: string) {
   return match ? `Up to AUD ${Number(match[1]).toLocaleString("en-AU")}` : undefined;
 }
 
-function detectConstraints(normalised: string, isUrgent: boolean) {
+function detectConstraints(normalised: string, isUrgent: boolean, evidence: IntakeEvidence[]) {
   const constraints = new Set<string>();
   if (normalised.includes("factory") || normalised.includes("line")) constraints.add("Production environment");
   if (normalised.includes("food") || normalised.includes("packaging")) constraints.add("Packaging/food manufacturing context");
   if (isUrgent) constraints.add("Minimal downtime");
+  if (evidence.some((item) => item.kind === "pdf")) constraints.add("PDF evidence attached for supplier review");
+  if (evidence.some((item) => item.kind === "photo")) constraints.add("Photo evidence attached; visual details require OCR/vision service confirmation");
   return [...constraints];
 }
 
@@ -126,6 +146,7 @@ function missingFields(input: {
   requiredCapabilities: string[];
   equipmentOrTechnology: string[];
   isUrgent: boolean;
+  evidence: IntakeEvidence[];
 }) {
   const missing: string[] = [];
   if (!input.location) missing.push("site location");
@@ -133,5 +154,11 @@ function missingFields(input: {
   if (!input.budgetRange) missing.push("budget or callout tolerance");
   if (!input.equipmentOrTechnology.length) missing.push("equipment or technology");
   if (!input.requiredCapabilities.length) missing.push("required supplier capability");
+  if (input.evidence.some((item) => item.kind === "photo" && !item.extractedText)) {
+    missing.push("photo OCR or visual interpretation");
+  }
+  if (input.evidence.some((item) => item.kind === "pdf" && !item.extractedText)) {
+    missing.push("PDF text extraction");
+  }
   return missing;
 }

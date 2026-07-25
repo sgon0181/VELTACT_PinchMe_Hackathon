@@ -25,6 +25,7 @@ let workspace;
 let outreachSent = false;
 let structuredDraftMessage = "";
 let aiIntakeResult;
+let intakeEvidence = [];
 let pollHandle;
 let isPolling = false;
 let realtimeSocket;
@@ -160,10 +161,25 @@ function renderSubmit() {
       <section class="ai-intake-panel">
         <div>
           <strong>Messy problem text</strong>
-          <p>Use the intake adapter to extract a supplier-ready profile. It structures the request; it does not diagnose the machine.</p>
+          <p>Add written notes, a PDF, or a photo. The wrapper structures supplier requirements; it does not diagnose the machine.</p>
         </div>
         <button id="structure-button" class="primary" type="button">Structure requirement</button>
       </section>
+      <section class="evidence-panel">
+        <label class="field evidence-written">
+          <span>Written notes</span>
+          <textarea name="writtenEvidence" rows="4" placeholder="Paste alarm text, maintenance notes, shift handover details, or supplier context."></textarea>
+        </label>
+        <label class="field">
+          <span>PDF evidence</span>
+          <input name="pdfEvidence" type="file" accept="application/pdf,.pdf,text/plain,.txt" />
+        </label>
+        <label class="field">
+          <span>Photograph evidence</span>
+          <input name="photoEvidence" type="file" accept="image/*" />
+        </label>
+      </section>
+      ${intakeEvidence.length ? renderEvidenceSummary(intakeEvidence) : ""}
       ${structuredDraftMessage ? `<div class="draft-banner">${escapeHtml(structuredDraftMessage)}</div>` : ""}
       ${aiIntakeResult ? renderAiIntakeResult(aiIntakeResult) : ""}
       <label class="field requirement-field">
@@ -205,6 +221,20 @@ function renderSubmit() {
         <button class="primary" type="submit">Find matching suppliers</button>
       </div>
     </form>
+  `;
+}
+function renderEvidenceSummary(evidence) {
+    return `
+    <section class="evidence-summary">
+      <strong>Evidence used by wrapper</strong>
+      ${evidence.map((item) => `
+        <span>
+          <b>${item.kind.toUpperCase()}</b>
+          ${escapeHtml(item.name)}
+          <small>${item.extractedText ? "Text available to structure" : "Metadata only; needs real OCR/extraction service later"}</small>
+        </span>
+      `).join("")}
+    </section>
   `;
 }
 function renderAiIntakeResult(result) {
@@ -536,8 +566,10 @@ function bindEvents() {
         const descriptionElement = form.elements.namedItem("description");
         const description = descriptionElement instanceof HTMLTextAreaElement ? descriptionElement.value.trim() : "";
         await run(async () => {
+            intakeEvidence = await collectIntakeEvidence(form);
             const result = await aiIntakeService.structureRequirement({
-                rawRequirement: description || demoInput.description
+                rawRequirement: description || demoInput.description,
+                evidence: intakeEvidence
             });
             const structured = result.generatedProfile;
             aiIntakeResult = result;
@@ -605,6 +637,8 @@ function bindEvents() {
         setFormValue(form, "constraints", demoInput.constraints.join(", "));
         intakeDraft = { ...demoInput };
         intakeUrgencySignal = "Immediate production impact";
+        intakeEvidence = [];
+        aiIntakeResult = undefined;
         priority = "speed";
         structuredDraftMessage = "";
         document.querySelectorAll("[data-priority]").forEach((button) => {
@@ -924,6 +958,43 @@ function syncIntakeDraftFromForm() {
         constraints: csvValues(formData, "constraints")
     };
     intakeUrgencySignal = value(formData, "urgencySignal");
+}
+async function collectIntakeEvidence(form) {
+    const formData = new FormData(form);
+    const evidence = [];
+    const writtenEvidence = value(formData, "writtenEvidence");
+    if (writtenEvidence) {
+        evidence.push({
+            kind: "written",
+            name: "Written notes",
+            extractedText: writtenEvidence
+        });
+    }
+    const pdfFile = fileFromForm(form, "pdfEvidence");
+    if (pdfFile) {
+        evidence.push(await evidenceFromFile(pdfFile, "pdf"));
+    }
+    const photoFile = fileFromForm(form, "photoEvidence");
+    if (photoFile) {
+        evidence.push(await evidenceFromFile(photoFile, "photo"));
+    }
+    return evidence;
+}
+function fileFromForm(form, name) {
+    const fieldElement = form.elements.namedItem(name);
+    if (!(fieldElement instanceof HTMLInputElement) || fieldElement.type !== "file") {
+        return undefined;
+    }
+    return fieldElement.files?.[0];
+}
+async function evidenceFromFile(file, fallbackKind) {
+    const kind = file.type.startsWith("image/") ? "photo" : file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf") ? "pdf" : fallbackKind;
+    const canReadAsText = file.type.startsWith("text/") || file.name.toLowerCase().endsWith(".txt");
+    return {
+        kind,
+        name: file.name,
+        extractedText: canReadAsText ? await file.text() : undefined
+    };
 }
 function titleFromRequirement(description) {
     const firstSentence = description.split(/[.!?]/)[0]?.trim();
