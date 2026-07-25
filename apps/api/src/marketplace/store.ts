@@ -103,6 +103,23 @@ export function submitSupplierResponse(
     (response) => response.needId === invitation.needId && response.supplierId === invitation.supplierId
   );
   if (existingResponse) {
+    const updatedAt = new Date().toISOString();
+    existingResponse.canHelp = input.canHelp;
+    existingResponse.decision = input.canHelp ? "can_help" : "cannot_help";
+    existingResponse.earliestAvailability = input.earliestAvailability;
+    existingResponse.availability = input.earliestAvailability;
+    existingResponse.indicativePriceAud = input.indicativePriceAud;
+    existingResponse.indicativePrice = {
+      amount: input.indicativePriceAud * 100,
+      currency: "AUD"
+    };
+    existingResponse.relevantExperience = input.relevantExperience;
+    existingResponse.conditions = input.conditions;
+    existingResponse.updatedAt = updatedAt;
+    invitation.status = "responded";
+    invitation.respondedAt = updatedAt;
+    invitation.updatedAt = updatedAt;
+    updateMatchResponseStatus(invitation, input.canHelp, updatedAt);
     return existingResponse;
   }
 
@@ -135,13 +152,17 @@ export function submitSupplierResponse(
   invitation.respondedAt = submittedAt;
   invitation.updatedAt = submittedAt;
   responses.set(response.id, response);
+  updateMatchResponseStatus(invitation, input.canHelp, submittedAt);
+  return response;
+}
+
+function updateMatchResponseStatus(invitation: SupplierInvitation, canHelp: boolean, updatedAt: string) {
   const need = needs.get(invitation.needId);
   const match = need?.matches.find((item) => item.supplier.id === invitation.supplierId);
   if (match) {
-    match.status = input.canHelp ? "responded" : "declined";
-    match.updatedAt = submittedAt;
+    match.status = canHelp ? "responded" : "declined";
+    match.updatedAt = updatedAt;
   }
-  return response;
 }
 
 export function listResponsesForNeed(needId: string): SupplierResponse[] | undefined {

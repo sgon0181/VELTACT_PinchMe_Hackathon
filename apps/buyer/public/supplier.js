@@ -71,7 +71,7 @@ function fillDemoResponse() {
 
 async function submitResponse(event, invitationToken) {
   event.preventDefault();
-  const submitButton = form.querySelector("button");
+  const submitButton = form.querySelector(`button[type="submit"]`);
   submitButton.disabled = true;
   setStatus("Submitting...");
 

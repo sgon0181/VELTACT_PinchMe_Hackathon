@@ -136,14 +136,19 @@ describe("marketplace core routes", () => {
       conditions: "Should not create a second response."
     });
     assert.equal(duplicate.status, 201);
-    assert.deepEqual(duplicate.body.response, submitted.body.response);
-    assert.deepEqual(duplicate.body.supplierResponse, submitted.body.supplierResponse);
+    assert.equal(duplicate.body.response.id, submitted.body.response.id);
+    assert.equal(duplicate.body.response.indicativePriceAud, 19000);
+    assert.equal(duplicate.body.supplierResponse.id, submitted.body.supplierResponse.id);
+    assert.deepEqual(duplicate.body.supplierResponse.indicativePrice, {
+      amount: 1900000,
+      currency: "AUD"
+    });
 
     const responses = await getJson(`/api/needs/${created.body.need.id}/responses`);
 
     assert.equal(responses.status, 200);
-    assert.deepEqual(responses.body.responses, [submitted.body.response]);
-    assert.deepEqual(responses.body.supplierResponses, [submitted.body.supplierResponse]);
+    assert.deepEqual(responses.body.responses, [duplicate.body.response]);
+    assert.deepEqual(responses.body.supplierResponses, [duplicate.body.supplierResponse]);
   });
 
   test("emits realtime buyer updates when a supplier response is submitted", async () => {
