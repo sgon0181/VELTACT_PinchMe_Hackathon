@@ -24,6 +24,7 @@ import {
 import { env } from "../env.js";
 import { PinchApiError } from "../pinch/pinchClient.js";
 import { getPaymentProvider } from "../payments/providerRegistry.js";
+import type { SupplierResponse } from "./types.js";
 
 export const marketplaceRouter = Router();
 
@@ -210,20 +211,34 @@ marketplaceRouter.post("/need-profiles/:needProfileId/engagements", (request, re
     return;
   }
 
-  const engagement = createEngagement({
+  const result = createEngagement({
     needId: request.params.needProfileId,
     supplierResponseId: parsed.data.supplierResponseId
   });
 
-  if (!engagement) {
+  if (result.status === "not_found") {
     response.status(404).json({
       status: "error",
       message: "Need profile or supplier response not found"
     });
     return;
   }
+  if (result.status === "not_selectable") {
+    response.status(409).json({
+      status: "error",
+      message: "Only a submitted response from a supplier who can help may be selected"
+    });
+    return;
+  }
+  if (result.status === "already_selected") {
+    response.status(409).json({
+      status: "error",
+      message: "A supplier has already been selected for this need"
+    });
+    return;
+  }
 
-  response.status(201).json({ engagement: serialiseEngagement(engagement) });
+  response.status(201).json({ engagement: serialiseEngagement(result.engagement) });
 });
 
 marketplaceRouter.get("/engagements/:engagementId", async (request, response) => {
@@ -402,14 +417,30 @@ marketplaceRouter.post("/supplier-invitations/:token/responses", (request, respo
     return;
   }
 
-  const supplierResponse = submitSupplierResponse(request.params.token, parsed.data);
-  if (!supplierResponse) {
+  const result = submitSupplierResponse(request.params.token, parsed.data);
+  if (result.status === "not_found") {
     response.status(404).json({
       status: "error",
       message: "Supplier invitation not found"
     });
     return;
   }
+  if (result.status === "expired") {
+    response.status(410).json({
+      status: "error",
+      message: "Supplier invitation has expired"
+    });
+    return;
+  }
+  if (result.status === "closed") {
+    response.status(409).json({
+      status: "error",
+      message: "Supplier responses are closed for this need"
+    });
+    return;
+  }
+
+  const supplierResponse = result.supplierResponse;
 
   emitSupplierResponseSubmitted(supplierResponse);
 
@@ -586,7 +617,7 @@ function serialiseLegacyInvitation(invitation: NonNullable<ReturnType<typeof mar
   };
 }
 
-function serialiseSupplierResponse(supplierResponse: NonNullable<ReturnType<typeof submitSupplierResponse>>) {
+function serialiseSupplierResponse(supplierResponse: SupplierResponse) {
   return {
     id: supplierResponse.id,
     needProfileId: supplierResponse.needProfileId,

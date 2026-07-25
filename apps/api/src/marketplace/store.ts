@@ -21,9 +21,25 @@ const engagements = new Map<string, Engagement>();
 const processedPinchEventIds = new Set<string>();
 const pinchWebhookEvidence = new Map<string, PinchWebhookEvidence>();
 
-export function createNeed(input: { buyerEmail: string; profile: NeedProfile }): NeedRecord {
+export type SupplierResponseSubmissionResult =
+  | { status: "submitted"; supplierResponse: SupplierResponse }
+  | { status: "not_found" }
+  | { status: "expired" }
+  | { status: "closed" };
+
+export type EngagementCreationResult =
+  | { status: "created"; engagement: Engagement }
+  | { status: "existing"; engagement: Engagement }
+  | { status: "not_found" }
+  | { status: "not_selectable" }
+  | { status: "already_selected" };
+
+export function createNeed(
+  input: { buyerEmail: string; profile: NeedProfile },
+  currentTime = new Date()
+): NeedRecord {
   const id = randomUUID();
-  const createdAt = new Date().toISOString();
+  const createdAt = currentTime.toISOString();
   const matches = matchSuppliers(input.profile, seededSuppliers);
   const needInvitations = matches.map((match) => {
     match.status = "invited";
@@ -118,14 +134,21 @@ export function listOutreachDeliveriesForNeed(needId: string): SupplierOutreachD
   return [...outreachDeliveries.values()].filter((delivery) => invitationIds.has(delivery.invitationId));
 }
 
-export function markInvitationViewed(token: string): SupplierInvitation | undefined {
+export function markInvitationViewed(
+  token: string,
+  currentTime = new Date()
+): SupplierInvitation | undefined {
   const invitation = invitations.get(token);
   if (!invitation) {
     return undefined;
   }
 
+  if (expireInvitationIfNeeded(invitation, currentTime)) {
+    return invitation;
+  }
+
   if (invitation.status === "sent" || invitation.status === "pending") {
-    const openedAt = new Date().toISOString();
+    const openedAt = currentTime.toISOString();
     invitation.status = "opened";
     invitation.openedAt = openedAt;
     invitation.updatedAt = openedAt;
@@ -142,18 +165,31 @@ export function submitSupplierResponse(
     indicativePriceAud: number;
     relevantExperience: string;
     conditions: string;
-  }
-): SupplierResponse | undefined {
+  },
+  currentTime = new Date()
+): SupplierResponseSubmissionResult {
   const invitation = invitations.get(token);
   if (!invitation) {
-    return undefined;
+    return { status: "not_found" };
+  }
+
+  if (expireInvitationIfNeeded(invitation, currentTime)) {
+    return { status: "expired" };
+  }
+
+  const need = needs.get(invitation.needId);
+  if (!need || invitation.status === "cancelled") {
+    return { status: "not_found" };
+  }
+  if (need.status !== "responses_open") {
+    return { status: "closed" };
   }
 
   const existingResponse = [...responses.values()].find(
     (response) => response.needId === invitation.needId && response.supplierId === invitation.supplierId
   );
   if (existingResponse) {
-    const updatedAt = new Date().toISOString();
+    const updatedAt = currentTime.toISOString();
     existingResponse.canHelp = input.canHelp;
     existingResponse.decision = input.canHelp ? "can_help" : "cannot_help";
     existingResponse.earliestAvailability = input.earliestAvailability;
@@ -170,10 +206,10 @@ export function submitSupplierResponse(
     invitation.respondedAt = updatedAt;
     invitation.updatedAt = updatedAt;
     updateMatchResponseStatus(invitation, input.canHelp, updatedAt);
-    return existingResponse;
+    return { status: "submitted", supplierResponse: existingResponse };
   }
 
-  const submittedAt = new Date().toISOString();
+  const submittedAt = currentTime.toISOString();
   const response: SupplierResponse = {
     id: randomUUID(),
     needId: invitation.needId,
@@ -203,7 +239,7 @@ export function submitSupplierResponse(
   invitation.updatedAt = submittedAt;
   responses.set(response.id, response);
   updateMatchResponseStatus(invitation, input.canHelp, submittedAt);
-  return response;
+  return { status: "submitted", supplierResponse: response };
 }
 
 function updateMatchResponseStatus(invitation: SupplierInvitation, canHelp: boolean, updatedAt: string) {
@@ -213,6 +249,26 @@ function updateMatchResponseStatus(invitation: SupplierInvitation, canHelp: bool
     match.status = canHelp ? "responded" : "declined";
     match.updatedAt = updatedAt;
   }
+}
+
+function expireInvitationIfNeeded(invitation: SupplierInvitation, currentTime: Date) {
+  if (Date.parse(invitation.expiresAt) > currentTime.getTime()) {
+    return false;
+  }
+
+  if (invitation.status !== "responded" && invitation.status !== "cancelled") {
+    const expiredAt = currentTime.toISOString();
+    invitation.status = "expired";
+    invitation.updatedAt = expiredAt;
+    const need = needs.get(invitation.needId);
+    const match = need?.matches.find((item) => item.supplier.id === invitation.supplierId);
+    if (match) {
+      match.status = "expired";
+      match.updatedAt = expiredAt;
+    }
+  }
+
+  return true;
 }
 
 function deliveryKey(invitationId: string, channel: SupplierOutreachDelivery["channel"]) {
@@ -260,18 +316,26 @@ export function listResponsesForNeed(needId: string): SupplierResponse[] | undef
 export function createEngagement(input: {
   needId: string;
   supplierResponseId: string;
-}): Engagement | undefined {
+}): EngagementCreationResult {
   const need = needs.get(input.needId);
   const supplierResponse = responses.get(input.supplierResponseId);
   if (!need || !supplierResponse || supplierResponse.needId !== input.needId) {
-    return undefined;
+    return { status: "not_found" };
   }
 
-  const existing = [...engagements.values()].find(
-    (engagement) => engagement.supplierResponseId === input.supplierResponseId
-  );
+  const existing = [...engagements.values()].find((engagement) => engagement.needId === input.needId);
   if (existing) {
-    return existing;
+    return existing.supplierResponseId === input.supplierResponseId
+      ? { status: "existing", engagement: existing }
+      : { status: "already_selected" };
+  }
+
+  if (
+    supplierResponse.status !== "submitted" ||
+    supplierResponse.decision !== "can_help" ||
+    !supplierResponse.canHelp
+  ) {
+    return { status: "not_selectable" };
   }
 
   const now = new Date().toISOString();
@@ -294,7 +358,7 @@ export function createEngagement(input: {
     match.updatedAt = now;
   }
   engagements.set(engagement.id, engagement);
-  return engagement;
+  return { status: "created", engagement };
 }
 
 export function getEngagement(engagementId: string): Engagement | undefined {

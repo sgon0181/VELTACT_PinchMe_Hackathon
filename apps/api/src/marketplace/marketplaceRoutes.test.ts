@@ -20,7 +20,12 @@ import {
   setPaymentProviderForTest
 } from "../payments/providerRegistry.js";
 import { attachRealtime } from "../realtime.js";
-import { resetMarketplaceStore } from "./store.js";
+import {
+  createNeed,
+  getInvitation,
+  resetMarketplaceStore,
+  submitSupplierResponse
+} from "./store.js";
 
 let server: Server;
 let baseUrl: string;
@@ -206,18 +211,65 @@ describe("marketplace core routes", () => {
     }
   });
 
-  test("resets in-memory marketplace demo state deterministically", async () => {
+  test("resets all in-memory marketplace demo state deterministically", async () => {
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",
       profile: automationNeed()
     });
+    const token = created.body.need.invitations[0].token;
+    const submitted = await postJson(`/api/supplier-invitations/${token}/responses`, {
+      canHelp: true,
+      earliestAvailability: "Same day",
+      indicativePriceAud: 18500,
+      relevantExperience: "Siemens PLC packaging line recovery.",
+      conditions: "Site induction required."
+    });
+    const selected = await postJson(`/api/need-profiles/${created.body.need.id}/engagements`, {
+      supplierResponseId: submitted.body.response.id
+    });
 
     const reset = await postJson("/api/demo/reset", {});
-    const afterReset = await getJson(`/api/needs/${created.body.need.id}`);
+    const needAfterReset = await getJson(`/api/needs/${created.body.need.id}`);
+    const invitationAfterReset = await getJson(`/api/supplier-invitations/${token}`);
+    const responsesAfterReset = await getJson(`/api/needs/${created.body.need.id}/responses`);
+    const engagementAfterReset = await getJson(`/api/engagements/${selected.body.engagement.id}`);
 
     assert.equal(reset.status, 200);
     assert.equal(reset.body.reset, true);
-    assert.equal(afterReset.status, 404);
+    assert.equal(needAfterReset.status, 404);
+    assert.equal(invitationAfterReset.status, 404);
+    assert.equal(responsesAfterReset.status, 404);
+    assert.equal(engagementAfterReset.status, 404);
+  });
+
+  test("expires supplier invitation tokens and their unmatched supplier state", () => {
+    const created = createNeed(
+      {
+        buyerEmail: "buyer@example.com",
+        profile: automationNeed()
+      },
+      new Date("2026-07-20T00:00:00.000Z")
+    );
+    const invitation = created.invitations[0];
+
+    const result = submitSupplierResponse(
+      invitation.token,
+      {
+        canHelp: true,
+        earliestAvailability: "2026-07-25",
+        indicativePriceAud: 18500,
+        relevantExperience: "Siemens PLC packaging line recovery.",
+        conditions: "Site induction required."
+      },
+      new Date("2026-07-24T00:00:00.000Z")
+    );
+
+    assert.equal(result.status, "expired");
+    assert.equal(getInvitation(invitation.token)?.status, "expired");
+    assert.equal(
+      created.matches.find((match) => match.supplier.id === invitation.supplierId)?.status,
+      "expired"
+    );
   });
 
   test("accepts supplier responses through invitation token and exposes standardised buyer responses", async () => {
@@ -276,6 +328,80 @@ describe("marketplace core routes", () => {
     assert.equal(responses.status, 200);
     assert.deepEqual(responses.body.responses, [duplicate.body.response]);
     assert.deepEqual(responses.body.supplierResponses, [duplicate.body.supplierResponse]);
+  });
+
+  test("enforces one valid supplier selection and closes later supplier response changes", async () => {
+    const created = await postJson("/api/needs", {
+      buyerEmail: "buyer@example.com",
+      profile: structuredSiemensNeed()
+    });
+    const [firstInvitation, secondInvitation] = created.body.need.invitations;
+
+    const declined = await postJson(`/api/supplier-invitations/${firstInvitation.token}/responses`, {
+      canHelp: false,
+      earliestAvailability: "Unavailable",
+      indicativePriceAud: 0,
+      relevantExperience: "Relevant Siemens experience, but no crew is currently available.",
+      conditions: "No availability."
+    });
+    const declinedSelection = await postJson(
+      `/api/need-profiles/${created.body.need.id}/engagements`,
+      { supplierResponseId: declined.body.response.id }
+    );
+    assert.equal(declinedSelection.status, 409);
+
+    const accepted = await postJson(`/api/supplier-invitations/${firstInvitation.token}/responses`, {
+      canHelp: true,
+      earliestAvailability: "Same day",
+      indicativePriceAud: 18500,
+      relevantExperience: "Recovered Siemens S7 packaging lines under production pressure.",
+      conditions: "Remote triage before dispatch."
+    });
+    const alternative = await postJson(
+      `/api/supplier-invitations/${secondInvitation.token}/responses`,
+      {
+        canHelp: true,
+        earliestAvailability: "Next morning",
+        indicativePriceAud: 17250,
+        relevantExperience: "Siemens PLC and conveyor controls support across Western Sydney.",
+        conditions: "Site induction required."
+      }
+    );
+
+    const selected = await postJson(`/api/need-profiles/${created.body.need.id}/engagements`, {
+      supplierResponseId: accepted.body.response.id
+    });
+    const repeatedSelection = await postJson(
+      `/api/need-profiles/${created.body.need.id}/engagements`,
+      { supplierResponseId: accepted.body.response.id }
+    );
+    const competingSelection = await postJson(
+      `/api/need-profiles/${created.body.need.id}/engagements`,
+      { supplierResponseId: alternative.body.response.id }
+    );
+    const lateResponseChange = await postJson(
+      `/api/supplier-invitations/${secondInvitation.token}/responses`,
+      {
+        canHelp: true,
+        earliestAvailability: "Same day",
+        indicativePriceAud: 16000,
+        relevantExperience: "Attempted change after buyer selection.",
+        conditions: "None."
+      }
+    );
+
+    assert.equal(selected.status, 201);
+    assert.equal(repeatedSelection.status, 201);
+    assert.equal(repeatedSelection.body.engagement.id, selected.body.engagement.id);
+    assert.equal(competingSelection.status, 409);
+    assert.equal(lateResponseChange.status, 409);
+
+    const retrieved = await getJson(`/api/needs/${created.body.need.id}`);
+    assert.equal(retrieved.body.need.status, "selected");
+    assert.equal(
+      retrieved.body.need.matches.filter((match: { status: string }) => match.status === "selected").length,
+      1
+    );
   });
 
   test("emits realtime buyer updates when a supplier response is submitted", async () => {
