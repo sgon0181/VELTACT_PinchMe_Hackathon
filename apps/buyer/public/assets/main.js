@@ -193,8 +193,16 @@ function renderSubmit() {
       ${intakeEvidence.length ? renderEvidenceSummary(intakeEvidence) : ""}
       ${structuredDraftMessage ? `<div class="draft-banner">${escapeHtml(structuredDraftMessage)}</div>` : ""}
       ${aiIntakeResult ? renderAiIntakeResult(aiIntakeResult) : ""}
+      <div id="editable-need-profile" class="editable-profile-heading">
+        <div>
+          <p class="eyebrow">Buyer review</p>
+          <h3>Editable Need Profile</h3>
+        </div>
+        <span>Buyer confirmation required</span>
+      </div>
+      ${field("title", "Requirement title", intakeDraft.title, "text", "Short supplier-facing title")}
       <label class="field requirement-field">
-        <span>Requirement</span>
+        <span>Problem summary</span>
         <textarea name="description" rows="8" placeholder="Describe the equipment, failure or service need, operating environment, access constraints and what outcome you need.">${escapeHtml(intakeDraft.description)}</textarea>
       </label>
       <div class="primary-fields">
@@ -220,7 +228,7 @@ function renderSubmit() {
       <section class="secondary-fields">
         <div class="secondary-heading">
           <span>Buyer details</span>
-          <button id="demo-fill-button" class="secondary-action" type="button">Use demo data</button>
+          <button id="demo-fill-button" class="secondary-action" type="button">Fill demo buyer details</button>
         </div>
         ${field("companyName", "Company", intakeDraft.companyName, "text", "Company name")}
         ${field("contactName", "Contact", intakeDraft.contactName, "text", "Primary contact")}
@@ -257,6 +265,9 @@ function evidenceStatusLabel(item) {
 }
 function renderAiIntakeResult(result) {
     const profile = result.generatedProfile;
+    const confidence = result.confidence === undefined
+        ? "Confidence not supplied"
+        : `${Math.round(result.confidence * 100)}% intake confidence`;
     return `
     <section class="ai-result-panel">
       <div class="ai-result-header">
@@ -264,8 +275,9 @@ function renderAiIntakeResult(result) {
           <p class="eyebrow">Structured draft</p>
           <h3>${escapeHtml(profile.title)}</h3>
         </div>
-        <span class="confidence-meter">${Math.round((result.confidence ?? 0) * 100)}% confidence</span>
+        <span class="confidence-meter">${confidence}</span>
       </div>
+      <p class="confidence-note">Confidence reflects the model's confidence in the structured details, not profile completeness. It is not a machine diagnosis or a guarantee that inferred details are correct.</p>
       <div class="ai-result-grid">
         ${aiResultItem("Problem summary", profile.problemSummary)}
         ${aiResultItem("Category", profile.category)}
@@ -277,10 +289,10 @@ function renderAiIntakeResult(result) {
         ${aiResultItem("Buyer priority", profile.buyerPriority ? priorityLabel(profile.buyerPriority) : "Missing")}
       </div>
       ${result.missingFields.length
-        ? `<div class="missing-fields"><strong>Missing fields to review</strong>${result.missingFields.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>`
+        ? `<div class="missing-fields"><strong>Missing information - complete manually</strong>${result.missingFields.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>`
         : `<div class="missing-fields is-complete"><strong>Ready for buyer review</strong><span>No obvious missing fields detected.</span></div>`}
       <div class="actions">
-        <button id="apply-structured-button" class="secondary-action" type="button">Apply structured draft</button>
+        <button id="review-structured-button" class="secondary-action" type="button">Review editable fields</button>
       </div>
     </section>
   `;
@@ -300,7 +312,8 @@ function renderProfile(data) {
     <section class="panel split">
       <div>
         <p class="eyebrow">Need Profile</p>
-        <h2>Review structured Need Profile</h2>
+        <h2>${escapeHtml(profile.title)}</h2>
+        <p class="profile-review-label">Review structured Need Profile</p>
         <p class="muted">${escapeHtml(profile.description)}</p>
         <dl class="profile-list">
           ${detail("Category", profile.category)}
@@ -471,7 +484,7 @@ function renderResponseTable(data) {
               <input class="response-radio" type="radio" name="supplierResponse" value="${response.id}" ${isSelected ? "checked" : ""} ${canHelp ? "" : "disabled"}>
               <span class="response-topline">
                 <strong>${escapeHtml(supplier?.companyName ?? response.supplierId)}</strong>
-                <small>${index === 0 && canHelp ? "Recommended for demo priority" : formatStatus(response.decision)}</small>
+                <small>${index === 0 && canHelp ? `${priorityLabel(priority)} priority leader` : formatStatus(response.decision)}</small>
               </span>
               <span class="response-metrics">
                 <span><b>Availability</b>${escapeHtml(response.availability ?? "Not supplied")}</span>
@@ -560,7 +573,7 @@ function bindEvents() {
                 companyName: value(form, "companyName"),
                 contactName: value(form, "contactName"),
                 contactEmail: value(form, "contactEmail"),
-                title: titleFromRequirement(description),
+                title: value(form, "title") || titleFromRequirement(description),
                 description,
                 category: value(form, "category"),
                 equipmentOrTechnology: csvValues(form, "equipmentOrTechnology"),
@@ -591,7 +604,7 @@ function bindEvents() {
         await run(async () => {
             intakeEvidence = await collectIntakeEvidence(form);
             const result = await aiIntakeService.structureRequirement({
-                rawRequirement: description || demoInput.description,
+                rawRequirement: description,
                 evidence: intakeEvidence
             });
             const structured = result.generatedProfile;
@@ -599,9 +612,9 @@ function bindEvents() {
             const formData = new FormData(form);
             const existingBudgetRange = value(formData, "budgetRange");
             intakeDraft = {
-                companyName: value(formData, "companyName") || demoInput.companyName,
-                contactName: value(formData, "contactName") || demoInput.contactName,
-                contactEmail: value(formData, "contactEmail") || demoInput.contactEmail,
+                companyName: value(formData, "companyName"),
+                contactName: value(formData, "contactName"),
+                contactEmail: value(formData, "contactEmail"),
                 title: structured.title,
                 description: structured.problemSummary,
                 category: structured.category || value(formData, "category"),
@@ -617,34 +630,16 @@ function bindEvents() {
             };
             intakeUrgencySignal = structured.urgency ?? value(formData, "urgencySignal");
             priority = structured.buyerPriority ?? "speed";
-            structuredDraftMessage = "Requirement structured into a supplier-ready draft. Review missing fields before matching.";
+            structuredDraftMessage = "AI structured the intake into editable supplier requirements. Review every field before matching.";
         });
         render();
     });
-    document.querySelector("#apply-structured-button")?.addEventListener("click", () => {
-        if (!aiIntakeResult)
-            return;
-        const form = document.querySelector("#requirement-form");
-        if (!form)
-            return;
-        const structured = aiIntakeResult.generatedProfile;
-        const current = new FormData(form);
-        setFormValue(form, "description", structured.problemSummary);
-        setFormValue(form, "category", structured.category || value(current, "category"));
-        setFormValue(form, "equipmentOrTechnology", mergeFieldValues(csvValues(current, "equipmentOrTechnology"), structured.equipmentOrTechnology).join(", "));
-        setFormValue(form, "requiredCapabilities", mergeFieldValues(csvValues(current, "requiredCapabilities"), structured.requiredCapabilities).join(", "));
-        setFormValue(form, "location", structured.location ?? value(current, "location"));
-        setFormValue(form, "urgencySignal", structured.urgency ?? value(current, "urgencySignal"));
-        setFormValue(form, "requiredBy", structured.urgency ?? value(current, "requiredBy"));
-        setFormValue(form, "budgetRange", structured.budgetRange ?? value(current, "budgetRange"));
-        setFormValue(form, "constraints", mergeFieldValues(csvValues(current, "constraints"), structured.certificationsOrConstraints).join(", "));
-        priority = structured.buyerPriority ?? priority;
-        syncIntakeDraftFromForm();
-        structuredDraftMessage = "Structured draft applied. Manual editing remains available.";
-        document.querySelectorAll("[data-priority]").forEach((button) => {
-            button.classList.toggle("is-selected", button.dataset.priority === priority);
+    document.querySelector("#review-structured-button")?.addEventListener("click", () => {
+        document.querySelector("#editable-need-profile")?.scrollIntoView({
+            behavior: "smooth",
+            block: "start"
         });
-        render();
+        document.querySelector("input[name='title']")?.focus({ preventScroll: true });
     });
     document.querySelector("#demo-fill-button")?.addEventListener("click", () => {
         const form = document.querySelector("#requirement-form");
@@ -653,24 +648,11 @@ function bindEvents() {
         setFormValue(form, "companyName", demoInput.companyName);
         setFormValue(form, "contactName", demoInput.contactName);
         setFormValue(form, "contactEmail", demoInput.contactEmail);
-        setFormValue(form, "description", demoInput.description);
-        setFormValue(form, "category", demoInput.category);
-        setFormValue(form, "equipmentOrTechnology", demoInput.equipmentOrTechnology.join(", "));
-        setFormValue(form, "requiredCapabilities", demoInput.requiredCapabilities.join(", "));
-        setFormValue(form, "location", demoInput.location);
-        setFormValue(form, "urgencySignal", "Immediate production impact");
-        setFormValue(form, "requiredBy", demoInput.requiredBy);
-        setFormValue(form, "budgetRange", demoInput.budgetRange);
-        setFormValue(form, "constraints", demoInput.constraints.join(", "));
-        intakeDraft = { ...demoInput };
-        intakeUrgencySignal = "Immediate production impact";
-        intakeEvidence = [];
-        aiIntakeResult = undefined;
-        priority = "speed";
-        structuredDraftMessage = "";
-        document.querySelectorAll("[data-priority]").forEach((button) => {
-            button.classList.toggle("is-selected", button.dataset.priority === priority);
-        });
+        syncIntakeDraftFromForm();
+        structuredDraftMessage = aiIntakeResult
+            ? "Demo buyer details added. The AI-structured requirement remains unchanged and editable."
+            : "Demo buyer details added. Enter the factory problem manually or use AI structuring.";
+        render();
     });
     document.querySelectorAll("[data-priority]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -685,7 +667,7 @@ function bindEvents() {
             return;
         await run(async () => {
             workspace = await service.submitPriority(currentWorkspace.needProfile, priority);
-            selectedResponseId = firstHelpfulResponseId(workspace) ?? "";
+            selectedResponseId = "";
             outreachSent = false;
             stage = "matches";
         });
@@ -702,7 +684,10 @@ function bindEvents() {
             return;
         await run(async () => {
             workspace = await service.refreshWorkspace(currentWorkspace, priority);
-            selectedResponseId = firstHelpfulResponseId(workspace) ?? selectedResponseId;
+            if (selectedResponseId &&
+                !workspace.responses.some((response) => response.id === selectedResponseId && response.decision === "can_help")) {
+                selectedResponseId = "";
+            }
             stage = "matches";
         });
     });
@@ -886,11 +871,9 @@ async function refreshLiveState(options = {}) {
         const previousEngagementStatus = workspace.engagement?.status;
         if (stage === "matches") {
             workspace = await service.refreshWorkspace(workspace, priority);
-            if (!selectedResponseId && workspace.responses[0]) {
-                selectedResponseId = firstHelpfulResponseId(workspace) ?? "";
-            }
-            if (selectedResponseId && !workspace.responses.some((response) => response.id === selectedResponseId && response.decision === "can_help")) {
-                selectedResponseId = firstHelpfulResponseId(workspace) ?? "";
+            if (selectedResponseId &&
+                !workspace.responses.some((response) => response.id === selectedResponseId && response.decision === "can_help")) {
+                selectedResponseId = "";
             }
             const nextResponseIds = workspace.responses.map((response) => response.id).join(",");
             if (options.forceRender || nextResponseIds !== previousResponseIds) {
@@ -982,7 +965,7 @@ function syncIntakeDraftFromForm() {
         companyName: value(formData, "companyName"),
         contactName: value(formData, "contactName"),
         contactEmail: value(formData, "contactEmail"),
-        title: titleFromRequirement(value(formData, "description")),
+        title: value(formData, "title") || titleFromRequirement(value(formData, "description")),
         description: value(formData, "description"),
         category: value(formData, "category"),
         equipmentOrTechnology: csvValues(formData, "equipmentOrTechnology"),
@@ -1098,9 +1081,6 @@ function selectedSupplier(data) {
     const response = data.responses.find((item) => item.id === selectedResponseId);
     const supplier = data.suppliers.find((item) => item.id === response?.supplierId);
     return response && supplier ? { response, supplier } : undefined;
-}
-function firstHelpfulResponseId(data) {
-    return data.responses.find((response) => response.decision === "can_help")?.id;
 }
 function supplierOutreachStatus(invitationStatus, hasResponse) {
     if (hasResponse || invitationStatus === "responded")
