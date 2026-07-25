@@ -1,6 +1,16 @@
 import { RapidMatchService } from "./rapidMatchService.js";
 const service = new RapidMatchService();
 const app = document.querySelector("#app");
+const runtimeWindow = window;
+const realtimeOrigin = new URL(runtimeWindow.API_BASE_URL ?? "http://localhost:4000/api").origin;
+const rapidMatchSocketEvent = {
+    joinNeedProfile: "rapidmatch:need.join",
+    leaveNeedProfile: "rapidmatch:need.leave",
+    supplierResponseSubmitted: "rapidmatch:response.submitted",
+    paymentStatusUpdated: "rapidmatch:payment.status_updated",
+    engagementSecured: "rapidmatch:engagement.secured"
+};
+const socketWindow = window;
 let stage = "submit";
 let loadState = "idle";
 let errorMessage = "";
@@ -9,6 +19,9 @@ let selectedResponseId = "";
 let workspace;
 let pollHandle;
 let isPolling = false;
+let realtimeSocket;
+let joinedNeedProfileId = "";
+let realtimeClientLoading;
 const defaultInput = {
     companyName: "",
     contactName: "",
@@ -50,6 +63,7 @@ function render() {
     </section>
   `;
     bindEvents();
+    configureRealtime();
     configurePolling();
 }
 function renderStatusPanel() {
@@ -452,7 +466,83 @@ function configurePolling() {
         }, stage === "payment" ? 3000 : 5000);
     }
 }
-async function refreshLiveState() {
+function configureRealtime() {
+    const needProfileId = workspace?.needProfile.id;
+    if (!needProfileId) {
+        leaveRealtimeNeed();
+        return;
+    }
+    if (!realtimeSocket) {
+        void initialiseRealtimeSocket(needProfileId);
+        return;
+    }
+    if (joinedNeedProfileId === needProfileId) {
+        return;
+    }
+    if (joinedNeedProfileId) {
+        realtimeSocket.emit(rapidMatchSocketEvent.leaveNeedProfile, { needProfileId: joinedNeedProfileId });
+    }
+    realtimeSocket.emit(rapidMatchSocketEvent.joinNeedProfile, { needProfileId });
+    joinedNeedProfileId = needProfileId;
+}
+async function initialiseRealtimeSocket(needProfileId) {
+    if (realtimeClientLoading) {
+        await realtimeClientLoading;
+    }
+    else if (!socketWindow.io) {
+        realtimeClientLoading = loadRealtimeClient();
+        await realtimeClientLoading;
+    }
+    if (!socketWindow.io) {
+        return;
+    }
+    if (realtimeSocket) {
+        configureRealtime();
+        return;
+    }
+    realtimeSocket = socketWindow.io(realtimeOrigin, {
+        transports: ["websocket"],
+        reconnection: true
+    });
+    realtimeSocket.on(rapidMatchSocketEvent.supplierResponseSubmitted, (payload) => {
+        if (payload.needProfileId === workspace?.needProfile.id) {
+            void refreshLiveState({ forceRender: true });
+        }
+    });
+    realtimeSocket.on(rapidMatchSocketEvent.paymentStatusUpdated, (payload) => {
+        if (payload.needProfileId === workspace?.needProfile.id) {
+            void refreshLiveState({ forceRender: true });
+        }
+    });
+    realtimeSocket.on(rapidMatchSocketEvent.engagementSecured, (payload) => {
+        if (payload.needProfileId === workspace?.needProfile.id) {
+            void refreshLiveState({ forceRender: true });
+        }
+    });
+    if (workspace?.needProfile.id === needProfileId) {
+        configureRealtime();
+    }
+}
+async function loadRealtimeClient() {
+    await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = `${realtimeOrigin}/socket.io/socket.io.js`;
+        script.async = true;
+        script.addEventListener("load", () => resolve(), { once: true });
+        script.addEventListener("error", () => reject(new Error("Unable to load realtime client.")), { once: true });
+        document.head.append(script);
+    }).catch(() => {
+        realtimeClientLoading = undefined;
+    });
+}
+function leaveRealtimeNeed() {
+    if (!realtimeSocket || !joinedNeedProfileId) {
+        return;
+    }
+    realtimeSocket.emit(rapidMatchSocketEvent.leaveNeedProfile, { needProfileId: joinedNeedProfileId });
+    joinedNeedProfileId = "";
+}
+async function refreshLiveState(options = {}) {
     if (!workspace || isPolling || loadState === "loading") {
         return;
     }
@@ -466,7 +556,7 @@ async function refreshLiveState() {
                 selectedResponseId = workspace.responses[0].id;
             }
             const nextResponseIds = workspace.responses.map((response) => response.id).join(",");
-            if (nextResponseIds !== previousResponseIds) {
+            if (options.forceRender || nextResponseIds !== previousResponseIds) {
                 render();
             }
         }
@@ -475,7 +565,7 @@ async function refreshLiveState() {
             if (workspace.engagement?.status === "supplier_secured") {
                 stage = "secured";
             }
-            if (workspace.engagement?.status !== previousEngagementStatus || stage === "secured") {
+            if (options.forceRender || workspace.engagement?.status !== previousEngagementStatus || stage === "secured") {
                 render();
             }
         }
