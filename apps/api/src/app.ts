@@ -2,6 +2,7 @@ import cors from "cors";
 import express from "express";
 import type { Request } from "express";
 import { env } from "./env.js";
+import { marketplaceRouter } from "./marketplace/marketplaceRoutes.js";
 import { pinchRouter } from "./pinch/pinchRoutes.js";
 
 export const app = express();
@@ -29,3 +30,4 @@ app.get("/api/health", (_request, response) => {
 });
 
 app.use("/api/pinch", pinchRouter);
+app.use("/api", marketplaceRouter);
