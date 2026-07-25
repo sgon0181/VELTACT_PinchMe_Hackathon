@@ -59,7 +59,7 @@ function render() {
         <span>Veltact</span>
       </a>
       <div class="topbar-meta">
-        <span>Find / Connect / Deploy</span>
+        <span>Buyer workspace / Find / Connect / Deploy</span>
         <button class="button tertiary small" data-action="reset-workspace" type="button">Reset</button>
       </div>
     </header>
@@ -293,10 +293,11 @@ function renderConnect() {
         <div>
           <span class="micro-label">Buyer-controlled supplier discovery</span>
           <h2>Review evidence before outreach</h2>
-          <p>Discovered businesses are candidates, not verified marketplace suppliers. Approval applies only to this requirement.</p>
+          <p>Keep this buyer workspace open. Each approved supplier receives a private, one-requirement invitation and returns its response here.</p>
         </div>
         <span class="mode-badge ${workspace.supplierLeads.some((lead) => lead.sourceMode === "live") ? "live" : "fixture"}">${workspace.supplierLeads.some((lead) => lead.sourceMode === "live") ? "live web evidence" : "fixture candidates"}</span>
       </div>
+      ${renderConnectHandoff()}
       <div class="record-list">${workspace.supplierLeads.map(renderSupplierLead).join("")}</div>
       <div class="button-row" style="margin-top: 18px">
         <button class="button secondary ${busyAction === "approve-leads" ? "is-loading" : ""}" data-action="approve-leads" type="button" ${selectedLeadIds.size === 0 || busyAction ? "disabled" : ""}>Approve selected for outreach</button>
@@ -333,7 +334,12 @@ function renderSupplierLead(lead) {
             <div><h4>Review risks</h4><ul>${lead.risks.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div>
           </div>
           <div class="chip-row" style="margin-top: 12px">${lead.capabilities.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>
-          ${invitation ? `<div class="button-row" style="margin-top: 14px"><a class="button secondary small" href="${safeHref(invitation.responseUrl)}" target="_blank" rel="noreferrer">Open supplier claim page</a></div>` : ""}
+          ${invitation ? `<div class="handoff-action">
+            <div><strong>Private supplier invitation created</strong><span>The supplier sees this requirement only. Buyer controls remain in this workspace.</span></div>
+            ${localDemo
+        ? `<a class="button secondary small" href="${safeHref(invitation.responseUrl)}" target="_blank" rel="noreferrer">Open supplier demo view</a>`
+        : `<span class="status-badge ${invitation.status}">${formatStatus(invitation.status)}</span>`}
+          </div>` : ""}
           ${profile ? renderProfileApproval(lead, profile) : ""}
         </div>
       </div>
@@ -353,6 +359,47 @@ function renderProfileApproval(lead, profile) {
       <strong>Supplier-reviewed profile</strong><br />
       ${escapeHtml(profile.profileSummary)}
       ${actions.length ? `<div class="button-row" style="margin-top: 10px">${actions.join("")}</div>` : ""}
+    </div>
+  `;
+}
+function renderConnectHandoff() {
+    if (!workspace)
+        return "";
+    const hasBuyerApproval = workspace.supplierLeads.some((lead) => lead.lifecycleStatus !== "discovered");
+    const hasInvitation = workspace.supplierInvitations.length > 0;
+    const hasSupplierProfile = workspace.supplierProfiles.length > 0;
+    const hasResponse = workspace.supplierResponses.length > 0;
+    const stages = [
+        {
+            title: "Buyer reviews evidence",
+            detail: "Approve only candidates relevant to this need.",
+            complete: hasBuyerApproval
+        },
+        {
+            title: "Private invitation",
+            detail: "Veltact sends one scoped claim link.",
+            complete: hasInvitation
+        },
+        {
+            title: "Supplier claims profile",
+            detail: "The supplier corrects and approves its own record.",
+            complete: hasSupplierProfile
+        },
+        {
+            title: "Response returns here",
+            detail: "Buyer activation unlocks the comparable response.",
+            complete: hasResponse
+        }
+    ];
+    const activeIndex = stages.findIndex((stage) => !stage.complete);
+    return `
+    <div class="handoff-guide" aria-label="Buyer and supplier handoff">
+      ${stages
+        .map((stage, index) => `<div class="handoff-step ${stage.complete ? "is-complete" : index === activeIndex ? "is-active" : ""}">
+            <span>${stage.complete ? "OK" : `0${index + 1}`}</span>
+            <div><strong>${escapeHtml(stage.title)}</strong><small>${escapeHtml(stage.detail)}</small></div>
+          </div>`)
+        .join("")}
     </div>
   `;
 }
@@ -393,7 +440,7 @@ function renderResponses() {
         </div>
       </div>
       ${workspace.supplierResponses.length === 0
-        ? `<div class="empty-state">Open the supplier claim link in a second tab to complete the competing-provider side of the workflow.</div>`
+        ? `<div class="empty-state"><div><strong>Buyer workspace waiting for the invited supplier</strong><p>The supplier completes its private claim and response in a separate view. This page updates automatically without exposing buyer controls.</p>${localDemo ? `<p>For the guided demo, use <strong>Open supplier demo view</strong> on the invited candidate above.</p>` : ""}</div></div>`
         : `<div class="record-list">${workspace.supplierResponses.map(renderResponse).join("")}</div>`}
     </section>
   `;
@@ -673,7 +720,9 @@ async function handleAction(action, target) {
             await loadWorkspace(false);
             notice = {
                 kind: "success",
-                message: "Approved supplier invitations processed. Open a claim link to continue the supplier side."
+                message: localDemo
+                    ? "Invitations processed. Keep this buyer workspace open and use Open supplier demo view on an invited candidate to continue in a second tab."
+                    : "Invitations processed. Keep this buyer workspace open while suppliers respond from their private invitation links."
             };
         });
         return;

@@ -29,13 +29,19 @@ Start the single-process application:
 npm run dev
 ```
 
-Seed the urgent PLC scenario:
+Open `http://localhost:4000/`. In development, the **Launch guided demo**
+section can seed either scenario and returns a buyer workspace plus its private
+supplier invitation. Open the buyer workspace first. Open the supplier link in
+a second tab only when the buyer reaches Connect.
+
+The launcher resets all V2 demonstration state. It is intentionally unavailable
+when the API reports `production`.
+
+The equivalent CLI commands are:
 
 ```bash
 npm run demo:reset
 ```
-
-Seed the planned robotics scenario:
 
 ```bash
 npm run demo:reset -- --robotics

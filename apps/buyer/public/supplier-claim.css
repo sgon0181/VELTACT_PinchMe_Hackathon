@@ -15,6 +15,13 @@
   border-bottom: 1px solid var(--line);
 }
 
+.claim-header-context {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .claim-hero {
   padding: 34px 0 22px;
 }
@@ -94,6 +101,10 @@
 }
 
 @media (max-width: 680px) {
+  .claim-header-context .micro-label {
+    display: none;
+  }
+
   .claim-hero h1 {
     font-size: 2rem;
   }

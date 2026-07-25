@@ -40,10 +40,13 @@ function render() {
       <a class="wordmark" href="./landing.html">
         <span class="wordmark-mark" aria-hidden="true"></span><span>Veltact</span>
       </a>
-      <span class="status-badge ${lead.lifecycleStatus}">${formatStatus(lead.lifecycleStatus)}</span>
+      <div class="claim-header-context">
+        <span class="micro-label">Private supplier invitation</span>
+        <span class="status-badge ${lead.lifecycleStatus}">${formatStatus(lead.lifecycleStatus)}</span>
+      </div>
     </header>
     <section class="claim-hero">
-      <span class="eyebrow">Buyer-approved supplier opportunity</span>
+      <span class="eyebrow">Buyer-approved opportunity / ${escapeHtml(need.companyName)}</span>
       <h1>${escapeHtml(need.profile.title)}</h1>
       <p>${escapeHtml(need.profile.description)}</p>
       <div class="chip-row">
@@ -194,8 +197,8 @@ function renderApprovedProfile(profile) {
       </div>
       <div class="chip-row">${profile.capabilities.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>
       ${waiting
-        ? `<div class="banner warning" style="margin-top: 16px">Waiting for the buyer to review and activate this supplier. This page refreshes automatically.</div>`
-        : `<div class="banner success" style="margin-top: 16px">Buyer activation complete. Submit the standard commercial response below.</div>`}
+        ? `<div class="banner warning" style="margin-top: 16px">Your profile has returned to the separate buyer workspace for review. Keep this invitation open; status refreshes automatically.</div>`
+        : `<div class="banner success" style="margin-top: 16px">The buyer activated this supplier for the requirement. Submit the standard commercial response below and it will return to the buyer workspace.</div>`}
       <button class="button secondary small" data-action="refresh" type="button" style="margin-top: 12px">Refresh status</button>
     </section>
   `;
@@ -225,7 +228,7 @@ function renderResponseForm() {
     return `
     <form id="response-form" class="panel claim-form">
       <div class="panel-header">
-        <div><span class="micro-label">Standardised response</span><h2>Return comparable commercial intent</h2><p>The buyer compares this response directly against other active suppliers.</p></div>
+        <div><span class="micro-label">Standardised response</span><h2>Return comparable commercial intent</h2><p>This private invitation submits availability, price and delivery assumptions directly into the buyer comparison.</p></div>
       </div>
       <div class="field-grid">
         <label class="field">Decision

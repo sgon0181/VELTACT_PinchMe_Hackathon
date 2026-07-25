@@ -26,6 +26,26 @@ becoming separate products.
 The API serves compiled frontend assets. The supported demo topology is one API
 process and one local JSON repository per domain.
 
+## Product Entry And Role Boundaries
+
+- `/` and `/landing.html` are the public product entry. Their primary action
+  starts the V2 buyer journey and presents Find -> Connect -> Deploy as one
+  workflow.
+- `/v2.html` is the buyer-controlled workspace for requirement, research,
+  supplier decision, commercial comparison, project and payment evidence.
+- `/supplier-claim.html?token=...` is a private, one-requirement supplier view.
+  It is reached from an invitation rather than public navigation and never
+  exposes buyer controls or competing suppliers.
+- `/index.html` preserves RapidMatch V1 as the classic hackathon flow.
+- In non-production environments, the landing page can call
+  `POST /api/v2/demo/reset` to generate paired buyer and supplier links. This is
+  a repeatable demonstration control, not a production account or navigation
+  model.
+
+Buyer and supplier pages are separate permission surfaces over one shared
+requirement lifecycle. A general supplier dashboard and user/password accounts
+remain outside the prototype boundary.
+
 ## Module Boundaries
 
 ### RapidMatch V1

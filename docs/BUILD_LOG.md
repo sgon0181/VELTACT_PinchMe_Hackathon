@@ -131,3 +131,32 @@ browser run from a fresh reset.
 - Live OpenAI, Firecrawl, outreach and Pinch calls require operator credentials.
 - HTTPS tunnel behavior requires a tunnel selected and started by the operator.
 - The deterministic fallback remains the supported credential-free demo path.
+
+## 2026-07-26 08:36 AEST - Unified Product Journey
+
+### Implemented
+
+- Made the public landing page the clear Veltact entry with one primary
+  `Start a requirement` action and one Find -> Connect -> Deploy narrative.
+- Kept RapidMatch V1 available as the explicitly labelled classic demo.
+- Added a non-production guided launcher that creates paired buyer and private
+  supplier links for the PLC and robotics scenarios.
+- Clarified the buyer-to-supplier handoff, shared lifecycle progress and
+  role-specific permissions in both workspaces.
+- Documented the public entry, capability boundaries and repeatable demo
+  operation.
+
+### Verified
+
+- Guided robotics reset returned buyer and supplier URLs for the same need.
+- Public landing, buyer Connect view and private supplier invitation loaded
+  without browser console errors.
+- Desktop and 390 x 844 layouts had no horizontal overflow.
+- `npm run lint`, `npm run typecheck`, `npm test` and `npm run build` passed.
+- Automated tests: 34 passed.
+
+### Remaining External Actions
+
+- Production provider readiness still depends on operator-supplied OpenAI,
+  outreach and Pinch credentials.
+- The guided reset launcher is intentionally hidden in production.

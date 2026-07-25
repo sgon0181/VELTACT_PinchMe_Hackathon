@@ -64,6 +64,12 @@ Development only:
 
 - `POST /api/v2/demo/reset`
 
+The public landing page may call the reset route only after `GET /api/health`
+reports a non-production environment. A successful reset returns one
+buyer-capability URL and one supplier-claim URL for the same seeded requirement.
+The UI must present the buyer URL first and describe the supplier URL as a
+private invitation, not a second public product entry.
+
 When capability authorization is enabled, every buyer route after creation
 requires:
 
@@ -121,6 +127,10 @@ Join payloads include `needProfileId` and, when authorization is enabled,
 - Payment Link creation reuses an existing usable milestone link.
 - Browser return URLs do not write authoritative payment state.
 - Fixture and local-demo evidence must remain visibly labelled.
+- Public navigation starts with the buyer journey; supplier access remains
+  scoped to an invitation token.
+- Buyer and supplier surfaces may render the same lifecycle state but must not
+  share role-specific controls.
 
 ## Environment Conventions
 

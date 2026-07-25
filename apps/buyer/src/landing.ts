@@ -27,3 +27,126 @@ const year = document.querySelector<HTMLElement>("#year");
 if (year) {
   year.textContent = String(new Date().getFullYear());
 }
+
+type DemoScenario = "plc" | "robotics";
+type HealthResponse = {
+  environment?: string;
+};
+type DemoResetResponse = {
+  buyerUrl?: string;
+  supplierClaimUrl?: string;
+  scenario?: DemoScenario;
+  message?: string;
+};
+
+const guidedDemo = document.querySelector<HTMLElement>("#guided-demo");
+const guidedDemoLink = document.querySelector<HTMLElement>("#guided-demo-link");
+const demoStatus = document.querySelector<HTMLElement>("#demo-launch-status");
+const demoRoleLinks = document.querySelector<HTMLElement>("#demo-role-links");
+const demoBuyerLink = document.querySelector<HTMLAnchorElement>("#demo-buyer-link");
+const demoSupplierLink = document.querySelector<HTMLAnchorElement>("#demo-supplier-link");
+const demoScenarioButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>("[data-demo-scenario]")
+);
+
+void configureGuidedDemo();
+
+async function configureGuidedDemo() {
+  if (
+    !guidedDemo ||
+    !guidedDemoLink ||
+    !demoStatus ||
+    !demoRoleLinks ||
+    !demoBuyerLink ||
+    !demoSupplierLink ||
+    demoScenarioButtons.length === 0
+  ) {
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/health", {
+      headers: { Accept: "application/json" }
+    });
+    const health = (await response.json()) as HealthResponse;
+    if (!response.ok || health.environment === "production") {
+      return;
+    }
+  } catch {
+    return;
+  }
+
+  guidedDemo.hidden = false;
+  guidedDemoLink.hidden = false;
+  demoScenarioButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const scenario = button.dataset.demoScenario;
+      if (scenario === "plc" || scenario === "robotics") {
+        void launchDemoScenario(scenario);
+      }
+    });
+  });
+}
+
+async function launchDemoScenario(scenario: DemoScenario) {
+  if (!demoStatus || !demoRoleLinks || !demoBuyerLink || !demoSupplierLink) {
+    return;
+  }
+
+  setDemoBusy(true);
+  demoRoleLinks.hidden = true;
+  demoStatus.className = "demo-launch-status";
+  demoStatus.textContent = `Preparing the ${scenario === "plc" ? "urgent PLC recovery" : "planned robotic integration"} workflow...`;
+
+  try {
+    const response = await fetch("/api/v2/demo/reset", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify({ seeded: true, scenario })
+    });
+    const payload = (await response.json()) as DemoResetResponse;
+    if (!response.ok) {
+      throw new Error(payload.message ?? `Demo reset failed (${response.status})`);
+    }
+
+    const buyerUrl = validDemoUrl(payload.buyerUrl);
+    const supplierUrl = validDemoUrl(payload.supplierClaimUrl);
+    if (!buyerUrl || !supplierUrl) {
+      throw new Error("The demo reset did not return both role links.");
+    }
+
+    demoBuyerLink.href = buyerUrl;
+    demoSupplierLink.href = supplierUrl;
+    demoRoleLinks.hidden = false;
+    demoStatus.className = "demo-launch-status is-ready";
+    demoStatus.textContent =
+      `${scenario === "plc" ? "Urgent PLC recovery" : "Planned robotic integration"} is ready. ` +
+      "Open the buyer workspace first, then use the supplier invitation when Connect reaches the claim step.";
+    demoBuyerLink.focus();
+  } catch (error) {
+    demoStatus.className = "demo-launch-status is-error";
+    demoStatus.textContent =
+      error instanceof Error ? error.message : "Unable to prepare the guided demo.";
+  } finally {
+    setDemoBusy(false);
+  }
+}
+
+function setDemoBusy(busy: boolean) {
+  demoScenarioButtons.forEach((button) => {
+    button.disabled = busy;
+  });
+}
+
+function validDemoUrl(value: string | undefined) {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value, window.location.origin);
+    return ["http:", "https:"].includes(url.protocol) ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
