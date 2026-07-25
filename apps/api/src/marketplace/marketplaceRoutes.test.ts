@@ -224,6 +224,30 @@ describe("marketplace core routes", () => {
     assert.equal(update.supplierResponse.status, "submitted");
   });
 
+  test("emits realtime buyer updates when an invitation link is opened", async () => {
+    const created = await postJson("/api/needs", {
+      buyerEmail: "buyer@example.com",
+      profile: automationNeed()
+    });
+    const needProfileId = created.body.need.id;
+    const token = created.body.need.invitations[0].token;
+    const client = await connectSocket();
+    const updatePromise = onceSocket(client, rapidMatchSocketEvent.invitationSent);
+
+    client.emit(rapidMatchSocketEvent.joinNeedProfile, { needProfileId });
+    await wait(25);
+
+    const invitation = await getJson(`/api/supplier-invitations/${token}`);
+    const update = await updatePromise;
+
+    client.close();
+    assert.equal(invitation.status, 200);
+    assert.equal(invitation.body.supplierInvitation.status, "opened");
+    assert.equal(update.needProfileId, needProfileId);
+    assert.equal(update.supplierInvitation.status, "opened");
+    assert.equal(update.supplierInvitation.supplierId, "supplier-automation-nsw");
+  });
+
   test("rejects malformed needs and unknown supplier invitation tokens", async () => {
     const invalidNeed = await postJson("/api/needs", {
       buyerEmail: "not-an-email",
