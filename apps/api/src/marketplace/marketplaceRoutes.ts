@@ -8,10 +8,11 @@ import {
   getNeed,
   listResponsesForNeed,
   markInvitationViewed,
+  recordAuthoritativePinchPayment,
   resetMarketplaceStore,
   submitSupplierResponse
 } from "./store.js";
-import { emitSupplierResponseSubmitted } from "../realtime.js";
+import { emitPaymentStatusUpdated, emitSupplierResponseSubmitted } from "../realtime.js";
 import { env } from "../env.js";
 import { PinchApiError } from "../pinch/pinchClient.js";
 import { getPaymentProvider } from "../payments/providerRegistry.js";
@@ -194,14 +195,44 @@ marketplaceRouter.post("/need-profiles/:needProfileId/engagements", (request, re
   response.status(201).json({ engagement: serialiseEngagement(engagement) });
 });
 
-marketplaceRouter.get("/engagements/:engagementId", (request, response) => {
-  const engagement = getEngagement(request.params.engagementId);
+marketplaceRouter.get("/engagements/:engagementId", async (request, response) => {
+  let engagement = getEngagement(request.params.engagementId);
   if (!engagement) {
     response.status(404).json({
       status: "error",
       message: "Engagement not found"
     });
     return;
+  }
+
+  if (engagement.paymentStatus === "awaiting_payment" && engagement.paymentLinkId) {
+    try {
+      const approvedPayment = await getPaymentProvider().getApprovedPaymentForLink(
+        engagement.paymentLinkId
+      );
+      if (approvedPayment) {
+        const result = recordAuthoritativePinchPayment({
+          eventId: `pinch-api:${approvedPayment.paymentId}`,
+          eventType: "payment-api-reconciliation",
+          engagementId: engagement.id,
+          paymentId: approvedPayment.paymentId,
+          payload: {
+            paymentLinkId: engagement.paymentLinkId,
+            paymentId: approvedPayment.paymentId,
+            status: approvedPayment.status
+          }
+        });
+
+        if (result.engagement) {
+          engagement = result.engagement;
+          if (!result.duplicate) {
+            emitPaymentStatusUpdated(result.engagement);
+          }
+        }
+      }
+    } catch {
+      // Keep the visible state pending if Pinch cannot be reached during a refresh.
+    }
   }
 
   response.json({ engagement: serialiseEngagement(engagement) });
