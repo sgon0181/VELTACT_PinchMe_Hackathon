@@ -42,6 +42,7 @@ window.setInterval(() => {
     claimState &&
     !busyAction &&
     !claimState.supplierResponse &&
+    !document.activeElement?.closest("form") &&
     document.visibilityState === "visible"
   ) {
     void loadClaim(false);
@@ -235,6 +236,29 @@ function renderApprovedProfile(profile: SupplierProfile) {
 }
 
 function renderResponseForm() {
+  const robotics = /robot|cobot|palletis/i.test(
+    [
+      claimState?.need.profile.title,
+      claimState?.need.profile.description,
+      claimState?.need.profile.category
+    ].join(" ")
+  );
+  const availability = robotics
+    ? "Discovery workshop within five business days"
+    : "Site review within four hours";
+  const indicativePrice = robotics ? "78000" : "6500";
+  const experience = robotics
+    ? "Comparable robotic cell feasibility, tooling, safety and commissioning delivery."
+    : "Comparable industrial controls and packaging-line recovery.";
+  const approach = robotics
+    ? "Validate the process and safety concept, prove the highest-risk handling assumptions, then deliver design, build, factory acceptance, commissioning and handover as separately accepted milestones."
+    : "Review the supplied evidence, verify scope and safety controls, then execute the buyer-approved recovery plan with milestone acceptance evidence.";
+  const assumptions = robotics
+    ? "Representative products available, site services and access window to be confirmed"
+    : "Site representative available, access window confirmed";
+  const conditions = robotics
+    ? "Final equipment selection subject to feasibility and machinery risk assessment"
+    : "Work subject to site isolation and permit procedures";
   return `
     <form id="response-form" class="panel claim-form">
       <div class="panel-header">
@@ -244,12 +268,12 @@ function renderResponseForm() {
         <label class="field">Decision
           <select name="decision"><option value="can_help">Can help</option><option value="cannot_help">Cannot help</option></select>
         </label>
-        ${inputField("Availability", "availability", "Site review within four hours", true)}
-        ${inputField("Indicative price (AUD)", "indicativePriceAud", "6500", true, "number")}
-        ${inputField("Relevant experience", "relevantExperience", "Comparable industrial controls and packaging-line delivery.", true)}
-        <label class="field is-wide">Proposed approach<textarea name="proposedApproach" rows="4" required>Review the supplied evidence, verify scope and safety controls, then execute the buyer-approved delivery plan with milestone acceptance evidence.</textarea></label>
-        ${inputField("Assumptions", "assumptions", "Site representative available, access window confirmed", false)}
-        ${inputField("Conditions", "conditions", "Work subject to site isolation and permit procedures", false)}
+        ${inputField("Availability", "availability", availability, true)}
+        ${inputField("Indicative price (AUD)", "indicativePriceAud", indicativePrice, true, "number")}
+        ${inputField("Relevant experience", "relevantExperience", experience, true)}
+        <label class="field is-wide">Proposed approach<textarea name="proposedApproach" rows="4" required>${escapeHtml(approach)}</textarea></label>
+        ${inputField("Assumptions", "assumptions", assumptions, false)}
+        ${inputField("Conditions", "conditions", conditions, false)}
       </div>
       <div class="claim-actions">
         <button class="button ${busyAction === "response" ? "is-loading" : ""}" type="submit" ${busyAction ? "disabled" : ""}>Submit response to buyer</button>

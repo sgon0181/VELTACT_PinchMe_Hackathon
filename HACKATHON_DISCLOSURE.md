@@ -15,6 +15,11 @@
 - Verified Pinch webhook and API reconciliation paths that authoritatively transition an engagement to `supplier_secured`.
 - Atomic file-backed marketplace snapshots and durable audit events for the supported single-process demo deployment.
 - Production-default buyer capability authorization, scoped supplier invitation tokens, API rate limits and restricted development-only payment utilities.
+- V2 cited solution approaches with local, outsource or hybrid buyer decisions.
+- Buyer-reviewed supplier discovery with source evidence and an optional Firecrawl fallback.
+- Backend-enforced supplier claim, profile approval, buyer approval and activation lifecycle.
+- PLC recovery and robotic integration project templates with milestones, dependencies, tasks, acceptance criteria, risks, approvals, contacts, activity, documents and change requests.
+- Project and milestone metadata in Pinch Payment Links, with verified payment evidence kept separate from engineering completion.
 
 ## Demo Constraints
 
@@ -24,6 +29,8 @@
 - Buyer capability tokens protect individual requirements in production mode. User/password accounts, organisation membership and role administration are not part of the hackathon workflow.
 - The buyer uses Socket.IO for live updates and polling as a resilience fallback.
 - Payment success is not inferred from the browser redirect. The final secured state comes from backend-verified payment evidence. A local-only demo payment route remains available outside production.
+- Fixture supplier leads are fictional and visibly labelled; they are not live web discoveries or verified businesses.
+- The V2 project layer is a focused demo implementation, not a general CRM or production project-management system.
 
 ## Credentials
 

@@ -365,30 +365,40 @@ export class VeltactV2Service {
   }
 
   async openSupplierClaim(token: string) {
-    await this.repository.mutate((draft) => {
-      const claim = draft.supplierClaims.find(
-        (candidate) => candidate.token === token
-      );
-      if (!claim) throw new V2ServiceError("Supplier claim not found", 404);
-      if (
-        claim.status === "expired" ||
-        Date.parse(claim.expiresAt) <= Date.now()
-      ) {
-        claim.status = "expired";
-        claim.updatedAt = new Date().toISOString();
-        throw new V2ServiceError("Supplier claim has expired", 409);
-      }
-      const invitation = draft.supplierInvitations.find(
-        (candidate) => candidate.id === claim.invitationId
-      );
-      if (
-        invitation &&
-        ["pending", "sent"].includes(invitation.status)
-      ) {
-        invitation.status = "opened";
-        invitation.updatedAt = new Date().toISOString();
-      }
-    });
+    const snapshot = this.repository.snapshot();
+    const claim = snapshot.supplierClaims.find(
+      (candidate) => candidate.token === token
+    );
+    if (!claim) throw new V2ServiceError("Supplier claim not found", 404);
+    if (
+      claim.status === "expired" ||
+      Date.parse(claim.expiresAt) <= Date.now()
+    ) {
+      await this.repository.mutate((draft) => {
+        const expiredClaim = draft.supplierClaims.find(
+          (candidate) => candidate.token === token
+        );
+        if (expiredClaim) {
+          expiredClaim.status = "expired";
+          expiredClaim.updatedAt = new Date().toISOString();
+        }
+      });
+      throw new V2ServiceError("Supplier claim has expired", 409);
+    }
+    const invitation = snapshot.supplierInvitations.find(
+      (candidate) => candidate.id === claim.invitationId
+    );
+    if (invitation && ["pending", "sent"].includes(invitation.status)) {
+      await this.repository.mutate((draft) => {
+        const current = draft.supplierInvitations.find(
+          (candidate) => candidate.id === claim.invitationId
+        );
+        if (current && ["pending", "sent"].includes(current.status)) {
+          current.status = "opened";
+          current.updatedAt = new Date().toISOString();
+        }
+      });
+    }
     return this.getSupplierClaim(token);
   }
 

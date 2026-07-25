@@ -940,7 +940,7 @@ async function submitChangeRequest(form: HTMLFormElement) {
   });
 }
 
-async function loadWorkspace(shouldRender = true) {
+async function loadWorkspace(shouldRender = true, reportErrors = true) {
   if (!needId) return;
   try {
     workspace = await api<Workspace>(`/needs/${encodeURIComponent(needId)}`);
@@ -952,11 +952,13 @@ async function loadWorkspace(shouldRender = true) {
     configureSocket();
     if (shouldRender) render();
   } catch (error) {
-    notice = {
-      kind: "error",
-      message: errorMessage(error)
-    };
-    render();
+    if (reportErrors) {
+      notice = {
+        kind: "error",
+        message: errorMessage(error)
+      };
+      render();
+    }
   }
 }
 
@@ -998,8 +1000,14 @@ async function api<T = unknown>(path: string, init: RequestInit = {}): Promise<T
 function configurePolling() {
   if (pollHandle) window.clearInterval(pollHandle);
   pollHandle = window.setInterval(() => {
-    if (workspace && !busyAction && document.visibilityState === "visible") {
-      void loadWorkspace();
+    const editingForm = document.activeElement?.closest("form");
+    if (
+      workspace &&
+      !busyAction &&
+      !editingForm &&
+      document.visibilityState === "visible"
+    ) {
+      void loadWorkspace(true, false);
     }
   }, 4000);
 }
@@ -1017,7 +1025,7 @@ function configureSocket() {
   });
   for (const eventName of socketEvents) {
     socket.on(eventName, () => {
-      if (!busyAction) void loadWorkspace();
+      if (!busyAction) void loadWorkspace(true, false);
     });
   }
   socketConnectedNeedId = workspace.need.id;
@@ -1125,7 +1133,7 @@ function inputField(
   placeholder = ""
 ) {
   return `<label class="field ${className}">${escapeHtml(label)}
-    <input name="${escapeHtml(name)}" type="${escapeHtml(type)}" value="${escapeHtml(value)}" ${required ? "required" : ""} ${step ? `step="${escapeHtml(step)}" min="${type === "number" ? "1" : ""}"` : ""} placeholder="${escapeHtml(placeholder)}" />
+    <input name="${escapeHtml(name)}" type="${escapeHtml(type)}" value="${escapeHtml(value)}" ${required ? "required" : ""} ${step ? `step="${escapeHtml(step)}" min="${type === "number" ? escapeHtml(step) : ""}"` : ""} placeholder="${escapeHtml(placeholder)}" />
   </label>`;
 }
 

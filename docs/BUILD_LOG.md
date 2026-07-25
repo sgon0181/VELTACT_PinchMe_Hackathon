@@ -91,3 +91,43 @@ atomic JSON repository with validation and deterministic reset support.
 Reset the application, exercise buyer and supplier tabs through milestone
 funding, inspect desktop and mobile layouts, fix observed issues, then repeat the
 browser run from a fresh reset.
+
+## 2026-07-26 02:31 AEST - Browser Hardening and Release Pass
+
+### Exercised
+
+- Completed the seeded PLC workflow through research, supplier discovery,
+  approved outreach, claim, supplier and buyer profile approval, activation,
+  standard response, selection, project creation, milestone funding and
+  acceptance, task progression and change control.
+- Repeated the supplier, project and payment path with the planned robotic
+  integration scenario.
+- Inspected buyer desktop and 390 x 844 mobile layouts, supplier desktop and
+  mobile layouts, and browser console output.
+- Started from an empty V2 workspace, structured the robotics brief through AI
+  intake and created a Need Profile.
+
+### Improved
+
+- Prevented polling and realtime refreshes from replacing active form edits.
+- Suppressed transient background-refresh errors while preserving foreground
+  action errors.
+- Avoided repository writes every time an already-open supplier claim polls.
+- Added project-appropriate robotics defaults to the supplier response form.
+- Preserved comma-formatted six-figure intake budgets and added regression
+  coverage.
+- Corrected native number-step validation so round project budgets submit.
+
+### Verified
+
+- Buyer and supplier console errors: none.
+- Desktop and mobile horizontal overflow: none observed.
+- AI intake retained `AUD 120,000` and the resulting Need Profile displayed
+  `$120,000`.
+- Automated tests: 34 passed after the intake regression.
+
+### Remaining External Actions
+
+- Live OpenAI, Firecrawl, outreach and Pinch calls require operator credentials.
+- HTTPS tunnel behavior requires a tunnel selected and started by the operator.
+- The deterministic fallback remains the supported credential-free demo path.

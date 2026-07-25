@@ -137,8 +137,10 @@ function detectLocation(normalised) {
     return undefined;
 }
 function detectBudget(rawRequirement) {
-    const match = rawRequirement.match(/\$?\s?(\d{3,5})(?:\s?aud)?/i);
-    return match ? `Up to AUD ${Number(match[1]).toLocaleString("en-AU")}` : undefined;
+    const match = rawRequirement.match(/(?:aud\s*|\$\s*)?(\d{1,3}(?:,\d{3})+|\d{3,7})(?:\s*aud)?/i);
+    return match
+        ? `Up to AUD ${Number(match[1].replaceAll(",", "")).toLocaleString("en-AU")}`
+        : undefined;
 }
 function detectConstraints(normalised, isUrgent, evidence) {
     const constraints = new Set();

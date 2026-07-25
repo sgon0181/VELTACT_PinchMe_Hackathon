@@ -141,6 +141,23 @@ describe("marketplace core routes", () => {
     );
   });
 
+  test("preserves six-figure comma-formatted budgets during AI intake", async () => {
+    const response = await postJson(
+      "/api/ai-intake/structure",
+      {
+        rawRequirement:
+          "Plan a robotic palletising cell in Western Sydney within 60 days. Approved budget is AUD 120,000."
+      },
+      { "x-veltact-ai-intake-source": "local_demo" }
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(
+      response.body.aiIntakeResult.generatedProfile.budgetRange,
+      "Up to AUD 120,000"
+    );
+  });
+
   test("rejects low-signal AI intake before a paid model call", async () => {
     const rejected = await postJson("/api/ai-intake/structure", {
       rawRequirement: "asdf lol $$$$"
