@@ -8,6 +8,7 @@ import {
   getNeed,
   listResponsesForNeed,
   markInvitationViewed,
+  resetMarketplaceStore,
   submitSupplierResponse
 } from "./store.js";
 import { emitSupplierResponseSubmitted } from "../realtime.js";
@@ -88,7 +89,14 @@ marketplaceRouter.get("/supplier-invitations/:token", (request, response) => {
 
   const need = getNeed(invitation.needId);
   response.json({
-    invitation,
+    invitation: {
+      ...serialiseSupplierInvitation(invitation),
+      needId: invitation.needId,
+      supplierName: invitation.supplierName,
+      openedAt: invitation.openedAt,
+      respondedAt: invitation.respondedAt
+    },
+    supplierInvitation: serialiseSupplierInvitation(invitation),
     need: need ? serialiseNeed(need) : undefined
   });
 });
@@ -122,7 +130,8 @@ marketplaceRouter.get("/need-profiles/:needProfileId", (request, response) => {
   }
 
   response.json({
-    needProfile: serialiseNeed(need)
+    needProfile: serialiseNeed(need),
+    need: serialiseNeed(need)
   });
 });
 
@@ -137,8 +146,24 @@ marketplaceRouter.get("/need-profiles/:needProfileId/responses", (request, respo
   }
 
   response.json({
-    supplierResponses,
+    supplierResponses: supplierResponses.map(serialiseSupplierResponse),
     responses: supplierResponses
+  });
+});
+
+marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", (request, response) => {
+  const need = getNeed(request.params.needProfileId);
+  if (!need) {
+    response.status(404).json({
+      status: "error",
+      message: "Need profile not found"
+    });
+    return;
+  }
+
+  response.json({
+    supplierInvitations: need.invitations.map(serialiseSupplierInvitation),
+    invitations: need.invitations.map(serialiseLegacyInvitation)
   });
 });
 
@@ -166,7 +191,7 @@ marketplaceRouter.post("/need-profiles/:needProfileId/engagements", (request, re
     return;
   }
 
-  response.status(201).json({ engagement });
+  response.status(201).json({ engagement: serialiseEngagement(engagement) });
 });
 
 marketplaceRouter.get("/engagements/:engagementId", (request, response) => {
@@ -179,7 +204,7 @@ marketplaceRouter.get("/engagements/:engagementId", (request, response) => {
     return;
   }
 
-  response.json({ engagement });
+  response.json({ engagement: serialiseEngagement(engagement) });
 });
 
 marketplaceRouter.post("/engagements/:engagementId/payment-link", async (request, response) => {
@@ -193,7 +218,7 @@ marketplaceRouter.post("/engagements/:engagementId/payment-link", async (request
   }
 
   if (engagement.hostedCheckoutUrl && engagement.paymentLinkId && engagement.pinchPayerId) {
-    response.json({ engagement });
+    response.json({ engagement: serialiseEngagement(engagement) });
     return;
   }
 
@@ -226,7 +251,7 @@ marketplaceRouter.post("/engagements/:engagementId/payment-link", async (request
     });
 
     response.status(201).json({
-      engagement: updatedEngagement,
+      engagement: updatedEngagement ? serialiseEngagement(updatedEngagement) : undefined,
       hostedCheckoutUrl: paymentLink.hostedCheckoutUrl
     });
   } catch (error) {
@@ -270,7 +295,7 @@ marketplaceRouter.post("/supplier-invitations/:token/responses", (request, respo
   emitSupplierResponseSubmitted(supplierResponse);
 
   response.status(201).json({
-    supplierResponse,
+    supplierResponse: serialiseSupplierResponse(supplierResponse),
     response: supplierResponse
   });
 });
@@ -286,22 +311,181 @@ marketplaceRouter.get("/needs/:needId/responses", (request, response) => {
   }
 
   response.json({
+    supplierResponses: supplierResponses.map(serialiseSupplierResponse),
     responses: supplierResponses
   });
 });
 
-function serialiseNeed(need: ReturnType<typeof createNeed>) {
+marketplaceRouter.post("/demo/reset", (_request, response) => {
+  if (env.NODE_ENV === "production") {
+    response.status(404).json({
+      status: "error",
+      message: "Demo reset is unavailable in production"
+    });
+    return;
+  }
+
+  resetMarketplaceStore();
+  response.json({
+    reset: true
+  });
+});
+
+function serialiseNeed(need: NonNullable<ReturnType<typeof getNeed>>) {
+  const needProfile = serialiseNeedProfile(need);
+  const supplierMatches = need.matches.map((match) => ({
+    id: `${need.id}-${match.id}`,
+    needProfileId: need.id,
+    supplierId: match.supplier.id,
+    score: match.score,
+    reasons: match.explanation,
+    risks: match.risks,
+    status: match.status,
+    createdAt: match.createdAt,
+    updatedAt: match.updatedAt
+  }));
+  const supplierInvitations = need.invitations.map(serialiseSupplierInvitation);
+
   return {
     id: need.id,
     buyerEmail: need.buyerEmail,
     profile: need.profile,
     createdAt: need.createdAt,
+    updatedAt: need.updatedAt,
+    status: need.status,
+    needProfile,
+    supplierMatches,
+    supplierInvitations,
+    suppliers: need.matches.map((match) => ({
+      id: match.supplier.id,
+      companyName: match.supplier.name,
+      contactEmail: match.supplier.contactEmail,
+      categories: [need.profile.category],
+      serviceRegions: match.supplier.locations,
+      capabilities: match.supplier.capabilities,
+      verified: match.supplier.verified,
+      createdAt: match.createdAt,
+      updatedAt: match.updatedAt
+    })),
     matches: need.matches.map((match) => ({
+      id: `${need.id}-${match.id}`,
+      needProfileId: need.id,
       supplierId: match.supplier.id,
       supplierName: match.supplier.name,
       score: match.score,
-      explanation: match.explanation
+      explanation: match.explanation,
+      reasons: match.explanation,
+      risks: match.risks,
+      status: match.status,
+      createdAt: match.createdAt,
+      updatedAt: match.updatedAt
     })),
-    invitations: need.invitations
+    invitations: need.invitations.map(serialiseLegacyInvitation)
   };
+}
+
+function serialiseNeedProfile(need: NonNullable<ReturnType<typeof getNeed>>) {
+  return {
+    id: need.id,
+    companyName: inferCompanyName(need.buyerEmail),
+    contactEmail: need.buyerEmail,
+    title: need.profile.title,
+    description: need.profile.description,
+    category: need.profile.category,
+    location: need.profile.location,
+    priority: need.profile.urgencyDays !== undefined && need.profile.urgencyDays <= 1 ? "urgent" : "soon",
+    requiredBy: need.profile.urgencyDays === undefined ? undefined : requiredByLabel(need.profile.urgencyDays),
+    budget:
+      need.profile.budgetAud === undefined
+        ? undefined
+        : {
+            amount: need.profile.budgetAud * 100,
+            currency: "AUD"
+          },
+    mustHaves: need.profile.requiredCapabilities ?? [],
+    niceToHaves: ["Comparable supplier response", "Clear availability and commercial conditions"],
+    constraints: [need.profile.industry, requiredByLabel(need.profile.urgencyDays)].filter(
+      (item): item is string => Boolean(item)
+    ),
+    status: need.status,
+    createdAt: need.createdAt,
+    updatedAt: need.updatedAt
+  };
+}
+
+function serialiseSupplierInvitation(invitation: NonNullable<ReturnType<typeof markInvitationViewed>>) {
+  return {
+    id: invitation.id,
+    needProfileId: invitation.needProfileId,
+    supplierId: invitation.supplierId,
+    matchId: invitation.matchId,
+    token: invitation.token,
+    responseUrl: invitation.responseUrl,
+    status: invitation.status,
+    sentAt: invitation.sentAt,
+    expiresAt: invitation.expiresAt,
+    createdAt: invitation.createdAt,
+    updatedAt: invitation.updatedAt
+  };
+}
+
+function serialiseLegacyInvitation(invitation: NonNullable<ReturnType<typeof markInvitationViewed>>) {
+  const legacyStatus =
+    invitation.status === "sent" || invitation.status === "pending"
+      ? "invited"
+      : invitation.status === "opened"
+        ? "viewed"
+        : "responded";
+
+  return {
+    ...serialiseSupplierInvitation(invitation),
+    needId: invitation.needId,
+    supplierName: invitation.supplierName,
+    status: legacyStatus,
+    viewedAt: invitation.openedAt,
+    respondedAt: invitation.respondedAt
+  };
+}
+
+function serialiseSupplierResponse(supplierResponse: NonNullable<ReturnType<typeof submitSupplierResponse>>) {
+  return {
+    id: supplierResponse.id,
+    needProfileId: supplierResponse.needProfileId,
+    supplierId: supplierResponse.supplierId,
+    invitationId: supplierResponse.invitationId,
+    decision: supplierResponse.decision,
+    availability: supplierResponse.availability,
+    indicativePrice: supplierResponse.indicativePrice,
+    relevantExperience: supplierResponse.relevantExperience,
+    conditions: supplierResponse.conditions ? [supplierResponse.conditions] : [],
+    message: supplierResponse.canHelp
+      ? `${supplierResponse.supplierName} has confirmed availability and commercial intent.`
+      : `${supplierResponse.supplierName} cannot help with this requirement.`,
+    status: supplierResponse.status,
+    submittedAt: supplierResponse.submittedAt,
+    createdAt: supplierResponse.createdAt,
+    updatedAt: supplierResponse.updatedAt
+  };
+}
+
+function serialiseEngagement(engagement: NonNullable<ReturnType<typeof getEngagement>>) {
+  return {
+    ...engagement,
+    needProfileId: engagement.needId
+  };
+}
+
+function inferCompanyName(email: string) {
+  const domain = email.split("@")[1];
+  return domain ? `${domain.split(".")[0]} buyer` : "Demo buyer";
+}
+
+function requiredByLabel(days?: number) {
+  if (days === undefined) {
+    return undefined;
+  }
+  if (days <= 1) {
+    return "Required today";
+  }
+  return `Required within ${days} days`;
 }

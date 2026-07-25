@@ -12,9 +12,14 @@ export type NeedProfile = {
 };
 
 export type SupplierMatch = {
+  id: string;
   supplier: Supplier;
   score: number;
   explanation: string[];
+  risks: string[];
+  status: "matched" | "invited" | "responded" | "declined" | "expired" | "selected" | "not_selected";
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type NeedRecord = {
@@ -29,27 +34,45 @@ export type NeedRecord = {
 };
 
 export type SupplierInvitation = {
+  id: string;
   token: string;
   needId: string;
+  needProfileId: string;
   supplierId: string;
   supplierName: string;
-  status: "invited" | "viewed" | "responded";
+  matchId: string;
+  responseUrl: string;
+  status: "pending" | "sent" | "opened" | "responded" | "expired" | "cancelled";
+  sentAt: string;
+  expiresAt: string;
   createdAt: string;
-  viewedAt?: string;
+  updatedAt: string;
+  openedAt?: string;
   respondedAt?: string;
 };
 
 export type SupplierResponse = {
   id: string;
   needId: string;
+  needProfileId: string;
   supplierId: string;
   supplierName: string;
+  invitationId: string;
   canHelp: boolean;
+  decision: "can_help" | "cannot_help";
   earliestAvailability: string;
+  availability?: string;
   indicativePriceAud: number;
+  indicativePrice?: {
+    amount: number;
+    currency: "AUD";
+  };
   relevantExperience: string;
   conditions: string;
+  status: "draft" | "submitted" | "withdrawn";
   submittedAt: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type Engagement = {

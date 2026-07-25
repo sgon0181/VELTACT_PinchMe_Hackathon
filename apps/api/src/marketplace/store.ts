@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { matchSuppliers } from "./matching.js";
 import { seededSuppliers } from "./suppliers.js";
+import { env } from "../env.js";
 import type {
   Engagement,
   NeedProfile,
@@ -22,13 +23,24 @@ export function createNeed(input: { buyerEmail: string; profile: NeedProfile }):
   const createdAt = new Date().toISOString();
   const matches = matchSuppliers(input.profile, seededSuppliers);
   const needInvitations = matches.map((match) => {
+    match.status = "invited";
+    match.updatedAt = createdAt;
+    const token = randomUUID();
+    const invitationId = `${id}-invitation-${match.supplier.id}`;
     const invitation: SupplierInvitation = {
-      token: randomUUID(),
+      id: invitationId,
+      token,
       needId: id,
+      needProfileId: id,
       supplierId: match.supplier.id,
       supplierName: match.supplier.name,
-      status: "invited",
-      createdAt
+      matchId: `${id}-${match.id}`,
+      responseUrl: new URL(`/supplier.html?token=${encodeURIComponent(token)}`, env.WEB_ORIGIN).toString(),
+      status: "sent",
+      sentAt: createdAt,
+      expiresAt: new Date(Date.parse(createdAt) + 3 * 24 * 60 * 60 * 1000).toISOString(),
+      createdAt,
+      updatedAt: createdAt
     };
     invitations.set(invitation.token, invitation);
     return invitation;
@@ -62,9 +74,11 @@ export function markInvitationViewed(token: string): SupplierInvitation | undefi
     return undefined;
   }
 
-  if (invitation.status === "invited") {
-    invitation.status = "viewed";
-    invitation.viewedAt = new Date().toISOString();
+  if (invitation.status === "sent" || invitation.status === "pending") {
+    const openedAt = new Date().toISOString();
+    invitation.status = "opened";
+    invitation.openedAt = openedAt;
+    invitation.updatedAt = openedAt;
   }
 
   return invitation;
@@ -72,7 +86,13 @@ export function markInvitationViewed(token: string): SupplierInvitation | undefi
 
 export function submitSupplierResponse(
   token: string,
-  input: Omit<SupplierResponse, "id" | "needId" | "supplierId" | "supplierName" | "submittedAt">
+  input: {
+    canHelp: boolean;
+    earliestAvailability: string;
+    indicativePriceAud: number;
+    relevantExperience: string;
+    conditions: string;
+  }
 ): SupplierResponse | undefined {
   const invitation = invitations.get(token);
   if (!invitation) {
@@ -90,15 +110,37 @@ export function submitSupplierResponse(
   const response: SupplierResponse = {
     id: randomUUID(),
     needId: invitation.needId,
+    needProfileId: invitation.needProfileId,
     supplierId: invitation.supplierId,
     supplierName: invitation.supplierName,
+    invitationId: invitation.id,
+    canHelp: input.canHelp,
+    decision: input.canHelp ? "can_help" : "cannot_help",
+    earliestAvailability: input.earliestAvailability,
+    availability: input.earliestAvailability,
+    indicativePriceAud: input.indicativePriceAud,
+    indicativePrice: {
+      amount: input.indicativePriceAud * 100,
+      currency: "AUD"
+    },
+    relevantExperience: input.relevantExperience,
+    conditions: input.conditions,
+    status: "submitted",
     submittedAt,
-    ...input
+    createdAt: submittedAt,
+    updatedAt: submittedAt
   };
 
   invitation.status = "responded";
   invitation.respondedAt = submittedAt;
+  invitation.updatedAt = submittedAt;
   responses.set(response.id, response);
+  const need = needs.get(invitation.needId);
+  const match = need?.matches.find((item) => item.supplier.id === invitation.supplierId);
+  if (match) {
+    match.status = input.canHelp ? "responded" : "declined";
+    match.updatedAt = submittedAt;
+  }
   return response;
 }
 
@@ -144,6 +186,10 @@ export function createEngagement(input: {
 
   need.status = "selected";
   need.updatedAt = now;
+  for (const match of need.matches) {
+    match.status = match.supplier.id === supplierResponse.supplierId ? "selected" : "not_selected";
+    match.updatedAt = now;
+  }
   engagements.set(engagement.id, engagement);
   return engagement;
 }

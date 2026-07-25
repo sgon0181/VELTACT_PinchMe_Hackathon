@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
-import { rapidMatchSocketEvent } from "@veltact/contracts";
+import {
+  engagementSchema,
+  needProfileSchema,
+  rapidMatchSocketEvent,
+  supplierInvitationSchema,
+  supplierMatchSchema,
+  supplierResponseSchema
+} from "@veltact/contracts";
 import { io as createSocketClient, type Socket } from "socket.io-client";
 import { app } from "../app.js";
 import {
@@ -60,14 +67,24 @@ describe("marketplace core routes", () => {
 
     assert.equal(created.status, 201);
     assert.equal(created.body.need.profile.title, "Urgent PLC automation fault");
+    assert.doesNotThrow(() => needProfileSchema.parse(created.body.need.needProfile));
     assert.equal(created.body.need.matches.length, 3);
     assert.deepEqual(
       created.body.need.matches.map((match: { supplierId: string }) => match.supplierId),
-      ["supplier-automation-nsw", "supplier-robotics-vic", "supplier-electrical-qld"]
+      ["supplier-automation-nsw", "supplier-robotics-vic", "supplier-fabrication-sa"]
     );
-    assert.match(created.body.need.matches[0].explanation.join(" "), /Matched capabilities/);
+    assert.match(created.body.need.matches[0].explanation.join(" "), /siemens|respond within 1 day/i);
+    assert.doesNotThrow(() => supplierMatchSchema.parse(created.body.need.supplierMatches[0]));
     assert.equal(created.body.need.invitations.length, 3);
+    assert.equal(created.body.need.invitations[0].status, "invited");
+    assert.equal(created.body.need.supplierInvitations[0].status, "sent");
+    assert.doesNotThrow(() => supplierInvitationSchema.parse(created.body.need.supplierInvitations[0]));
     assert.ok(created.body.need.invitations[0].token);
+
+    const sent = await postJson(`/api/need-profiles/${created.body.need.id}/invitations/send`, {});
+    assert.equal(sent.status, 200);
+    assert.equal(sent.body.supplierInvitations.length, 3);
+    assert.doesNotThrow(() => supplierInvitationSchema.parse(sent.body.supplierInvitations[0]));
 
     const retrieved = await getJson(`/api/needs/${created.body.need.id}`);
 
@@ -87,8 +104,10 @@ describe("marketplace core routes", () => {
 
     assert.equal(invitation.status, 200);
     assert.equal(invitation.body.invitation.supplierId, "supplier-automation-nsw");
-    assert.equal(invitation.body.invitation.status, "viewed");
-    assert.ok(invitation.body.invitation.viewedAt);
+    assert.equal(invitation.body.invitation.status, "opened");
+    assert.equal(invitation.body.supplierInvitation.status, "opened");
+    assert.doesNotThrow(() => supplierInvitationSchema.parse(invitation.body.supplierInvitation));
+    assert.ok(invitation.body.invitation.openedAt);
     assert.equal(invitation.body.need.id, created.body.need.id);
 
     const submitted = await postJson(`/api/supplier-invitations/${token}/responses`, {
@@ -100,7 +119,12 @@ describe("marketplace core routes", () => {
     });
 
     assert.equal(submitted.status, 201);
-    assert.deepEqual(submitted.body.supplierResponse, submitted.body.response);
+    assert.doesNotThrow(() => supplierResponseSchema.parse(submitted.body.supplierResponse));
+    assert.equal(submitted.body.supplierResponse.decision, "can_help");
+    assert.deepEqual(submitted.body.supplierResponse.indicativePrice, {
+      amount: 1850000,
+      currency: "AUD"
+    });
     assert.equal(submitted.body.response.supplierId, "supplier-automation-nsw");
     assert.equal(submitted.body.response.canHelp, true);
 
@@ -113,11 +137,13 @@ describe("marketplace core routes", () => {
     });
     assert.equal(duplicate.status, 201);
     assert.deepEqual(duplicate.body.response, submitted.body.response);
+    assert.deepEqual(duplicate.body.supplierResponse, submitted.body.supplierResponse);
 
     const responses = await getJson(`/api/needs/${created.body.need.id}/responses`);
 
     assert.equal(responses.status, 200);
     assert.deepEqual(responses.body.responses, [submitted.body.response]);
+    assert.deepEqual(responses.body.supplierResponses, [submitted.body.supplierResponse]);
   });
 
   test("emits realtime buyer updates when a supplier response is submitted", async () => {
@@ -145,7 +171,8 @@ describe("marketplace core routes", () => {
     client.close();
     assert.equal(submitted.status, 201);
     assert.equal(update.needProfileId, needProfileId);
-    assert.deepEqual(update.supplierResponse, submitted.body.supplierResponse);
+    assert.equal(update.supplierResponse.decision, "cannot_help");
+    assert.equal(update.supplierResponse.status, "submitted");
   });
 
   test("rejects malformed needs and unknown supplier invitation tokens", async () => {
@@ -178,6 +205,7 @@ describe("marketplace core routes", () => {
       supplierResponseId: submitted.body.response.id
     });
     assert.equal(selected.status, 201);
+    assert.doesNotThrow(() => engagementSchema.parse(selected.body.engagement));
     assert.equal(selected.body.engagement.paymentStatus, "not_started");
 
     const paymentLink = await postJson(
@@ -185,6 +213,7 @@ describe("marketplace core routes", () => {
       {}
     );
     assert.equal(paymentLink.status, 201);
+    assert.doesNotThrow(() => engagementSchema.parse(paymentLink.body.engagement));
     assert.equal(paymentLink.body.engagement.status, "payment_pending");
     assert.equal(paymentLink.body.engagement.paymentStatus, "awaiting_payment");
     assert.match(paymentLink.body.hostedCheckoutUrl, /^https:\/\/sandbox\.getpinch\.com\.au/);
@@ -213,6 +242,7 @@ describe("marketplace core routes", () => {
     assert.equal(webhook.status, 200);
 
     const secured = await getJson(`/api/engagements/${selected.body.engagement.id}`);
+    assert.doesNotThrow(() => engagementSchema.parse(secured.body.engagement));
     assert.equal(secured.body.engagement.status, "supplier_secured");
     assert.equal(secured.body.engagement.paymentStatus, "paid");
     assert.equal(secured.body.engagement.pinchPaymentId, "pmt_approved");
@@ -291,12 +321,12 @@ async function wait(milliseconds: number) {
 function automationNeed() {
   return {
     title: "Urgent PLC automation fault",
-    description: "Packaging line has PLC and SCADA faults and needs commissioning support in Sydney.",
+    description: "Urgent Siemens PLC fault on a packaging conveyor in Western Sydney. Support required today.",
     category: "automation",
     industry: "manufacturing",
-    location: "Sydney NSW",
-    urgencyDays: 3,
+    location: "Western Sydney NSW",
+    urgencyDays: 1,
     budgetAud: 20000,
-    requiredCapabilities: ["plc", "scada", "commissioning"]
+    requiredCapabilities: ["siemens", "plc", "conveyor"]
   };
 }
