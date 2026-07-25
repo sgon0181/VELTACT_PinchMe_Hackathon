@@ -1,24 +1,28 @@
-export type Supplier = {
-  id: string;
-  name: string;
-  contactEmail: string;
-  contactPhone?: string;
-  capabilities: string[];
-  industries: string[];
-  locations: string[];
-  equipmentBrands: string[];
-  certifications: string[];
-  trustSignals: string[];
-  availabilityDays: number;
-  minimumBudgetAud: number;
-  maximumBudgetAud: number;
-  verified: boolean;
-};
+import { readFileSync } from "node:fs";
+import {
+  supplierCatalogEntrySchema,
+  type SupplierCatalogEntry
+} from "@veltact/contracts";
+import { env } from "../env.js";
 
-export const seededSuppliers: Supplier[] = [
+export type Supplier = SupplierCatalogEntry;
+
+type SeedSupplier = Omit<
+  SupplierCatalogEntry,
+  | "categories"
+  | "createdAt"
+  | "updatedAt"
+  | "verificationStatus"
+  | "verificationSource"
+  | "verifiedAt"
+>;
+
+const catalogTimestamp = "2026-07-25T00:00:00.000Z";
+
+const seededSupplierInputs: SeedSupplier[] = [
   {
     id: "supplier-automation-nsw",
-    name: "Harbour Industrial Automation",
+    companyName: "Harbour Industrial Automation",
     contactEmail: "ops@harbour-automation.example",
     contactPhone: "+61411111001",
     capabilities: [
@@ -27,11 +31,15 @@ export const seededSuppliers: Supplier[] = [
       "scada",
       "controls",
       "commissioning",
-      "conveyor fault recovery"
+      "conveyor fault recovery",
+      "robotics",
+      "robotic cell fault recovery",
+      "abb robot diagnostics",
+      "palletising"
     ],
     industries: ["manufacturing", "food", "packaging", "industrial"],
-    locations: ["nsw", "sydney", "western sydney", "australia"],
-    equipmentBrands: ["siemens", "simatic", "s7"],
+    serviceRegions: ["nsw", "sydney", "western sydney", "australia"],
+    equipmentBrands: ["siemens", "simatic", "s7", "abb"],
     certifications: ["licensed electrical contractor", "machine safety"],
     trustSignals: ["Verified industrial automation supplier", "24/7 breakdown roster"],
     availabilityDays: 1,
@@ -40,8 +48,53 @@ export const seededSuppliers: Supplier[] = [
     verified: true
   },
   {
+    id: "supplier-robotics-western-sydney",
+    companyName: "Atlas Robotics Field Service",
+    contactEmail: "dispatch@atlas-robotics.example",
+    contactPhone: "+61411111006",
+    capabilities: [
+      "robotics",
+      "robotic cell fault recovery",
+      "abb robot diagnostics",
+      "palletising",
+      "robot controller diagnostics",
+      "same-shift onsite support"
+    ],
+    industries: ["manufacturing", "food", "packaging", "industrial"],
+    serviceRegions: ["western sydney", "sydney", "nsw", "australia"],
+    equipmentBrands: ["abb"],
+    certifications: ["machine safety", "licensed electrical contractor"],
+    trustSignals: ["Verified robotic cell recovery team", "24/7 production-line response"],
+    availabilityDays: 1,
+    minimumBudgetAud: 5000,
+    maximumBudgetAud: 120000,
+    verified: true
+  },
+  {
+    id: "supplier-robot-safety-nsw",
+    companyName: "CellGuard Automation Response",
+    contactEmail: "response@cellguard.example",
+    contactPhone: "+61411111007",
+    capabilities: [
+      "robotics",
+      "robotic cell fault recovery",
+      "safety circuits",
+      "safety circuit diagnostics",
+      "onsite support"
+    ],
+    industries: ["manufacturing", "food", "packaging", "industrial"],
+    serviceRegions: ["western sydney", "sydney", "nsw", "australia"],
+    equipmentBrands: ["abb"],
+    certifications: ["machine safety", "licensed electrical contractor"],
+    trustSignals: ["Robot-cell safety specialist", "Same-shift Sydney callout roster"],
+    availabilityDays: 1,
+    minimumBudgetAud: 4000,
+    maximumBudgetAud: 80000,
+    verified: true
+  },
+  {
     id: "supplier-controls-western-sydney",
-    name: "Western Sydney Controls Response",
+    companyName: "Western Sydney Controls Response",
     contactEmail: "dispatch@ws-controls.example",
     contactPhone: "+61411111002",
     capabilities: [
@@ -53,7 +106,7 @@ export const seededSuppliers: Supplier[] = [
       "onsite support"
     ],
     industries: ["manufacturing", "food", "packaging", "industrial"],
-    locations: ["western sydney", "sydney", "nsw", "australia"],
+    serviceRegions: ["western sydney", "sydney", "nsw", "australia"],
     equipmentBrands: ["siemens", "simatic", "s7"],
     certifications: ["licensed electrical contractor", "confined space"],
     trustSignals: ["Same-day Sydney response team", "Packaging-line fault recovery experience"],
@@ -64,7 +117,7 @@ export const seededSuppliers: Supplier[] = [
   },
   {
     id: "supplier-electrical-sydney",
-    name: "LineWorks Industrial Electrical",
+    companyName: "LineWorks Industrial Electrical",
     contactEmail: "service@lineworks-electrical.example",
     contactPhone: "+61411111003",
     capabilities: [
@@ -76,7 +129,7 @@ export const seededSuppliers: Supplier[] = [
       "automation"
     ],
     industries: ["manufacturing", "food", "packaging", "industrial"],
-    locations: ["sydney", "western sydney", "nsw", "australia"],
+    serviceRegions: ["sydney", "western sydney", "nsw", "australia"],
     equipmentBrands: ["siemens", "schneider", "rockwell"],
     certifications: ["licensed electrical contractor", "arc flash trained"],
     trustSignals: ["Industrial electrical compliance record", "After-hours callout roster"],
@@ -87,12 +140,12 @@ export const seededSuppliers: Supplier[] = [
   },
   {
     id: "supplier-hydraulics-wa",
-    name: "Pilbara Hydraulic Response",
+    companyName: "Pilbara Hydraulic Response",
     contactEmail: "field@pilbara-hydraulics.example",
     contactPhone: "+61411111004",
     capabilities: ["hydraulics", "pneumatics", "maintenance", "breakdown", "field service"],
     industries: ["mining", "resources", "industrial"],
-    locations: ["wa", "perth", "pilbara", "australia"],
+    serviceRegions: ["wa", "perth", "pilbara", "australia"],
     equipmentBrands: ["bosch rexroth", "parker"],
     certifications: ["mine site induction"],
     trustSignals: ["Regional field response team"],
@@ -103,12 +156,12 @@ export const seededSuppliers: Supplier[] = [
   },
   {
     id: "supplier-fabrication-sa",
-    name: "Precision Plant Fabrication",
+    companyName: "Precision Plant Fabrication",
     contactEmail: "quotes@precision-plant.example",
     contactPhone: "+61411111005",
     capabilities: ["fabrication", "welding", "conveyors", "guards", "installation"],
     industries: ["manufacturing", "agriculture", "industrial"],
-    locations: ["sa", "adelaide", "australia"],
+    serviceRegions: ["sa", "adelaide", "australia"],
     equipmentBrands: ["conveyors", "guarding"],
     certifications: ["coded welding"],
     trustSignals: ["Plant modification experience"],
@@ -118,3 +171,26 @@ export const seededSuppliers: Supplier[] = [
     verified: false
   }
 ];
+
+export const seededSuppliers: Supplier[] = seededSupplierInputs.map((supplier) =>
+  supplierCatalogEntrySchema.parse({
+    ...supplier,
+    categories: supplier.industries,
+    verificationStatus: supplier.verified ? "demo_verified" : "unverified",
+    verificationSource: supplier.verified ? "Curated RapidMatch demo catalog" : undefined,
+    verifiedAt: supplier.verified ? catalogTimestamp : undefined,
+    createdAt: catalogTimestamp,
+    updatedAt: catalogTimestamp
+  })
+);
+
+export const supplierCatalog = loadSupplierCatalog();
+
+function loadSupplierCatalog(): Supplier[] {
+  if (!env.SUPPLIER_CATALOG_FILE) {
+    return seededSuppliers;
+  }
+
+  const payload = JSON.parse(readFileSync(env.SUPPLIER_CATALOG_FILE, "utf8")) as unknown;
+  return supplierCatalogEntrySchema.array().min(1).parse(payload);
+}

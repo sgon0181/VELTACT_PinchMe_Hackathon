@@ -31,6 +31,8 @@ PINCH_RETURN_URL=http://localhost:4000/api/pinch/return
 PINCH_WEBHOOK_SECRET=whsec_replace_with_pinch_webhook_secret
 ```
 
+Marketplace state is persisted by default to `apps/api/.data/marketplace.json`, which is ignored by Git. Set `MARKETPLACE_DATA_FILE` to change the location. Set `SUPPLIER_CATALOG_FILE` to a JSON array that validates against the shared supplier catalog contract.
+
 Start the complete demo with one command:
 
 ```bash
@@ -45,6 +47,16 @@ The API serves the built buyer frontend, so a separate static file server is not
 The local-only `Complete demo payment` action records a sandbox approval so the full
 workflow can be demonstrated through the final Secured state. Production still requires
 an approved Pinch payment.
+
+The primary orange demo-data action loads the robotic palletiser emergency. The classic PLC fault remains available beside it.
+
+Check provider readiness without exposing credential values:
+
+```bash
+curl -s http://localhost:4000/api/health
+```
+
+Production enables per-requirement buyer capability authorization by default. The buyer frontend retains the issued capability token and sends it in `x-veltact-buyer-token`. This is scoped workflow authorization, not a user/password account system.
 
 ## Pinch Sandbox Tests
 
@@ -92,7 +104,7 @@ Register the local endpoint with Pinch using a public tunnel URL:
 https://your-public-tunnel.example.com/api/pinch/webhooks
 ```
 
-Recent verified webhook events are held in memory for local demo inspection:
+Recent verified webhook summaries are held in memory for local demo inspection. Authoritative payment evidence and marketplace audit events are also written to the marketplace snapshot:
 
 ```bash
 curl -s http://localhost:4000/api/pinch/webhooks/events

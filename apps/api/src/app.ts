@@ -7,8 +7,10 @@ import { env } from "./env.js";
 import { aiIntakeRouter } from "./aiIntake/aiIntakeRoutes.js";
 import { marketplaceRouter } from "./marketplace/marketplaceRoutes.js";
 import { pinchRouter } from "./pinch/pinchRoutes.js";
+import { createRateLimiter } from "./rateLimit.js";
 
 export const app = express();
+app.disable("x-powered-by");
 const buyerPublicPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../buyer/public"
@@ -17,6 +19,26 @@ const buyerPublicPath = path.resolve(
 app.use(
   cors({
     origin: env.WEB_ORIGIN
+  })
+);
+app.use((_request, response, next) => {
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.setHeader("Referrer-Policy", "same-origin");
+  response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  next();
+});
+app.use(
+  "/api/ai-intake",
+  createRateLimiter({
+    limit: env.AI_RATE_LIMIT_MAX,
+    scope: "ai-intake"
+  })
+);
+app.use(
+  "/api",
+  createRateLimiter({
+    limit: env.API_RATE_LIMIT_MAX,
+    scope: "api"
   })
 );
 app.use(
@@ -33,6 +55,35 @@ app.get("/api/health", (_request, response) => {
     application: "veltact-api",
     status: "ok",
     environment: env.NODE_ENV,
+    readiness: {
+      persistence: Boolean(env.MARKETPLACE_DATA_FILE),
+      buyerCapabilityAuth: env.BUYER_CAPABILITY_AUTH_REQUIRED,
+      pinch: true,
+      openAi: Boolean(env.OPENAI_API_KEY),
+      email:
+        env.EMAIL_PROVIDER === "local_demo"
+          ? env.NODE_ENV !== "production"
+          : Boolean(
+              env.EMAIL_FROM &&
+                (env.EMAIL_PROVIDER === "resend"
+                  ? env.RESEND_API_KEY
+                  : env.SENDGRID_API_KEY)
+            ),
+      sms: Boolean(
+        env.SMS_PROVIDER === "twilio" &&
+          env.TWILIO_ACCOUNT_SID &&
+          env.TWILIO_AUTH_TOKEN &&
+          env.TWILIO_FROM_NUMBER &&
+          env.SUPPLIER_OUTREACH_SMS_TO
+      ),
+      whatsapp: Boolean(
+        env.SMS_PROVIDER === "twilio" &&
+          env.TWILIO_ACCOUNT_SID &&
+          env.TWILIO_AUTH_TOKEN &&
+          env.TWILIO_WHATSAPP_FROM &&
+          env.SUPPLIER_OUTREACH_WHATSAPP_TO
+      )
+    },
     timestamp: new Date().toISOString()
   });
 });

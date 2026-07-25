@@ -17,12 +17,23 @@ const optionalProviderEmail = z.preprocess(
   (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
   z.string().trim().email().optional()
 );
+const optionalBoolean = z.preprocess((value) => {
+  if (value === undefined || value === "") return undefined;
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  return value;
+}, z.boolean().optional());
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
   WEB_ORIGIN: z.string().url().default("http://localhost:4000"),
   API_PUBLIC_URL: z.string().url().optional(),
+  MARKETPLACE_DATA_FILE: optionalProviderString,
+  SUPPLIER_CATALOG_FILE: optionalProviderString,
+  BUYER_CAPABILITY_AUTH_REQUIRED: optionalBoolean,
+  API_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
+  AI_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
   EMAIL_PROVIDER: z.enum(["local_demo", "resend", "sendgrid"]).default("local_demo"),
   EMAIL_FROM: optionalProviderString,
   RESEND_API_KEY: optionalProviderString,
@@ -55,7 +66,23 @@ const parsedEnv = envSchema.parse(rawEnv);
 
 export const env = {
   ...parsedEnv,
+  MARKETPLACE_DATA_FILE:
+    parsedEnv.MARKETPLACE_DATA_FILE === undefined
+      ? parsedEnv.NODE_ENV === "test"
+        ? undefined
+        : path.join(apiRoot, ".data", "marketplace.json")
+      : resolveApiPath(parsedEnv.MARKETPLACE_DATA_FILE),
+  SUPPLIER_CATALOG_FILE:
+    parsedEnv.SUPPLIER_CATALOG_FILE === undefined
+      ? undefined
+      : resolveApiPath(parsedEnv.SUPPLIER_CATALOG_FILE),
+  BUYER_CAPABILITY_AUTH_REQUIRED:
+    parsedEnv.BUYER_CAPABILITY_AUTH_REQUIRED ?? (parsedEnv.NODE_ENV === "production"),
   API_PUBLIC_URL: parsedEnv.API_PUBLIC_URL ?? `http://localhost:${parsedEnv.PORT}`,
   PINCH_RETURN_URL:
     parsedEnv.PINCH_RETURN_URL ?? new URL("/api/pinch/return", parsedEnv.WEB_ORIGIN).toString()
 };
+
+function resolveApiPath(value: string) {
+  return path.isAbsolute(value) ? value : path.resolve(apiRoot, value);
+}

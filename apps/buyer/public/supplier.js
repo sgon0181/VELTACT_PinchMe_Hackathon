@@ -8,7 +8,7 @@ const token = new URLSearchParams(window.location.search).get("token") || locati
 const form = document.querySelector("#response-form");
 const statusEl = document.querySelector("#form-status");
 const receipt = document.querySelector("#submitted-receipt");
-const demoResponse = {
+const plcDemoResponse = {
   canHelp: "true",
   earliestAvailability: new Date().toISOString().slice(0, 10),
   indicativePriceAud: "1800",
@@ -17,6 +17,16 @@ const demoResponse = {
   conditions:
     "Remote fault photos or alarm screenshots requested before dispatch. Onsite support is subject to site induction and safe access to the control panel."
 };
+const roboticsDemoResponse = {
+  canHelp: "true",
+  earliestAvailability: new Date().toISOString().slice(0, 10),
+  indicativePriceAud: "14500",
+  relevantExperience:
+    "Our field team has recovered ABB palletising cells integrated with Siemens S7 controls in food-packaging plants, including safety-circuit diagnosis, controlled restart and maintenance handover.",
+  conditions:
+    "Remote review of robot and PLC alarm history before dispatch. Price covers mobilisation, diagnostics and safe restart support; replacement hardware requires buyer approval."
+};
+let demoResponse = plcDemoResponse;
 
 if (!token || token === "supplier.html") {
   setStatus("Missing invitation token.");
@@ -53,6 +63,11 @@ function renderOpportunity(need, invitation) {
   text("#need-urgency", need.profile.urgencyDays ? `${need.profile.urgencyDays} days` : "Not specified");
   text("#need-budget", need.profile.budgetAud ? formatMoney(need.profile.budgetAud) : "Not specified");
   text("#need-description", need.profile.description);
+  demoResponse = /robot|palletis|abb/i.test(
+    `${need.profile.title} ${need.profile.description}`
+  )
+    ? roboticsDemoResponse
+    : plcDemoResponse;
 
   const capabilities = document.querySelector("#capabilities");
   capabilities.replaceChildren(

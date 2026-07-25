@@ -1,10 +1,20 @@
-import { randomUUID } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual
+} from "node:crypto";
 import { matchSuppliers } from "./matching.js";
 import { sendSupplierOpportunity } from "./outreachDelivery.js";
-import { seededSuppliers } from "./suppliers.js";
+import { supplierCatalog } from "./suppliers.js";
 import { env } from "../env.js";
+import {
+  loadMarketplaceSnapshot,
+  saveMarketplaceSnapshot
+} from "./persistence.js";
 import type {
   Engagement,
+  MarketplaceAuditEvent,
   NeedProfile,
   NeedRecord,
   PinchWebhookEvidence,
@@ -13,13 +23,39 @@ import type {
   SupplierResponse
 } from "./types.js";
 
-const needs = new Map<string, NeedRecord>();
-const invitations = new Map<string, SupplierInvitation>();
-const outreachDeliveries = new Map<string, SupplierOutreachDelivery>();
-const responses = new Map<string, SupplierResponse>();
-const engagements = new Map<string, Engagement>();
-const processedPinchEventIds = new Set<string>();
-const pinchWebhookEvidence = new Map<string, PinchWebhookEvidence>();
+const initialSnapshot = loadMarketplaceSnapshot(env.MARKETPLACE_DATA_FILE);
+const needs = new Map<string, NeedRecord>(
+  initialSnapshot?.needs.map((need) => [need.id, need]) ?? []
+);
+const invitations = new Map<string, SupplierInvitation>(
+  initialSnapshot?.invitations.map((invitation) => [invitation.token, invitation]) ?? []
+);
+const outreachDeliveries = new Map<string, SupplierOutreachDelivery>(
+  initialSnapshot?.outreachDeliveries.map((delivery) => [
+    deliveryKey(delivery.invitationId, delivery.channel),
+    delivery
+  ]) ?? []
+);
+const responses = new Map<string, SupplierResponse>(
+  initialSnapshot?.responses.map((supplierResponse) => [
+    supplierResponse.id,
+    supplierResponse
+  ]) ?? []
+);
+const engagements = new Map<string, Engagement>(
+  initialSnapshot?.engagements.map((engagement) => [engagement.id, engagement]) ?? []
+);
+const processedPinchEventIds = new Set<string>(
+  initialSnapshot?.processedPinchEventIds ?? []
+);
+const pinchWebhookEvidence = new Map<string, PinchWebhookEvidence>(
+  initialSnapshot?.pinchWebhookEvidence.map((evidence) => [
+    evidence.eventId,
+    evidence
+  ]) ?? []
+);
+const auditEvents: MarketplaceAuditEvent[] = initialSnapshot?.auditEvents ?? [];
+const issuedBuyerAccessTokens = new Map<string, string>();
 
 export type SupplierResponseSubmissionResult =
   | { status: "submitted"; supplierResponse: SupplierResponse }
@@ -39,12 +75,13 @@ export function createNeed(
   currentTime = new Date()
 ): NeedRecord {
   const id = randomUUID();
+  const buyerAccessToken = secureAccessToken();
   const createdAt = currentTime.toISOString();
-  const matches = matchSuppliers(input.profile, seededSuppliers);
+  const matches = matchSuppliers(input.profile, supplierCatalog);
   const needInvitations = matches.map((match) => {
     match.status = "invited";
     match.updatedAt = createdAt;
-    const token = randomUUID();
+    const token = secureAccessToken();
     const invitationId = `${id}-invitation-${match.supplier.id}`;
     const invitation: SupplierInvitation = {
       id: invitationId,
@@ -52,7 +89,7 @@ export function createNeed(
       needId: id,
       needProfileId: id,
       supplierId: match.supplier.id,
-      supplierName: match.supplier.name,
+      supplierName: match.supplier.companyName,
       matchId: `${id}-${match.id}`,
       responseUrl: new URL(`/supplier.html?token=${encodeURIComponent(token)}`, env.WEB_ORIGIN).toString(),
       status: "sent",
@@ -87,6 +124,7 @@ export function createNeed(
   const need: NeedRecord = {
     id,
     buyerEmail: input.buyerEmail,
+    buyerAccessTokenHash: accessTokenHash(buyerAccessToken),
     profile: input.profile,
     matches,
     invitations: needInvitations,
@@ -95,7 +133,44 @@ export function createNeed(
     updatedAt: createdAt
   };
   needs.set(id, need);
+  issuedBuyerAccessTokens.set(id, buyerAccessToken);
+  commitMarketplaceMutation({
+    eventType: "need.created",
+    actorType: "buyer",
+    actorId: input.buyerEmail,
+    entityType: "need",
+    entityId: id,
+    metadata: {
+      matchCount: matches.length,
+      category: input.profile.category
+    }
+  });
   return need;
+}
+
+export function consumeIssuedBuyerAccessToken(needId: string) {
+  const token = issuedBuyerAccessTokens.get(needId);
+  issuedBuyerAccessTokens.delete(needId);
+  return token;
+}
+
+export function isBuyerAuthorised(needId: string, accessToken: string | undefined) {
+  if (!env.BUYER_CAPABILITY_AUTH_REQUIRED) {
+    return true;
+  }
+
+  const expectedHash = needs.get(needId)?.buyerAccessTokenHash;
+  if (!expectedHash || !accessToken) {
+    return false;
+  }
+
+  const expected = Buffer.from(expectedHash, "hex");
+  const actual = Buffer.from(accessTokenHash(accessToken), "hex");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+export function listMarketplaceAuditEvents() {
+  return [...auditEvents];
 }
 
 export function getNeed(id: string): NeedRecord | undefined {
@@ -154,7 +229,17 @@ export function markInvitationViewed(
     return undefined;
   }
 
+  const previousStatus = invitation.status;
   if (expireInvitationIfNeeded(invitation, currentTime)) {
+    if (invitation.status !== previousStatus) {
+      commitMarketplaceMutation({
+        eventType: "invitation.expired",
+        actorType: "system",
+        entityType: "invitation",
+        entityId: invitation.id,
+        metadata: { supplierId: invitation.supplierId }
+      });
+    }
     return invitation;
   }
 
@@ -163,6 +248,14 @@ export function markInvitationViewed(
     invitation.status = "opened";
     invitation.openedAt = openedAt;
     invitation.updatedAt = openedAt;
+    commitMarketplaceMutation({
+      eventType: "invitation.opened",
+      actorType: "supplier",
+      actorId: invitation.supplierId,
+      entityType: "invitation",
+      entityId: invitation.id,
+      metadata: {}
+    });
   }
 
   return invitation;
@@ -185,6 +278,13 @@ export function submitSupplierResponse(
   }
 
   if (expireInvitationIfNeeded(invitation, currentTime)) {
+    commitMarketplaceMutation({
+      eventType: "invitation.expired",
+      actorType: "system",
+      entityType: "invitation",
+      entityId: invitation.id,
+      metadata: { supplierId: invitation.supplierId }
+    });
     return { status: "expired" };
   }
 
@@ -211,12 +311,20 @@ export function submitSupplierResponse(
       currency: "AUD"
     };
     existingResponse.relevantExperience = input.relevantExperience;
-    existingResponse.conditions = input.conditions;
+    existingResponse.conditions = [input.conditions];
     existingResponse.updatedAt = updatedAt;
     invitation.status = "responded";
     invitation.respondedAt = updatedAt;
     invitation.updatedAt = updatedAt;
     updateMatchResponseStatus(invitation, input.canHelp, updatedAt);
+    commitMarketplaceMutation({
+      eventType: "response.updated",
+      actorType: "supplier",
+      actorId: invitation.supplierId,
+      entityType: "response",
+      entityId: existingResponse.id,
+      metadata: { decision: existingResponse.decision }
+    });
     return { status: "submitted", supplierResponse: existingResponse };
   }
 
@@ -238,7 +346,7 @@ export function submitSupplierResponse(
       currency: "AUD"
     },
     relevantExperience: input.relevantExperience,
-    conditions: input.conditions,
+    conditions: [input.conditions],
     status: "submitted",
     submittedAt,
     createdAt: submittedAt,
@@ -250,6 +358,14 @@ export function submitSupplierResponse(
   invitation.updatedAt = submittedAt;
   responses.set(response.id, response);
   updateMatchResponseStatus(invitation, input.canHelp, submittedAt);
+  commitMarketplaceMutation({
+    eventType: "response.submitted",
+    actorType: "supplier",
+    actorId: invitation.supplierId,
+    entityType: "response",
+    entityId: response.id,
+    metadata: { decision: response.decision }
+  });
   return { status: "submitted", supplierResponse: response };
 }
 
@@ -304,6 +420,16 @@ async function sendOutreachDelivery(
   delivery.errorMessage = undefined;
   updatedNeedTimestamp(need);
   const updates = [{ ...delivery }];
+  commitMarketplaceMutation({
+    eventType: "outreach.queued",
+    actorType: "system",
+    entityType: "outreach",
+    entityId: deliveryKey(delivery.invitationId, delivery.channel),
+    metadata: {
+      channel: delivery.channel,
+      supplierId: delivery.supplierId
+    }
+  });
   onDeliveryUpdated?.(updates[0]);
 
   const result = await sendSupplierOpportunity(delivery, invitation, need);
@@ -313,6 +439,17 @@ async function sendOutreachDelivery(
   delivery.errorMessage = result.ok ? undefined : result.errorMessage;
   updatedNeedTimestamp(need);
   updates.push({ ...delivery });
+  commitMarketplaceMutation({
+    eventType: result.ok ? "outreach.sent" : "outreach.failed",
+    actorType: "system",
+    entityType: "outreach",
+    entityId: deliveryKey(delivery.invitationId, delivery.channel),
+    metadata: {
+      channel: delivery.channel,
+      supplierId: delivery.supplierId,
+      status: delivery.deliveryStatus
+    }
+  });
   onDeliveryUpdated?.(updates[1]);
   return updates;
 }
@@ -376,6 +513,16 @@ export function createEngagement(input: {
     match.updatedAt = now;
   }
   engagements.set(engagement.id, engagement);
+  commitMarketplaceMutation({
+    eventType: "engagement.created",
+    actorType: "buyer",
+    entityType: "engagement",
+    entityId: engagement.id,
+    metadata: {
+      needId: input.needId,
+      supplierId: engagement.supplierId
+    }
+  });
   return { status: "created", engagement };
 }
 
@@ -408,6 +555,15 @@ export function attachPaymentLinkToEngagement(input: {
     need.updatedAt = now;
   }
 
+  commitMarketplaceMutation({
+    eventType: "payment_link.created",
+    actorType: "buyer",
+    entityType: "payment",
+    entityId: engagement.id,
+    metadata: {
+      paymentStatus: engagement.paymentStatus
+    }
+  });
   return engagement;
 }
 
@@ -434,6 +590,13 @@ export function recordAuthoritativePinchPayment(input: {
 
   const engagement = engagements.get(input.engagementId);
   if (!engagement) {
+    commitMarketplaceMutation({
+      eventType: "payment.unmatched",
+      actorType: "payment_provider",
+      entityType: "payment",
+      entityId: input.engagementId,
+      metadata: { eventType: input.eventType }
+    });
     return { duplicate: false };
   }
 
@@ -449,10 +612,20 @@ export function recordAuthoritativePinchPayment(input: {
     need.updatedAt = receivedAt;
   }
 
+  commitMarketplaceMutation({
+    eventType: "payment.secured",
+    actorType: "payment_provider",
+    entityType: "payment",
+    entityId: engagement.id,
+    metadata: {
+      eventType: input.eventType,
+      paymentStatus: engagement.paymentStatus
+    }
+  });
   return { engagement, duplicate: false };
 }
 
-export function resetMarketplaceStore() {
+export function resetMarketplaceStore(options: { preserveAudit?: boolean } = {}) {
   needs.clear();
   invitations.clear();
   outreachDeliveries.clear();
@@ -460,4 +633,51 @@ export function resetMarketplaceStore() {
   engagements.clear();
   processedPinchEventIds.clear();
   pinchWebhookEvidence.clear();
+  issuedBuyerAccessTokens.clear();
+  if (!options.preserveAudit) {
+    auditEvents.splice(0);
+  }
+  commitMarketplaceMutation({
+    eventType: "marketplace.reset",
+    actorType: "system",
+    entityType: "need",
+    entityId: "marketplace",
+    metadata: {}
+  });
+}
+
+function secureAccessToken() {
+  return randomBytes(32).toString("base64url");
+}
+
+function accessTokenHash(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function commitMarketplaceMutation(
+  event: Omit<MarketplaceAuditEvent, "id" | "occurredAt">
+) {
+  auditEvents.push({
+    ...event,
+    id: randomUUID(),
+    occurredAt: new Date().toISOString()
+  });
+  if (auditEvents.length > 1000) {
+    auditEvents.splice(0, auditEvents.length - 1000);
+  }
+  persistMarketplaceState();
+}
+
+function persistMarketplaceState() {
+  saveMarketplaceSnapshot(env.MARKETPLACE_DATA_FILE, {
+    version: 1,
+    needs: [...needs.values()],
+    invitations: [...invitations.values()],
+    outreachDeliveries: [...outreachDeliveries.values()],
+    responses: [...responses.values()],
+    engagements: [...engagements.values()],
+    processedPinchEventIds: [...processedPinchEventIds],
+    pinchWebhookEvidence: [...pinchWebhookEvidence.values()],
+    auditEvents
+  });
 }

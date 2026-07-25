@@ -52,7 +52,37 @@ const defaultInput = {
 };
 let intakeDraft = { ...defaultInput };
 let intakeUrgencySignal = "";
-const demoInput = {
+const roboticsDemoInput = {
+    companyName: "HarbourPack Manufacturing",
+    contactName: "Elena Morris",
+    contactEmail: "elena.morris@harbourpack.example",
+    title: "Robotic palletiser stopped before morning dispatch",
+    description: "Our ABB palletising robot stopped mid-cycle on Line 3. The Siemens S7 PLC shows an intermittent safety-circuit fault and cartons are backing up. We need a robotics and automation specialist in Western Sydney tonight to diagnose the cell, restore safe production and document the fix before the 6:00 am supermarket dispatch.",
+    category: "Industrial robotics and automation",
+    equipmentOrTechnology: [
+        "ABB palletising robot",
+        "Siemens S7 PLC",
+        "Robot cell safety circuit",
+        "Packaging conveyor"
+    ],
+    requiredCapabilities: [
+        "Robotic cell fault recovery",
+        "ABB robot diagnostics",
+        "Siemens PLC diagnostics",
+        "Safety circuit diagnostics",
+        "Same-shift onsite support"
+    ],
+    location: "Western Sydney, NSW",
+    requiredBy: "Tonight - before 6:00 am dispatch",
+    budgetRange: "Up to AUD 18,000 mobilisation and recovery",
+    budgetAmount: 18000,
+    constraints: [
+        "Supermarket dispatch at 6:00 am",
+        "Production line stopped",
+        "Safe restart and handover required"
+    ]
+};
+const plcDemoInput = {
     companyName: "HarbourPack Manufacturing",
     contactName: "Elena Morris",
     contactEmail: "elena.morris@harbourpack.example",
@@ -169,6 +199,16 @@ function renderSubmit() {
         <h2>AI-assisted intake</h2>
         <p class="muted">Paste messy factory context, structure it into a supplier-ready requirement, then review or edit every field manually before matching.</p>
       </div>
+      <section class="demo-data-panel" aria-label="Demo data">
+        <div>
+          <span class="demo-data-label">Demo data</span>
+          <strong>Load a complete factory incident</strong>
+        </div>
+        <div class="demo-data-actions">
+          <button id="robotics-demo-button" class="demo-data-button" type="button">Robotic palletiser emergency</button>
+          <button id="plc-demo-button" class="demo-data-button" type="button">Classic PLC fault</button>
+        </div>
+      </section>
       <section class="ai-intake-panel">
         <div>
           <strong>Messy problem text</strong>
@@ -228,7 +268,6 @@ function renderSubmit() {
       <section class="secondary-fields">
         <div class="secondary-heading">
           <span>Buyer details</span>
-          <button id="demo-fill-button" class="secondary-action" type="button">Fill demo buyer details</button>
         </div>
         ${field("companyName", "Company", intakeDraft.companyName, "text", "Company name")}
         ${field("contactName", "Contact", intakeDraft.contactName, "text", "Primary contact")}
@@ -490,7 +529,7 @@ function renderResponseTable(data) {
               <span class="response-metrics">
                 <span><b>Availability</b>${escapeHtml(response.availability ?? "Not supplied")}</span>
                 <span><b>Price</b>${response.indicativePrice ? money(response.indicativePrice.amount, response.indicativePrice.currency) : "Not supplied"}</span>
-                <span><b>Trust</b>${supplier?.verified ? "Verified supplier" : "Review conditions"}</span>
+                <span><b>Trust</b>${supplier?.verified ? "Curated supplier profile" : "Verification required"}</span>
               </span>
               <span class="response-evidence"><b>Relevant experience</b>${escapeHtml(response.relevantExperience ?? "Not supplied")}</span>
               ${response.conditions.length ? `<span class="response-conditions"><b>Conditions</b>${response.conditions.map(escapeHtml).join("; ")}</span>` : ""}
@@ -642,18 +681,11 @@ function bindEvents() {
         });
         document.querySelector("input[name='title']")?.focus({ preventScroll: true });
     });
-    document.querySelector("#demo-fill-button")?.addEventListener("click", () => {
-        const form = document.querySelector("#requirement-form");
-        if (!form)
-            return;
-        setFormValue(form, "companyName", demoInput.companyName);
-        setFormValue(form, "contactName", demoInput.contactName);
-        setFormValue(form, "contactEmail", demoInput.contactEmail);
-        syncIntakeDraftFromForm();
-        structuredDraftMessage = aiIntakeResult
-            ? "Demo buyer details added. The AI-structured requirement remains unchanged and editable."
-            : "Demo buyer details added. Enter the factory problem manually or use AI structuring.";
-        render();
+    document.querySelector("#robotics-demo-button")?.addEventListener("click", () => {
+        loadDemoInput(roboticsDemoInput, "Robotic palletiser emergency loaded. Review the supplier-ready requirement before matching.");
+    });
+    document.querySelector("#plc-demo-button")?.addEventListener("click", () => {
+        loadDemoInput(plcDemoInput, "Classic PLC fault loaded. Review the supplier-ready requirement before matching.");
     });
     document.querySelectorAll("[data-priority]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -780,7 +812,10 @@ function configureRealtime() {
     if (joinedNeedProfileId) {
         realtimeSocket.emit(rapidMatchSocketEvent.leaveNeedProfile, { needProfileId: joinedNeedProfileId });
     }
-    realtimeSocket.emit(rapidMatchSocketEvent.joinNeedProfile, { needProfileId });
+    realtimeSocket.emit(rapidMatchSocketEvent.joinNeedProfile, {
+        needProfileId,
+        buyerAccessToken: service.buyerAccessTokenForNeed(needProfileId)
+    });
     joinedNeedProfileId = needProfileId;
 }
 async function initialiseRealtimeSocket(needProfileId) {
@@ -958,6 +993,23 @@ function setFormValue(form, name, valueText) {
     if (fieldElement instanceof HTMLInputElement || fieldElement instanceof HTMLTextAreaElement) {
         fieldElement.value = valueText;
     }
+}
+function loadDemoInput(input, message) {
+    intakeDraft = {
+        ...input,
+        equipmentOrTechnology: [...input.equipmentOrTechnology],
+        requiredCapabilities: [...input.requiredCapabilities],
+        constraints: [...input.constraints]
+    };
+    intakeUrgencySignal = input.requiredBy;
+    priority = "speed";
+    aiIntakeResult = undefined;
+    intakeEvidence = [];
+    structuredDraftMessage = message;
+    render();
+    document.querySelector("textarea[name='description']")?.focus({
+        preventScroll: true
+    });
 }
 function syncIntakeDraftFromForm() {
     const form = document.querySelector("#requirement-form");

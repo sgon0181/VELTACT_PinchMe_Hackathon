@@ -20,7 +20,9 @@ The hackathon MVP is RapidMatch:
 
 ## Demo Story
 
-The primary story is an urgent Siemens PLC fault on a packaging conveyor in Western Sydney. The buyer prioritises speed, sends the brief once, receives supplier responses, compares trade-offs, selects a supplier and starts the Pinch-backed secure payment flow.
+The primary story is an ABB robotic palletiser that stops mid-cycle before a 6:00 am supermarket dispatch. The Siemens S7 PLC reports an intermittent safety-circuit fault, cartons are backing up and the buyer needs a robotics specialist in Western Sydney that night. The buyer prioritises speed, sends the brief once, receives supplier responses, compares trade-offs, selects a supplier and starts the Pinch-backed secure payment flow.
+
+The original Siemens PLC packaging-conveyor fault remains available as the classic secondary demo dataset.
 
 ## Product Boundaries
 

@@ -42,7 +42,7 @@ function scoreSupplier(need: NeedProfile, supplier: Supplier, timestamp: string)
     tokensForPhrase(industry).some((token) => terms.has(token))
   );
   const industryMatch = industryMatches.length > 0;
-  const locationMatch = supplier.locations.some((item) =>
+  const locationMatch = supplier.serviceRegions.some((item) =>
     tokensForPhrase(item).length > 1
       ? tokensForPhrase(item).every((token) => terms.has(token))
       : tokensForPhrase(item).some((token) => terms.has(token))
@@ -52,6 +52,7 @@ function scoreSupplier(need: NeedProfile, supplier: Supplier, timestamp: string)
     (need.budgetAud >= supplier.minimumBudgetAud && need.budgetAud <= supplier.maximumBudgetAud);
   const urgencyFit = need.urgencyDays === undefined || supplier.availabilityDays <= need.urgencyDays;
   const certificationFit = supplier.certifications.length > 0;
+  const domainSpecialismFit = hasDomainSpecialism(terms, supplier.capabilities);
   const speedPriorityFit =
     need.buyerPriority === "speed" &&
     (need.urgencyDays === undefined || supplier.availabilityDays <= need.urgencyDays);
@@ -60,34 +61,37 @@ function scoreSupplier(need: NeedProfile, supplier: Supplier, timestamp: string)
   const trustPriorityFit = need.buyerPriority === "trust" && supplier.verified;
   const pricePriorityFit = need.buyerPriority === "price" && budgetFit;
 
-  let score = Math.min(capabilityMatches.length, 4) * 18;
-  score += Math.min(brandMatches.length, 2) * 12;
+  let score = Math.min(capabilityMatches.length, 4) * 8;
+  score += Math.min(brandMatches.length, 2) * 6;
   if (industryMatch) {
-    score += 12;
+    score += 7;
   }
   if (locationMatch) {
-    score += 18;
+    score += 10;
   }
   if (budgetFit) {
-    score += 8;
+    score += 5;
   }
   if (urgencyFit) {
-    score += 15;
-  }
-  if (speedPriorityFit) {
-    score += 10;
-  }
-  if (technicalPriorityFit) {
-    score += 10;
-  }
-  if (trustPriorityFit) {
     score += 8;
   }
-  if (pricePriorityFit) {
+  if (speedPriorityFit) {
     score += 6;
   }
-  if (certificationFit) {
+  if (technicalPriorityFit) {
+    score += 6;
+  }
+  if (trustPriorityFit) {
+    score += 6;
+  }
+  if (pricePriorityFit) {
     score += 5;
+  }
+  if (certificationFit) {
+    score += 3;
+  }
+  if (domainSpecialismFit) {
+    score += 12;
   }
 
   score = Math.min(score, 100);
@@ -109,6 +113,7 @@ function scoreSupplier(need: NeedProfile, supplier: Supplier, timestamp: string)
       technicalPriorityFit,
       trustPriorityFit,
       pricePriorityFit,
+      domainSpecialismFit,
       buyerPriority: need.buyerPriority
     }),
     risks: buildRisks({ budgetFit, urgencyFit, locationMatch, capabilityMatches, brandMatches }),
@@ -131,6 +136,7 @@ function buildReasons(input: {
   technicalPriorityFit: boolean;
   trustPriorityFit: boolean;
   pricePriorityFit: boolean;
+  domainSpecialismFit: boolean;
   buyerPriority?: NeedProfile["buyerPriority"];
 }) {
   const reasons: string[] = [];
@@ -138,13 +144,16 @@ function buildReasons(input: {
     reasons.push(`Technical fit: supports ${input.capabilityMatches.join(", ")} for the required work.`);
   }
   if (input.brandMatches.length > 0) {
-    reasons.push(`Equipment fit: has ${input.brandMatches.join(", ")} experience for PLC fault work.`);
+    reasons.push(`Equipment fit: has ${input.brandMatches.join(", ")} experience for the affected equipment.`);
+  }
+  if (input.domainSpecialismFit) {
+    reasons.push("Specialism fit: supplier capability evidence matches the affected equipment domain.");
   }
   if (input.industryMatch) {
     reasons.push(`Industry fit: services ${input.industryMatches.join(", ")} environments.`);
   }
   if (input.locationMatch) {
-    reasons.push("Location fit: covers Western Sydney or the requested service region.");
+    reasons.push("Location fit: covers the requested service region.");
   }
   if (input.urgencyFit) {
     reasons.push(`Availability fit: can respond within ${input.supplier.availabilityDays} day${input.supplier.availabilityDays === 1 ? "" : "s"}.`);
@@ -153,7 +162,7 @@ function buildReasons(input: {
     reasons.push("Buyer priority fit: same-day response supports the speed-first requirement.");
   }
   if (input.technicalPriorityFit) {
-    reasons.push("Buyer priority fit: technical match is strong for Siemens PLC diagnostics.");
+    reasons.push("Buyer priority fit: technical capability and equipment experience are both strong.");
   }
   if (input.trustPriorityFit) {
     reasons.push("Buyer priority fit: verified supplier status supports the trust requirement.");
@@ -185,7 +194,7 @@ function buildRisks(input: {
     risks.push("No direct technical capability match was found.");
   }
   if (input.brandMatches.length === 0) {
-    risks.push("Siemens equipment experience should be confirmed.");
+    risks.push("Direct equipment or brand experience should be confirmed.");
   }
   if (!input.budgetFit) {
     risks.push("Budget may be outside this supplier's usual range.");
@@ -237,6 +246,20 @@ function requiredCapabilityValues(need: NeedProfile) {
 
 function equipmentOrTechnologyValues(need: NeedProfile) {
   return need.equipmentOrTechnology ?? need.equipmentTechnology ?? [];
+}
+
+function hasDomainSpecialism(terms: Set<string>, capabilities: string[]) {
+  const capabilityTerms = tokenise(capabilities.join(" "));
+  const roboticsNeed = ["robot", "robotic", "robotics", "palletising"].some(
+    (term) => terms.has(term)
+  );
+  if (roboticsNeed) {
+    return ["robot", "robotic", "robotics", "palletising"].some((term) =>
+      capabilityTerms.has(term)
+    );
+  }
+
+  return terms.has("plc") && capabilityTerms.has("plc");
 }
 
 function isStructuredPhraseMatch(phrase: string, structuredValues: string[], terms: Set<string>) {

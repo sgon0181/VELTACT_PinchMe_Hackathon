@@ -78,3 +78,12 @@ Socket event reserved for AI intake completion:
 - A3 owns supplier links, response UX and realtime events.
 - A4 owns Pinch payment and secured-state reliability.
 - A5 owns visual polish and demo presentation quality without adding scope.
+
+## Integration Hardening
+
+- `MarketplaceNeedProfile`, `SupplierCatalogEntry` and `MarketplaceAuditEvent` are owned by `@veltact/contracts`.
+- Production buyer operations require the capability token issued with the Need Profile. The token is sent in `x-veltact-buyer-token` and scopes access to one requirement.
+- Supplier invitation tokens scope a supplier to one opportunity. Supplier responses never receive other suppliers' invitation tokens.
+- `MARKETPLACE_DATA_FILE` stores the single-process marketplace snapshot and audit history.
+- `SUPPLIER_CATALOG_FILE` may replace the curated demo catalog only when the complete file validates against `SupplierCatalogEntry`.
+- These controls do not constitute user/password accounts, organisation membership or production supplier KYC.

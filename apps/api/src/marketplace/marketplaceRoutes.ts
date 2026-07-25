@@ -1,12 +1,16 @@
 import { Router } from "express";
+import type { Request, Response } from "express";
 import { z } from "zod";
+import { marketplaceNeedProfileSchema } from "@veltact/contracts";
 import {
   attachPaymentLinkToEngagement,
+  consumeIssuedBuyerAccessToken,
   createEngagement,
   createNeed,
   getEngagement,
   getNeed,
   getResponseForInvitation,
+  isBuyerAuthorised,
   listOutreachDeliveriesForNeed,
   listResponsesForNeed,
   markInvitationViewed,
@@ -29,26 +33,9 @@ import type { SupplierResponse } from "./types.js";
 
 export const marketplaceRouter = Router();
 
-const needProfileSchema = z.object({
-  title: z.string().trim().min(1),
-  description: z.string().trim().min(1),
-  problemSummary: z.string().trim().min(1).optional(),
-  category: z.string().trim().min(1),
-  industry: z.string().trim().min(1),
-  equipmentOrTechnology: z.array(z.string().trim().min(1)).optional(),
-  equipmentTechnology: z.array(z.string().trim().min(1)).optional(),
-  location: z.string().trim().min(1),
-  urgencyDays: z.coerce.number().int().positive().optional(),
-  budgetAud: z.coerce.number().int().positive().optional(),
-  constraints: z.array(z.string().trim().min(1)).optional(),
-  buyerPriority: z.enum(["speed", "technical_fit", "quality", "trust", "price"]).optional(),
-  requiredCapabilities: z.array(z.string().trim().min(1)).optional(),
-  requiredCapability: z.array(z.string().trim().min(1)).optional()
-});
-
 const createNeedSchema = z.object({
   buyerEmail: z.string().trim().email(),
-  profile: needProfileSchema
+  profile: marketplaceNeedProfileSchema
 });
 
 const supplierResponseSchema = z.object({
@@ -74,8 +61,10 @@ marketplaceRouter.post("/needs", (request, response) => {
     return;
   }
 
+  const createdNeed = createNeed(parsed.data);
   response.status(201).json({
-    need: serialiseNeed(createNeed(parsed.data))
+    need: serialiseNeed(createdNeed),
+    buyerAccessToken: consumeIssuedBuyerAccessToken(createdNeed.id)
   });
 });
 
@@ -88,6 +77,7 @@ marketplaceRouter.get("/needs/:needId", (request, response) => {
     });
     return;
   }
+  if (!requireBuyerAccess(request, response, need.id)) return;
 
   response.json({
     need: serialiseNeed(need)
@@ -119,7 +109,7 @@ marketplaceRouter.get("/supplier-invitations/:token", (request, response) => {
     supplierInvitation: serialiseSupplierInvitation(invitation),
     supplierResponse: existingResponse ? serialiseSupplierResponse(existingResponse) : undefined,
     response: existingResponse,
-    need: need ? serialiseNeed(need) : undefined
+    need: need ? serialiseSupplierNeed(need) : undefined
   });
 });
 
@@ -134,10 +124,12 @@ marketplaceRouter.post("/need-profiles", (request, response) => {
     return;
   }
 
-  const need = serialiseNeed(createNeed(parsed.data));
+  const createdNeed = createNeed(parsed.data);
+  const need = serialiseNeed(createdNeed);
   response.status(201).json({
     needProfile: need,
-    need
+    need,
+    buyerAccessToken: consumeIssuedBuyerAccessToken(createdNeed.id)
   });
 });
 
@@ -150,6 +142,7 @@ marketplaceRouter.get("/need-profiles/:needProfileId", (request, response) => {
     });
     return;
   }
+  if (!requireBuyerAccess(request, response, need.id)) return;
 
   response.json({
     needProfile: serialiseNeed(need),
@@ -158,6 +151,7 @@ marketplaceRouter.get("/need-profiles/:needProfileId", (request, response) => {
 });
 
 marketplaceRouter.get("/need-profiles/:needProfileId/responses", (request, response) => {
+  if (!requireBuyerAccess(request, response, request.params.needProfileId)) return;
   const supplierResponses = listResponsesForNeed(request.params.needProfileId);
   if (!supplierResponses) {
     response.status(404).json({
@@ -182,6 +176,7 @@ marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", async (
     });
     return;
   }
+  if (!requireBuyerAccess(request, response, need.id)) return;
 
   const updatedDeliveries = await sendSupplierOutreachForNeed(
     request.params.needProfileId,
@@ -209,6 +204,7 @@ marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", async (
 });
 
 marketplaceRouter.post("/need-profiles/:needProfileId/engagements", (request, response) => {
+  if (!requireBuyerAccess(request, response, request.params.needProfileId)) return;
   const parsed = createEngagementSchema.safeParse(request.body);
   if (!parsed.success) {
     response.status(400).json({
@@ -258,6 +254,7 @@ marketplaceRouter.get("/engagements/:engagementId", async (request, response) =>
     });
     return;
   }
+  if (!requireBuyerAccess(request, response, engagement.needId)) return;
 
   if (engagement.paymentStatus === "awaiting_payment" && engagement.paymentLinkId) {
     try {
@@ -302,17 +299,18 @@ marketplaceRouter.post("/engagements/:engagementId/payment-link", async (request
     return;
   }
 
-  if (engagement.hostedCheckoutUrl && engagement.paymentLinkId && engagement.pinchPayerId) {
-    response.json({ engagement: serialiseEngagement(engagement) });
-    return;
-  }
-
   const need = getNeed(engagement.needId);
   if (!need) {
     response.status(404).json({
       status: "error",
       message: "Need profile not found"
     });
+    return;
+  }
+  if (!requireBuyerAccess(request, response, need.id)) return;
+
+  if (engagement.hostedCheckoutUrl && engagement.paymentLinkId && engagement.pinchPayerId) {
+    response.json({ engagement: serialiseEngagement(engagement) });
     return;
   }
 
@@ -378,6 +376,7 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
     });
     return;
   }
+  if (!requireBuyerAccess(request, response, engagement.needId)) return;
 
   if (engagement.paymentStatus !== "awaiting_payment" || !engagement.paymentLinkId) {
     response.status(409).json({
@@ -459,6 +458,7 @@ marketplaceRouter.post("/supplier-invitations/:token/responses", (request, respo
 });
 
 marketplaceRouter.get("/needs/:needId/responses", (request, response) => {
+  if (!requireBuyerAccess(request, response, request.params.needId)) return;
   const supplierResponses = listResponsesForNeed(request.params.needId);
   if (!supplierResponses) {
     response.status(404).json({
@@ -483,11 +483,23 @@ marketplaceRouter.post("/demo/reset", (_request, response) => {
     return;
   }
 
-  resetMarketplaceStore();
+  resetMarketplaceStore({ preserveAudit: true });
   response.json({
     reset: true
   });
 });
+
+function requireBuyerAccess(request: Request, response: Response, needId: string) {
+  if (isBuyerAuthorised(needId, request.header("x-veltact-buyer-token"))) {
+    return true;
+  }
+
+  response.status(401).json({
+    status: "error",
+    message: "Buyer access token is required for this requirement"
+  });
+  return false;
+}
 
 function serialiseNeed(need: NonNullable<ReturnType<typeof getNeed>>) {
   const needProfile = serialiseNeedProfile(need);
@@ -517,20 +529,23 @@ function serialiseNeed(need: NonNullable<ReturnType<typeof getNeed>>) {
     supplierOutreachDeliveries: listOutreachDeliveriesForNeed(need.id)?.map(serialiseOutreachDelivery) ?? [],
     suppliers: need.matches.map((match) => ({
       id: match.supplier.id,
-      companyName: match.supplier.name,
+      companyName: match.supplier.companyName,
       contactEmail: match.supplier.contactEmail,
-      categories: [need.profile.category],
-      serviceRegions: match.supplier.locations,
+      categories: match.supplier.categories,
+      serviceRegions: match.supplier.serviceRegions,
       capabilities: match.supplier.capabilities,
       verified: match.supplier.verified,
-      createdAt: match.createdAt,
-      updatedAt: match.updatedAt
+      verificationStatus: match.supplier.verificationStatus,
+      verificationSource: match.supplier.verificationSource,
+      verifiedAt: match.supplier.verifiedAt,
+      createdAt: match.supplier.createdAt,
+      updatedAt: match.supplier.updatedAt
     })),
     matches: need.matches.map((match) => ({
       id: `${need.id}-${match.id}`,
       needProfileId: need.id,
       supplierId: match.supplier.id,
-      supplierName: match.supplier.name,
+      supplierName: match.supplier.companyName,
       score: match.score,
       explanation: match.explanation,
       reasons: match.explanation,
@@ -540,6 +555,16 @@ function serialiseNeed(need: NonNullable<ReturnType<typeof getNeed>>) {
       updatedAt: match.updatedAt
     })),
     invitations: need.invitations.map(serialiseLegacyInvitation)
+  };
+}
+
+function serialiseSupplierNeed(need: NonNullable<ReturnType<typeof getNeed>>) {
+  return {
+    id: need.id,
+    profile: need.profile,
+    status: need.status,
+    createdAt: need.createdAt,
+    updatedAt: need.updatedAt
   };
 }
 
@@ -635,7 +660,7 @@ function serialiseSupplierResponse(supplierResponse: SupplierResponse) {
     availability: supplierResponse.availability,
     indicativePrice: supplierResponse.indicativePrice,
     relevantExperience: supplierResponse.relevantExperience,
-    conditions: supplierResponse.conditions ? [supplierResponse.conditions] : [],
+    conditions: supplierResponse.conditions,
     message: supplierResponse.canHelp
       ? `${supplierResponse.supplierName} has confirmed availability and commercial intent.`
       : `${supplierResponse.supplierName} cannot help with this requirement.`,

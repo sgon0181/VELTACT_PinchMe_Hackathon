@@ -85,3 +85,7 @@ The shared outreach contract currently permits only `channel: email | sms`. Unti
 - `failed`: configuration, provider rejection, timeout, or network failure prevented provider acceptance.
 
 Provider secrets belong in `apps/api/.env` or the deployment secret store and must not be committed. Never embed them in browser code.
+
+## Readiness Check
+
+`GET /api/health` reports boolean readiness for email, SMS and WhatsApp without returning credentials or destinations. A false SMS or WhatsApp value means the required Twilio sender, account credentials or receiving demo destination is incomplete.

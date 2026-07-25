@@ -6,6 +6,7 @@ import { verifyPinchWebhookSignature, PinchWebhookError } from "./webhookVerifie
 import { listWebhookEvents, recordWebhookEvent } from "./webhookStore.js";
 import { recordAuthoritativePinchPayment } from "../marketplace/store.js";
 import { emitEngagementSecured, emitPaymentStatusUpdated } from "../realtime.js";
+import { env } from "../env.js";
 
 export const pinchRouter = Router();
 
@@ -36,6 +37,7 @@ pinchRouter.get("/health", async (_request, response) => {
 });
 
 pinchRouter.post("/test-payer", async (request, response) => {
+  if (!allowDevelopmentUtility(response)) return;
   const parsed = createPayerSchema.safeParse(request.body);
   if (!parsed.success) {
     response.status(400).json({
@@ -58,6 +60,7 @@ pinchRouter.post("/test-payer", async (request, response) => {
 });
 
 pinchRouter.post("/payment-link", async (request, response) => {
+  if (!allowDevelopmentUtility(response)) return;
   const parsed = createPaymentLinkSchema.safeParse(request.body);
   if (!parsed.success) {
     response.status(400).json({
@@ -153,10 +156,23 @@ pinchRouter.post("/webhooks", (request, response) => {
 });
 
 pinchRouter.get("/webhooks/events", (_request, response) => {
+  if (!allowDevelopmentUtility(response)) return;
   response.json({
     events: listWebhookEvents()
   });
 });
+
+function allowDevelopmentUtility(response: Response) {
+  if (env.NODE_ENV !== "production") {
+    return true;
+  }
+
+  response.status(404).json({
+    status: "error",
+    message: "Development utility is unavailable in production"
+  });
+  return false;
+}
 
 function sendPinchError(response: Response, error: unknown) {
   if (error instanceof PinchApiError) {

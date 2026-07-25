@@ -3,6 +3,15 @@ import { z } from "zod";
 export const needPrioritySchema = z.enum(["urgent", "soon", "planned"]);
 export type NeedPriority = z.infer<typeof needPrioritySchema>;
 
+export const buyerPrioritySchema = z.enum([
+  "speed",
+  "technical_fit",
+  "quality",
+  "trust",
+  "price"
+]);
+export type BuyerPriority = z.infer<typeof buyerPrioritySchema>;
+
 export const needProfileStatusSchema = z.enum([
   "draft",
   "submitted",
@@ -85,6 +94,24 @@ export const moneySchema = z.object({
 });
 export type Money = z.infer<typeof moneySchema>;
 
+export const marketplaceNeedProfileSchema = z.object({
+  title: z.string().trim().min(1),
+  description: z.string().trim().min(1),
+  problemSummary: z.string().trim().min(1).optional(),
+  category: z.string().trim().min(1),
+  industry: z.string().trim().min(1),
+  equipmentOrTechnology: z.array(z.string().trim().min(1)).optional(),
+  equipmentTechnology: z.array(z.string().trim().min(1)).optional(),
+  location: z.string().trim().min(1),
+  urgencyDays: z.coerce.number().int().positive().optional(),
+  budgetAud: z.coerce.number().int().positive().optional(),
+  constraints: z.array(z.string().trim().min(1)).optional(),
+  buyerPriority: buyerPrioritySchema.optional(),
+  requiredCapabilities: z.array(z.string().trim().min(1)).optional(),
+  requiredCapability: z.array(z.string().trim().min(1)).optional()
+});
+export type MarketplaceNeedProfile = z.infer<typeof marketplaceNeedProfileSchema>;
+
 export const needProfileSchema = z.object({
   id: z.string().min(1),
   buyerId: z.string().min(1).optional(),
@@ -120,6 +147,28 @@ export const supplierSchema = z.object({
   updatedAt: isoDateTimeSchema
 });
 export type Supplier = z.infer<typeof supplierSchema>;
+
+export const supplierVerificationStatusSchema = z.enum([
+  "unverified",
+  "demo_verified",
+  "verified"
+]);
+export type SupplierVerificationStatus = z.infer<typeof supplierVerificationStatusSchema>;
+
+export const supplierCatalogEntrySchema = supplierSchema.extend({
+  contactPhone: z.string().trim().min(1).optional(),
+  industries: z.array(z.string().trim().min(1)).default([]),
+  equipmentBrands: z.array(z.string().trim().min(1)).default([]),
+  certifications: z.array(z.string().trim().min(1)).default([]),
+  trustSignals: z.array(z.string().trim().min(1)).default([]),
+  availabilityDays: z.number().int().nonnegative(),
+  minimumBudgetAud: z.number().int().nonnegative(),
+  maximumBudgetAud: z.number().int().positive(),
+  verificationStatus: supplierVerificationStatusSchema.default("unverified"),
+  verificationSource: z.string().trim().min(1).optional(),
+  verifiedAt: isoDateTimeSchema.optional()
+});
+export type SupplierCatalogEntry = z.infer<typeof supplierCatalogEntrySchema>;
 
 export const supplierMatchSchema = z.object({
   id: z.string().min(1),
@@ -205,7 +254,7 @@ export const aiIntakeProfileSchema = z.object({
   urgency: z.string().trim().min(1).optional(),
   budgetRange: z.string().trim().min(1).optional(),
   certificationsOrConstraints: z.array(z.string().trim().min(1)).default([]),
-  buyerPriority: z.enum(["speed", "technical_fit", "quality", "trust", "price"]).optional()
+  buyerPriority: buyerPrioritySchema.optional()
 });
 export type AiIntakeProfile = z.infer<typeof aiIntakeProfileSchema>;
 
@@ -216,6 +265,18 @@ export const aiIntakeResultSchema = z.object({
   missingFields: z.array(z.string().trim().min(1)).default([])
 });
 export type AiIntakeResult = z.infer<typeof aiIntakeResultSchema>;
+
+export const marketplaceAuditEventSchema = z.object({
+  id: z.string().min(1),
+  eventType: z.string().trim().min(1),
+  actorType: z.enum(["buyer", "supplier", "system", "payment_provider"]),
+  actorId: z.string().trim().min(1).optional(),
+  entityType: z.enum(["need", "invitation", "outreach", "response", "engagement", "payment"]),
+  entityId: z.string().trim().min(1),
+  occurredAt: isoDateTimeSchema,
+  metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).default({})
+});
+export type MarketplaceAuditEvent = z.infer<typeof marketplaceAuditEventSchema>;
 
 export const rapidMatchSocketEvent = {
   joinNeedProfile: "rapidmatch:need.join",

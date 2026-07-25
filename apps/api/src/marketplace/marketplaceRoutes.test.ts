@@ -24,6 +24,7 @@ import { attachRealtime } from "../realtime.js";
 import {
   createNeed,
   getInvitation,
+  listMarketplaceAuditEvents,
   resetMarketplaceStore,
   submitSupplierResponse
 } from "./store.js";
@@ -97,6 +98,49 @@ describe("marketplace core routes", () => {
     assert.ok(structured.body.aiIntakeResult.generatedProfile.requiredCapabilities.length > 0);
   });
 
+  test("structures and matches the robotic palletiser demo without diagnosing the fault", async () => {
+    const structured = await postJson(
+      "/api/ai-intake/structure",
+      {
+        rawRequirement:
+          "Our ABB palletising robot stopped mid-cycle on Line 3 in Western Sydney. The Siemens S7 PLC shows an intermittent safety-circuit fault. We need a specialist tonight before the 6:00 am dispatch and can approve up to $18,000."
+      },
+      { "x-veltact-ai-intake-source": "local_demo" }
+    );
+
+    assert.equal(structured.status, 200);
+    assert.match(structured.body.aiIntakeResult.generatedProfile.title, /robotic palletiser/i);
+    assert.ok(
+      structured.body.aiIntakeResult.generatedProfile.requiredCapabilities.includes(
+        "ABB robot diagnostics"
+      )
+    );
+
+    const created = await postJson("/api/needs", {
+      buyerEmail: "elena.morris@harbourpack.example",
+      profile: roboticsNeed()
+    });
+
+    assert.equal(created.status, 201);
+    assert.deepEqual(
+      new Set(
+        created.body.need.matches.map(
+          (match: { supplierId: string }) => match.supplierId
+        )
+      ),
+      new Set([
+        "supplier-automation-nsw",
+        "supplier-robot-safety-nsw",
+        "supplier-robotics-western-sydney"
+      ])
+    );
+    assert.ok(
+      created.body.need.matches.every((match: { explanation: string[] }) =>
+        match.explanation.some((reason) => /Technical fit:|Equipment fit:/.test(reason))
+      )
+    );
+  });
+
   test("rejects low-signal AI intake before a paid model call", async () => {
     const rejected = await postJson("/api/ai-intake/structure", {
       rawRequirement: "asdf lol $$$$"
@@ -165,6 +209,13 @@ describe("marketplace core routes", () => {
     assert.equal(created.body.need.supplierInvitations[0].status, "sent");
     assert.doesNotThrow(() => supplierInvitationSchema.parse(created.body.need.supplierInvitations[0]));
     assert.ok(created.body.need.invitations[0].token);
+    assert.ok(
+      listMarketplaceAuditEvents().some(
+        (event) =>
+          event.eventType === "need.created" &&
+          event.entityId === created.body.need.id
+      )
+    );
 
     const sent = await postJson(`/api/need-profiles/${created.body.need.id}/invitations/send`, {});
     assert.equal(sent.status, 200);
@@ -212,7 +263,7 @@ describe("marketplace core routes", () => {
     }
   });
 
-  test("resets all in-memory marketplace demo state deterministically", async () => {
+  test("resets marketplace demo state deterministically", async () => {
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",
       profile: automationNeed()
@@ -241,6 +292,42 @@ describe("marketplace core routes", () => {
     assert.equal(invitationAfterReset.status, 404);
     assert.equal(responsesAfterReset.status, 404);
     assert.equal(engagementAfterReset.status, 404);
+  });
+
+  test("enforces scoped buyer capability access when production protection is enabled", async () => {
+    const originalProtection = env.BUYER_CAPABILITY_AUTH_REQUIRED;
+    Object.assign(env, { BUYER_CAPABILITY_AUTH_REQUIRED: true });
+
+    try {
+      const created = await postJson("/api/needs", {
+        buyerEmail: "buyer@example.com",
+        profile: automationNeed()
+      });
+      const needId = created.body.need.id;
+      const buyerAccessToken = created.body.buyerAccessToken;
+      assert.equal(typeof buyerAccessToken, "string");
+      assert.ok(buyerAccessToken.length >= 32);
+
+      const rejected = await getJson(`/api/needs/${needId}`);
+      assert.equal(rejected.status, 401);
+
+      const authorised = await getJson(`/api/needs/${needId}`, {
+        "x-veltact-buyer-token": buyerAccessToken
+      });
+      assert.equal(authorised.status, 200);
+
+      const supplierToken = created.body.need.invitations[0].token;
+      const supplierView = await getJson(
+        `/api/supplier-invitations/${supplierToken}`
+      );
+      assert.equal(supplierView.status, 200);
+      assert.equal(supplierView.body.need.invitations, undefined);
+      assert.equal(supplierView.body.need.supplierInvitations, undefined);
+    } finally {
+      Object.assign(env, {
+        BUYER_CAPABILITY_AUTH_REQUIRED: originalProtection
+      });
+    }
   });
 
   test("expires supplier invitation tokens and their unmatched supplier state", () => {
@@ -719,8 +806,8 @@ describe("marketplace core routes", () => {
   });
 });
 
-async function getJson(path: string) {
-  const response = await fetch(`${baseUrl}${path}`);
+async function getJson(path: string, headers: Record<string, string> = {}) {
+  const response = await fetch(`${baseUrl}${path}`, { headers });
   return {
     status: response.status,
     body: (await response.json()) as Record<string, any>
@@ -814,6 +901,38 @@ function structuredSiemensNeed() {
       "Siemens PLC diagnostics",
       "Conveyor fault recovery",
       "Onsite breakdown support"
+    ]
+  };
+}
+
+function roboticsNeed() {
+  return {
+    title: "Robotic palletiser stopped before morning dispatch",
+    description:
+      "ABB palletising robot stopped mid-cycle and the packaging line cannot restart safely.",
+    problemSummary:
+      "Cartons are backing up before a 6:00 am dispatch. A robotics specialist must diagnose the cell and restore safe production.",
+    category: "industrial robotics and automation",
+    industry: "food packaging manufacturing",
+    equipmentOrTechnology: [
+      "ABB palletising robot",
+      "Siemens S7 PLC",
+      "Robot cell safety circuit",
+      "Packaging conveyor"
+    ],
+    location: "Western Sydney NSW",
+    urgencyDays: 1,
+    budgetAud: 18000,
+    constraints: [
+      "Supermarket dispatch at 6:00 am",
+      "Safe restart and handover required"
+    ],
+    buyerPriority: "speed",
+    requiredCapabilities: [
+      "Robotic cell fault recovery",
+      "ABB robot diagnostics",
+      "Safety circuit diagnostics",
+      "Same-shift onsite support"
     ]
   };
 }

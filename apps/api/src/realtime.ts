@@ -2,6 +2,7 @@ import type { Server as HttpServer } from "node:http";
 import { rapidMatchSocketEvent } from "@veltact/contracts";
 import { Server } from "socket.io";
 import { env } from "./env.js";
+import { isBuyerAuthorised } from "./marketplace/store.js";
 import type {
   Engagement,
   SupplierInvitation,
@@ -19,12 +20,18 @@ export function attachRealtime(httpServer: HttpServer) {
   });
 
   io.on("connection", (socket) => {
-    socket.on(rapidMatchSocketEvent.joinNeedProfile, (payload: { needProfileId?: string }) => {
-      if (!payload.needProfileId) {
-        return;
+    socket.on(
+      rapidMatchSocketEvent.joinNeedProfile,
+      (payload: { needProfileId?: string; buyerAccessToken?: string }) => {
+        if (!payload.needProfileId) {
+          return;
+        }
+        if (!isBuyerAuthorised(payload.needProfileId, payload.buyerAccessToken)) {
+          return;
+        }
+        socket.join(needProfileRoom(payload.needProfileId));
       }
-      socket.join(needProfileRoom(payload.needProfileId));
-    });
+    );
 
     socket.on(rapidMatchSocketEvent.leaveNeedProfile, (payload: { needProfileId?: string }) => {
       if (!payload.needProfileId) {

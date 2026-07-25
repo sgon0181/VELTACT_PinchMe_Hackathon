@@ -24,6 +24,7 @@ type ApiNeedProfile = {
   location: string;
   urgencyDays?: number;
   budgetAud?: number;
+  equipmentOrTechnology?: string[];
   requiredCapabilities?: string[];
 };
 
@@ -63,6 +64,7 @@ type ApiNeed = {
   createdAt: string;
   matches: ApiMatch[];
   invitations: ApiInvitation[];
+  suppliers?: Supplier[];
   supplierOutreachDeliveries?: ApiOutreachDelivery[];
 };
 
@@ -107,6 +109,7 @@ type ApiEngagement = {
 type ApiNeedResponse = {
   need?: ApiNeed;
   needProfile?: ApiNeed;
+  buyerAccessToken?: string;
 };
 
 type ApiResponsesResponse = {
@@ -127,6 +130,8 @@ type ApiOutreachResponse = {
 
 export class RapidMatchService {
   private apiNeeds = new Map<string, ApiNeed>();
+  private buyerAccessTokens = new Map<string, string>();
+  private engagementNeedIds = new Map<string, string>();
 
   async createNeedProfile(input: BuyerRequirementInput): Promise<NeedProfile> {
     const profile: ApiNeedProfile = {
@@ -156,7 +161,14 @@ export class RapidMatchService {
     }
 
     this.apiNeeds.set(need.id, need);
+    if (payload.buyerAccessToken) {
+      this.buyerAccessTokens.set(need.id, payload.buyerAccessToken);
+    }
     return mapNeedProfile(need, input);
+  }
+
+  buyerAccessTokenForNeed(needId: string) {
+    return this.buyerAccessTokens.get(needId);
   }
 
   async submitPriority(needProfile: NeedProfile, priority: PrioritySignal): Promise<BuyerWorkspace> {
@@ -183,7 +195,8 @@ export class RapidMatchService {
       `/need-profiles/${encodeURIComponent(workspace.needProfile.id)}/invitations/send`,
       {
         method: "POST",
-        body: {}
+        body: {},
+        buyerAccessToken: this.buyerAccessTokens.get(workspace.needProfile.id)
       }
     );
     const need = payload.need ?? payload.needProfile ?? (await this.loadNeed(workspace.needProfile.id));
@@ -196,9 +209,11 @@ export class RapidMatchService {
       `/need-profiles/${encodeURIComponent(workspace.needProfile.id)}/engagements`,
       {
         method: "POST",
-        body: { supplierResponseId }
+        body: { supplierResponseId },
+        buyerAccessToken: this.buyerAccessTokens.get(workspace.needProfile.id)
       }
     );
+    this.engagementNeedIds.set(payload.engagement.id, workspace.needProfile.id);
 
     return {
       ...workspace,
@@ -216,10 +231,12 @@ export class RapidMatchService {
       `/engagements/${encodeURIComponent(workspace.engagement.id)}/payment-link`,
       {
         method: "POST",
-        body: {}
+        body: {},
+        buyerAccessToken: this.buyerAccessTokens.get(workspace.needProfile.id)
       }
     );
     const engagement = mapEngagement(payload.engagement);
+    this.engagementNeedIds.set(engagement.id, workspace.needProfile.id);
 
     return {
       ...workspace,
@@ -264,7 +281,8 @@ export class RapidMatchService {
       `/engagements/${encodeURIComponent(workspace.engagement.id)}/demo-payment`,
       {
         method: "POST",
-        body: {}
+        body: {},
+        buyerAccessToken: this.buyerAccessTokens.get(workspace.needProfile.id)
       }
     );
     const engagement = mapEngagement(payload.engagement);
@@ -283,7 +301,10 @@ export class RapidMatchService {
   private async loadNeed(needId: string) {
     const payload = await requestJson<{ needProfile: ApiNeed }>(
       `/need-profiles/${encodeURIComponent(needId)}`,
-      { method: "GET" }
+      {
+        method: "GET",
+        buyerAccessToken: this.buyerAccessTokens.get(needId)
+      }
     );
     this.apiNeeds.set(payload.needProfile.id, payload.needProfile);
     return payload.needProfile;
@@ -292,15 +313,22 @@ export class RapidMatchService {
   private async loadResponses(needId: string) {
     const payload = await requestJson<ApiResponsesResponse>(
       `/need-profiles/${encodeURIComponent(needId)}/responses`,
-      { method: "GET" }
+      {
+        method: "GET",
+        buyerAccessToken: this.buyerAccessTokens.get(needId)
+      }
     );
     return payload.supplierResponses ?? payload.responses ?? [];
   }
 
   private async loadEngagement(engagementId: string) {
+    const needId = this.engagementNeedIds.get(engagementId);
     const payload = await requestJson<ApiEngagementResponse>(
       `/engagements/${encodeURIComponent(engagementId)}`,
-      { method: "GET" }
+      {
+        method: "GET",
+        buyerAccessToken: needId ? this.buyerAccessTokens.get(needId) : undefined
+      }
     );
     return mapEngagement(payload.engagement);
   }
@@ -330,12 +358,26 @@ export class RapidMatchService {
   }
 }
 
-async function requestJson<T>(path: string, options: { method: "GET" | "POST"; body?: unknown }): Promise<T> {
+async function requestJson<T>(
+  path: string,
+  options: {
+    method: "GET" | "POST";
+    body?: unknown;
+    buyerAccessToken?: string;
+  }
+): Promise<T> {
   let response: Response;
   try {
+    const headers = new Headers();
+    if (options.body !== undefined) {
+      headers.set("content-type", "application/json");
+    }
+    if (options.buyerAccessToken) {
+      headers.set("x-veltact-buyer-token", options.buyerAccessToken);
+    }
     response = await fetch(`${API_BASE}${path}`, {
       method: options.method,
-      headers: options.body === undefined ? undefined : { "content-type": "application/json" },
+      headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body)
     });
   } catch {
@@ -395,6 +437,10 @@ function mapNeedProfile(need: ApiNeed, input: BuyerRequirementInput): NeedProfil
 }
 
 function mapSuppliers(need: ApiNeed): Supplier[] {
+  if (need.suppliers?.length) {
+    return need.suppliers;
+  }
+
   return need.matches.map((match) => ({
     id: match.supplierId,
     companyName: match.supplierName || match.supplierId,
@@ -402,7 +448,7 @@ function mapSuppliers(need: ApiNeed): Supplier[] {
     categories: [need.profile.category],
     serviceRegions: [need.profile.location],
     capabilities: need.profile.requiredCapabilities ?? [],
-    verified: match.score >= 70,
+    verified: false,
     createdAt: need.createdAt,
     updatedAt: need.createdAt
   }));
@@ -524,7 +570,12 @@ function mapEngagement(engagement: ApiEngagement): Engagement {
 
 function inferCategory(description: string) {
   const normalised = description.toLowerCase();
-  if (normalised.includes("plc") || normalised.includes("automation") || normalised.includes("conveyor")) {
+  if (
+    normalised.includes("robot") ||
+    normalised.includes("plc") ||
+    normalised.includes("automation") ||
+    normalised.includes("conveyor")
+  ) {
     return "Industrial automation";
   }
   return "Industrial services";
@@ -533,6 +584,9 @@ function inferCategory(description: string) {
 function inferCapabilities(description: string) {
   const normalised = description.toLowerCase();
   const capabilities = new Set<string>();
+  if (normalised.includes("robot")) capabilities.add("Robotic cell fault recovery");
+  if (normalised.includes("abb")) capabilities.add("ABB robot diagnostics");
+  if (normalised.includes("palletis")) capabilities.add("Palletising cell recovery");
   if (normalised.includes("siemens")) capabilities.add("Siemens PLC diagnostics");
   if (normalised.includes("plc")) capabilities.add("PLC diagnostics");
   if (normalised.includes("conveyor")) capabilities.add("Conveyor fault recovery");

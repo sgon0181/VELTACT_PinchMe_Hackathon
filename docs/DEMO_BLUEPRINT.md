@@ -44,18 +44,21 @@ The demo should prove that Veltact delivers supplier commitment, not merely sear
 
 ## Core User Story
 
-A packaging line has stopped because of an intermittent Siemens PLC fault.
+An ABB robotic palletiser has stopped mid-cycle before a major morning dispatch. The Siemens S7 PLC reports an intermittent safety-circuit fault and cartons are backing up.
 
 The buyer needs:
 
-- Industrial automation expertise
-- Siemens PLC experience
+- Industrial robotics and automation expertise
+- ABB robotic-cell and Siemens PLC experience
+- Safety-circuit fault recovery
 - Support in Western Sydney
-- Availability today
+- Availability that night
 - Fastest response as the main priority
-- An indicative callout or diagnostic price
+- An indicative mobilisation and recovery price
 
 The buyer should be able to go from incident to selected and secured supplier with minimal friction.
+
+The original Siemens PLC packaging-conveyor incident remains the classic secondary demo dataset.
 
 ---
 
@@ -257,9 +260,9 @@ Narration:
 
 ## 8–18 seconds — Submit once
 
-Enter or submit:
+Load or submit:
 
-> Urgent Siemens PLC fault on a packaging conveyor in Western Sydney. Support required today. Speed is the priority.
+> Our ABB palletising robot stopped mid-cycle on Line 3. The Siemens S7 PLC shows an intermittent safety-circuit fault and cartons are backing up. We need a robotics and automation specialist in Western Sydney tonight before the 6:00 am dispatch.
 
 If image or voice input is working reliably, show it briefly here.
 

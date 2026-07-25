@@ -1,125 +1,72 @@
+import type {
+  Engagement as ContractEngagement,
+  MarketplaceAuditEvent,
+  MarketplaceNeedProfile,
+  NeedProfileStatus,
+  SupplierInvitation as ContractSupplierInvitation,
+  SupplierMatch as ContractSupplierMatch,
+  SupplierOutreachDelivery,
+  SupplierResponse as ContractSupplierResponse
+} from "@veltact/contracts";
 import type { Supplier } from "./suppliers.js";
 
-export type NeedProfile = {
-  title: string;
-  description: string;
-  problemSummary?: string;
-  category: string;
-  industry: string;
-  equipmentOrTechnology?: string[];
-  equipmentTechnology?: string[];
-  location: string;
-  urgencyDays?: number;
-  budgetAud?: number;
-  constraints?: string[];
-  buyerPriority?: "speed" | "technical_fit" | "quality" | "trust" | "price";
-  requiredCapabilities?: string[];
-  requiredCapability?: string[];
-};
+export type NeedProfile = MarketplaceNeedProfile;
 
-export type SupplierMatch = {
-  id: string;
+export type SupplierMatch = Omit<
+  ContractSupplierMatch,
+  "needProfileId" | "supplierId" | "reasons"
+> & {
   supplier: Supplier;
-  score: number;
-  explanation: string[];
-  risks: string[];
-  status: "matched" | "invited" | "responded" | "declined" | "expired" | "selected" | "not_selected";
-  createdAt: string;
-  updatedAt: string;
+  explanation: ContractSupplierMatch["reasons"];
 };
 
 export type NeedRecord = {
   id: string;
   buyerEmail: string;
+  buyerAccessTokenHash: string;
   profile: NeedProfile;
   matches: SupplierMatch[];
   invitations: SupplierInvitation[];
-  status: "responses_open" | "selected" | "payment_pending" | "secured";
+  status: Extract<
+    NeedProfileStatus,
+    "responses_open" | "selected" | "payment_pending" | "secured"
+  >;
   createdAt: string;
   updatedAt: string;
 };
 
-export type SupplierInvitation = {
-  id: string;
-  token: string;
+export type SupplierInvitation = Omit<ContractSupplierInvitation, "sentAt"> & {
   needId: string;
-  needProfileId: string;
-  supplierId: string;
   supplierName: string;
-  matchId: string;
-  responseUrl: string;
-  status: "pending" | "sent" | "opened" | "responded" | "expired" | "cancelled";
   sentAt: string;
-  expiresAt: string;
-  createdAt: string;
-  updatedAt: string;
   openedAt?: string;
   respondedAt?: string;
 };
 
-export type SupplierOutreachDelivery = {
-  invitationId: string;
-  supplierId: string;
-  channel: "email" | "sms";
-  destination: string;
-  deliveryStatus: "not_sent" | "queued" | "sent" | "failed";
-  sentAt?: string;
-  errorMessage?: string;
-};
+export type { MarketplaceAuditEvent, SupplierOutreachDelivery };
 
-export type SupplierResponse = {
-  id: string;
+export type SupplierResponse = Omit<
+  ContractSupplierResponse,
+  "availability" | "indicativePrice" | "relevantExperience" | "conditions" | "submittedAt"
+> & {
   needId: string;
-  needProfileId: string;
-  supplierId: string;
   supplierName: string;
-  invitationId: string;
   canHelp: boolean;
-  decision: "can_help" | "cannot_help";
   earliestAvailability: string;
-  availability?: string;
+  availability: string;
   indicativePriceAud: number;
-  indicativePrice?: {
+  indicativePrice: {
     amount: number;
     currency: "AUD";
   };
   relevantExperience: string;
-  conditions: string;
-  status: "draft" | "submitted" | "withdrawn";
+  conditions: string[];
   submittedAt: string;
-  createdAt: string;
-  updatedAt: string;
 };
 
-export type Engagement = {
-  id: string;
+export type Engagement = Omit<ContractEngagement, "needProfileId"> & {
   needId: string;
-  supplierId: string;
   supplierName: string;
-  supplierResponseId: string;
-  status:
-    | "supplier_selected"
-    | "payment_link_created"
-    | "payment_pending"
-    | "supplier_secured"
-    | "payment_failed"
-    | "cancelled";
-  paymentStatus:
-    | "not_started"
-    | "link_created"
-    | "awaiting_payment"
-    | "pending"
-    | "paid"
-    | "failed"
-    | "cancelled"
-    | "refunded";
-  paymentLinkId?: string;
-  hostedCheckoutUrl?: string;
-  pinchPayerId?: string;
-  pinchPaymentId?: string;
-  securedAt?: string;
-  createdAt: string;
-  updatedAt: string;
 };
 
 export type PinchWebhookEvidence = {

@@ -298,6 +298,7 @@ function need(): NeedRecord {
   return {
     id: "need-123",
     buyerEmail: "buyer@example.com",
+    buyerAccessTokenHash: "test-access-token-hash",
     profile: {
       title: "Packaging conveyor PLC fault",
       description: "The line is stopped after an intermittent Siemens PLC fault.",

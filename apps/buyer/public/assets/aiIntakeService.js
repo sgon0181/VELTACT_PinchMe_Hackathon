@@ -53,7 +53,7 @@ export class DemoAiIntakeService {
             generatedProfile: {
                 title: titleFromRequirement(rawRequirement, equipmentOrTechnology),
                 problemSummary: rawRequirement,
-                category: equipmentOrTechnology.some((item) => /plc|scada|hmi|conveyor/i.test(item))
+                category: equipmentOrTechnology.some((item) => /robot|plc|scada|hmi|conveyor/i.test(item))
                     ? "Industrial automation"
                     : "Industrial services",
                 equipmentOrTechnology,
@@ -81,6 +81,12 @@ function delay(ms) {
 }
 function detectEquipment(normalised) {
     const equipment = new Set();
+    if (normalised.includes("abb"))
+        equipment.add("ABB robotic arm");
+    if (normalised.includes("robot"))
+        equipment.add("Robotic cell");
+    if (normalised.includes("palletis"))
+        equipment.add("Palletising cell");
     if (normalised.includes("siemens"))
         equipment.add("Siemens PLC");
     if (normalised.includes("plc"))
@@ -97,6 +103,12 @@ function detectEquipment(normalised) {
 }
 function detectCapabilities(normalised, equipmentOrTechnology) {
     const capabilities = new Set();
+    if (normalised.includes("robot"))
+        capabilities.add("Robotic cell fault recovery");
+    if (normalised.includes("abb"))
+        capabilities.add("ABB robot diagnostics");
+    if (normalised.includes("palletis"))
+        capabilities.add("Palletising cell recovery");
     if (normalised.includes("siemens"))
         capabilities.add("Siemens PLC diagnostics");
     if (normalised.includes("plc"))
@@ -143,6 +155,9 @@ function detectConstraints(normalised, isUrgent, evidence) {
     return [...constraints];
 }
 function titleFromRequirement(rawRequirement, equipmentOrTechnology) {
+    if (equipmentOrTechnology.some((item) => item.includes("ABB robotic arm"))) {
+        return "Robotic palletiser stopped before dispatch";
+    }
     if (equipmentOrTechnology.some((item) => item.includes("Siemens PLC"))) {
         return "Urgent Siemens PLC fault on packaging line";
     }

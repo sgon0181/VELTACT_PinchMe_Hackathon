@@ -38,7 +38,7 @@ export function structureRequirementLocally(input: StructureRequirementRequest):
     generatedProfile: {
       title: titleFromRequirement(rawRequirement, equipmentOrTechnology),
       problemSummary: rawRequirement,
-      category: equipmentOrTechnology.some((item) => /plc|scada|hmi|conveyor/i.test(item))
+      category: equipmentOrTechnology.some((item) => /robot|plc|scada|hmi|conveyor/i.test(item))
         ? "Industrial automation"
         : "Industrial services",
       equipmentOrTechnology,
@@ -63,6 +63,9 @@ export function structureRequirementLocally(input: StructureRequirementRequest):
 
 function detectEquipment(normalised: string) {
   const equipment = new Set<string>();
+  if (normalised.includes("abb")) equipment.add("ABB robotic arm");
+  if (normalised.includes("robot")) equipment.add("Robotic cell");
+  if (normalised.includes("palletis")) equipment.add("Palletising cell");
   if (normalised.includes("siemens")) equipment.add("Siemens PLC");
   if (normalised.includes("plc")) equipment.add("PLC");
   if (normalised.includes("conveyor")) equipment.add("Packaging conveyor");
@@ -74,6 +77,9 @@ function detectEquipment(normalised: string) {
 
 function detectCapabilities(normalised: string, equipmentOrTechnology: string[]) {
   const capabilities = new Set<string>();
+  if (normalised.includes("robot")) capabilities.add("Robotic cell fault recovery");
+  if (normalised.includes("abb")) capabilities.add("ABB robot diagnostics");
+  if (normalised.includes("palletis")) capabilities.add("Palletising cell recovery");
   if (normalised.includes("siemens")) capabilities.add("Siemens PLC diagnostics");
   if (normalised.includes("plc")) capabilities.add("PLC fault finding");
   if (normalised.includes("conveyor")) capabilities.add("Conveyor fault recovery");
@@ -111,6 +117,9 @@ function detectConstraints(normalised: string, isUrgent: boolean, evidence: AiIn
 }
 
 function titleFromRequirement(rawRequirement: string, equipmentOrTechnology: string[]) {
+  if (equipmentOrTechnology.some((item) => item.includes("ABB robotic arm"))) {
+    return "Robotic palletiser stopped before dispatch";
+  }
   if (equipmentOrTechnology.some((item) => item.includes("Siemens PLC"))) {
     return "Urgent Siemens PLC fault on packaging line";
   }

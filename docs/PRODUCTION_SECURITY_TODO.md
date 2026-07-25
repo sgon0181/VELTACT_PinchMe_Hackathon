@@ -21,10 +21,12 @@ This hackathon demo may use local sandbox credentials for speed. Before shipping
 
 ## Application
 
-- Add authentication and authorization before exposing buyer, supplier, or payment operations.
-- Add persistence with proper access controls and audit fields.
+- Replace scoped buyer capability tokens with account login, organisation membership, role-based authorization and secure session management.
+- Replace curated supplier verification with legal identity, licence, insurance and KYC verification.
+- Replace the single-process JSON snapshot with a transactional database before horizontal scaling.
+- Export marketplace audit events to an immutable external audit store.
 - Add structured server logging that redacts secrets, bearer tokens, webhook signatures, and payment identifiers.
-- Add rate limiting to public API routes.
+- Replace the in-process API rate limiter with a distributed limiter at the gateway or shared data layer.
 - Add request size limits and validation for all public endpoints.
 - Add monitoring and alerting for payment failures, webhook failures, and suspicious request patterns.
 
