@@ -379,9 +379,59 @@ dd {
 
 .card-list,
 .activity,
-.response-table {
+.response-table,
+.response-cards {
   display: grid;
   gap: 12px;
+}
+
+.outreach-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 18px;
+  align-items: center;
+  border-color: rgba(31, 122, 90, 0.38);
+  background: linear-gradient(135deg, #ffffff, #eef7f1);
+}
+
+.outreach-panel h2,
+.outreach-panel p {
+  margin: 0;
+}
+
+.outreach-panel.is-sent {
+  background: linear-gradient(135deg, #ffffff, #eaf5f7);
+}
+
+.outreach-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(84px, 1fr));
+  gap: 8px;
+}
+
+.outreach-stats span {
+  display: grid;
+  gap: 2px;
+  min-height: 64px;
+  align-content: center;
+  border: 1px solid rgba(31, 122, 90, 0.2);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.outreach-stats strong {
+  color: var(--ink);
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.outreach-button {
+  min-width: 210px;
 }
 
 .match-card {
@@ -440,9 +490,22 @@ dd {
   color: var(--muted);
 }
 
+.supplier-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
 .supplier-link {
   display: inline-flex;
-  margin-top: 6px;
+  min-height: 34px;
+  align-items: center;
+  border: 1px solid rgba(31, 122, 90, 0.28);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #eef7f1;
   color: var(--accent-strong);
   font-size: 0.88rem;
   font-weight: 800;
@@ -451,6 +514,30 @@ dd {
 
 .supplier-link:hover {
   text-decoration: underline;
+}
+
+.copy-link-button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.secure-url {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .activity-dot {
@@ -503,6 +590,117 @@ dd {
 }
 
 .response-row.is-declined small {
+  color: var(--warn);
+}
+
+.response-cards {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.response-card {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  min-height: 270px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: #fbfcfa;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.response-card:hover {
+  border-color: rgba(31, 122, 90, 0.45);
+  transform: translateY(-1px);
+}
+
+.response-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 18px 40px rgba(31, 122, 90, 0.18);
+}
+
+.response-card.is-declined {
+  cursor: not-allowed;
+  background: #f7f2ec;
+  color: var(--muted);
+}
+
+.response-radio {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
+
+.response-topline {
+  display: grid;
+  gap: 6px;
+  padding-right: 34px;
+}
+
+.response-topline strong {
+  font-size: 1.1rem;
+}
+
+.response-topline small {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: #e7f4ec;
+  color: var(--success);
+  font-weight: 900;
+}
+
+.response-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.response-metrics span,
+.response-evidence,
+.response-conditions {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  color: var(--ink);
+}
+
+.response-metrics span {
+  min-height: 72px;
+  align-content: start;
+}
+
+.response-card b {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.response-select-copy {
+  align-self: end;
+  border-radius: 8px;
+  padding: 10px;
+  background: #eef7f1;
+  color: var(--accent-strong);
+  font-weight: 900;
+  text-align: center;
+}
+
+.response-card.is-selected .response-select-copy {
+  background: var(--accent);
+  color: #fff;
+}
+
+.response-card.is-declined .response-select-copy {
+  background: #efe5d9;
   color: var(--warn);
 }
 
@@ -593,7 +791,9 @@ dd {
   .split,
   .form-grid,
   .primary-fields,
-  .secondary-fields {
+  .secondary-fields,
+  .outreach-panel,
+  .response-cards {
     grid-template-columns: 1fr;
   }
 
@@ -613,5 +813,10 @@ dd {
 
   .panel {
     padding: 18px;
+  }
+
+  .outreach-stats,
+  .response-metrics {
+    grid-template-columns: 1fr;
   }
 }

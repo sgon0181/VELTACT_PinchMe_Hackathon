@@ -18,6 +18,7 @@ let liveMessage = "";
 let priority = "speed";
 let selectedResponseId = "";
 let workspace;
+let outreachSent = false;
 let pollHandle;
 let isPolling = false;
 let realtimeSocket;
@@ -217,7 +218,9 @@ function renderProfile(data) {
   `;
 }
 function renderMatches(data) {
+    const hasResponses = data.responses.length > 0;
     return `
+    ${renderOutreachPanel(data)}
     <section class="grid-two">
       <div class="panel">
         <div class="panel-heading">
@@ -230,20 +233,40 @@ function renderMatches(data) {
         <div class="panel-heading">
           <p class="eyebrow">Step 5</p>
           <h2>Invitation and response activity</h2>
+          <p class="muted">Each supplier responds from their own secure opportunity link. Open one in another tab or copy it to a second device for the recorded demo.</p>
         </div>
-        ${renderActivity(data)}
+        ${outreachSent ? renderActivity(data) : renderEmpty("Ready to send", "Press Send to matched suppliers to reveal secure opportunity links.")}
       </div>
     </section>
     <section class="panel">
       <div class="panel-heading">
         <p class="eyebrow">Step 6</p>
         <h2>Compare standardised supplier responses</h2>
+        <p class="muted">Pick the response that best matches the buyer priority. Unavailable suppliers stay visible so coverage is honest.</p>
       </div>
-      ${data.responses.length ? renderResponseTable(data) : renderEmpty("No responses yet", "Supplier invitations have been sent. Responses will appear here.")}
+      ${hasResponses ? renderResponseTable(data) : renderEmpty("No responses yet", outreachSent ? "Supplier invitations have been sent. Responses will appear here live." : "Send the secure opportunity links before collecting supplier responses.")}
       <div class="actions">
         <button id="refresh-responses-button" class="secondary-action" type="button">Refresh supplier responses</button>
         <button id="select-button" class="primary" type="button" ${selectedResponseId ? "" : "disabled"}>Select Supplier</button>
       </div>
+    </section>
+  `;
+}
+function renderOutreachPanel(data) {
+    const respondedCount = data.responses.length;
+    return `
+    <section class="panel outreach-panel ${outreachSent ? "is-sent" : ""}">
+      <div>
+        <p class="eyebrow">Parallel outreach</p>
+        <h2>${outreachSent ? "Secure links generated" : "Send to matched suppliers"}</h2>
+        <p class="muted">${outreachSent ? `${respondedCount} supplier response${respondedCount === 1 ? "" : "s"} received. Links remain available for the supplier-tab demo.` : "Generate one secure opportunity link per matched supplier. No SMS or email is faked."}</p>
+      </div>
+      <div class="outreach-stats">
+        <span><strong>${data.matches.length}</strong> matched</span>
+        <span><strong>${data.invitations.length}</strong> secure links</span>
+        <span><strong>${respondedCount}</strong> responded</span>
+      </div>
+      <button id="send-outreach-button" class="primary outreach-button" type="button" ${outreachSent ? "disabled" : ""}>Send to matched suppliers</button>
     </section>
   `;
 }
@@ -273,7 +296,11 @@ function renderActivity(data) {
               <div>
                 <strong>${escapeHtml(supplier?.companyName ?? invitation.supplierId)}</strong>
                 <p>${formatStatus(invitation.status)}${response ? ` - response submitted ${formatTime(response.submittedAt)}` : " - awaiting supplier response"}</p>
-                <a class="supplier-link" href="${escapeHtml(invitation.responseUrl)}" target="_blank" rel="noreferrer">Open supplier link</a>
+                <div class="supplier-link-row">
+                  <a class="supplier-link" href="${escapeHtml(invitation.responseUrl)}" target="_blank" rel="noreferrer">Open secure link</a>
+                  <button class="copy-link-button" type="button" data-copy-link="${escapeHtml(invitation.responseUrl)}">Copy link</button>
+                </div>
+                <code class="secure-url">${escapeHtml(shortUrl(invitation.responseUrl))}</code>
               </div>
             </li>
           `;
@@ -284,22 +311,30 @@ function renderActivity(data) {
 }
 function renderResponseTable(data) {
     return `
-    <div class="response-table" role="table">
-      <div class="response-row response-head" role="row">
-        <span>Supplier</span><span>Availability</span><span>Price</span><span>Evidence</span><span>Select</span>
-      </div>
+    <div class="response-cards" role="radiogroup" aria-label="Supplier responses">
       ${data.responses
-        .map((response) => {
+        .map((response, index) => {
         const supplier = data.suppliers.find((item) => item.id === response.supplierId);
         const canHelp = response.decision === "can_help";
+        const isSelected = selectedResponseId === response.id;
         return `
-            <label class="response-row ${canHelp ? "" : "is-declined"}" role="row">
-              <span><strong>${escapeHtml(supplier?.companyName ?? response.supplierId)}</strong><small>${formatStatus(response.decision)}</small></span>
-              <span>${escapeHtml(response.availability ?? "Not supplied")}</span>
-              <span>${response.indicativePrice ? money(response.indicativePrice.amount, response.indicativePrice.currency) : "Not supplied"}</span>
-              <span>${escapeHtml(response.relevantExperience ?? "Not supplied")}</span>
-              <span>${canHelp
-            ? `<input type="radio" name="supplierResponse" value="${response.id}" ${selectedResponseId === response.id ? "checked" : ""}>`
+            <label class="response-card ${isSelected ? "is-selected" : ""} ${canHelp ? "" : "is-declined"}">
+              <input class="response-radio" type="radio" name="supplierResponse" value="${response.id}" ${isSelected ? "checked" : ""} ${canHelp ? "" : "disabled"}>
+              <span class="response-topline">
+                <strong>${escapeHtml(supplier?.companyName ?? response.supplierId)}</strong>
+                <small>${index === 0 && canHelp ? "Recommended for demo priority" : formatStatus(response.decision)}</small>
+              </span>
+              <span class="response-metrics">
+                <span><b>Availability</b>${escapeHtml(response.availability ?? "Not supplied")}</span>
+                <span><b>Price</b>${response.indicativePrice ? money(response.indicativePrice.amount, response.indicativePrice.currency) : "Not supplied"}</span>
+                <span><b>Trust</b>${supplier?.verified ? "Verified supplier" : "Review conditions"}</span>
+              </span>
+              <span class="response-evidence"><b>Relevant experience</b>${escapeHtml(response.relevantExperience ?? "Not supplied")}</span>
+              ${response.conditions.length ? `<span class="response-conditions"><b>Conditions</b>${response.conditions.map(escapeHtml).join("; ")}</span>` : ""}
+              <span class="response-select-copy">${canHelp
+            ? isSelected
+                ? "Selected for supplier engagement"
+                : "Click card to select"
             : "Unavailable"}</span>
             </label>
           `;
@@ -331,16 +366,16 @@ function renderPayment(data) {
     <section class="panel payment-panel">
       <p class="eyebrow">Step 8</p>
       <h2>Awaiting payment</h2>
-      <p>Veltact created a Pinch-hosted payment link through the API. The supplier is secured only after the backend receives verified payment evidence.</p>
+      <p>Veltact created a Pinch-hosted payment link through the API. The supplier is secured only after the backend verifies payment with Pinch.</p>
       ${checkoutUrl
         ? `<a class="checkout-link" href="${escapeHtml(checkoutUrl)}" target="_blank" rel="noreferrer">Open Pinch hosted checkout</a>`
         : renderEmpty("Payment link unavailable", "Try creating the payment link again.")}
       <dl class="profile-list">
-        ${detail("Engagement status", data.engagement?.status ?? "payment_link_created")}
-        ${detail("Payment status", data.engagement?.paymentStatus ?? "link_created")}
+        ${detail("Engagement status", data.engagement?.status ?? "payment_pending")}
+        ${detail("Payment status", data.engagement?.paymentStatus ?? "awaiting_payment")}
       </dl>
       <div class="actions">
-        <button id="payment-status-button" class="primary" type="button">Refresh Payment Status</button>
+        <button id="payment-status-button" class="primary" type="button">Check Pinch Payment Status</button>
       </div>
     </section>
   `;
@@ -351,7 +386,7 @@ function renderSecured(data) {
     <section class="panel secured-panel">
       <p class="eyebrow">Step 9</p>
       <h2>Supplier secured</h2>
-      <p>${escapeHtml(selected?.supplier.companyName ?? "The supplier")} is secured after verified payment evidence.</p>
+      <p>${escapeHtml(selected?.supplier.companyName ?? "The supplier")} is secured after Veltact verified approved payment with Pinch.</p>
       <dl class="profile-list">
         ${detail("Need Profile", data.needProfile.status)}
         ${detail("Engagement", data.engagement?.status ?? "supplier_secured")}
@@ -413,6 +448,7 @@ function bindEvents() {
         await run(async () => {
             workspace = await service.submitPriority(currentWorkspace.needProfile, priority);
             selectedResponseId = firstHelpfulResponseId(workspace) ?? "";
+            outreachSent = false;
             stage = "matches";
         });
     });
@@ -430,6 +466,21 @@ function bindEvents() {
             workspace = await service.refreshWorkspace(currentWorkspace, priority);
             selectedResponseId = firstHelpfulResponseId(workspace) ?? selectedResponseId;
             stage = "matches";
+        });
+    });
+    document.querySelector("#send-outreach-button")?.addEventListener("click", () => {
+        outreachSent = true;
+        showLiveMessage("Secure supplier links are ready. Open one in a supplier tab to submit a real response.");
+        render();
+    });
+    document.querySelectorAll("[data-copy-link]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const link = button.dataset.copyLink;
+            if (!link)
+                return;
+            await copyText(link);
+            showLiveMessage("Supplier secure link copied.");
+            render();
         });
     });
     document.querySelector("#select-button")?.addEventListener("click", async () => {
@@ -676,6 +727,25 @@ function selectedSupplier(data) {
 }
 function firstHelpfulResponseId(data) {
     return data.responses.find((response) => response.decision === "can_help")?.id;
+}
+async function copyText(text) {
+    if (navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.append(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+}
+function shortUrl(url) {
+    const parsed = new URL(url);
+    const token = parsed.searchParams.get("token") ?? parsed.pathname.split("/").pop() ?? "";
+    return `${parsed.origin}${parsed.pathname}${token ? `?token=${token.slice(0, 8)}...` : ""}`;
 }
 function value(form, name) {
     return String(form.get(name) ?? "").trim();
