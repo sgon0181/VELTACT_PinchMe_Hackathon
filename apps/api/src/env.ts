@@ -13,6 +13,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
   WEB_ORIGIN: z.string().url().default("http://localhost:5173"),
+  API_PUBLIC_URL: z.string().url().optional(),
   PINCH_CLIENT_ID: z.string().min(1, "PINCH_CLIENT_ID is required"),
   PINCH_SECRET_KEY: z.string().min(1, "PINCH_SECRET_KEY is required"),
   PINCH_AUTH_URL: z.string().url(),
@@ -31,6 +32,7 @@ const parsedEnv = envSchema.parse(rawEnv);
 
 export const env = {
   ...parsedEnv,
+  API_PUBLIC_URL: parsedEnv.API_PUBLIC_URL ?? `http://localhost:${parsedEnv.PORT}`,
   PINCH_RETURN_URL:
     parsedEnv.PINCH_RETURN_URL ?? new URL("/pinch/return", parsedEnv.WEB_ORIGIN).toString()
 };

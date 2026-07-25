@@ -1,4 +1,9 @@
 import { env } from "../env.js";
+import type {
+  CreateHostedPaymentLinkInput,
+  HostedPaymentLink,
+  PaymentProvider
+} from "../payments/paymentProvider.js";
 
 type CachedToken = {
   accessToken: string;
@@ -23,7 +28,7 @@ export class PinchApiError extends Error {
   }
 }
 
-class PinchClient {
+class PinchClient implements PaymentProvider {
   private cachedToken: CachedToken | undefined;
 
   async health() {
@@ -46,6 +51,7 @@ class PinchClient {
     payerId: string;
     amount: number;
     description: string;
+    returnUrl?: string;
     metadata?: unknown;
   }) {
     return this.request<unknown>("/payment-links", {
@@ -55,7 +61,7 @@ class PinchClient {
         payerId: input.payerId,
         description: input.description,
         allowedPaymentMethods: ["credit-card"],
-        returnUrl: env.PINCH_RETURN_URL,
+        returnUrl: input.returnUrl ?? env.PINCH_RETURN_URL,
         ...(input.metadata === undefined
           ? {}
           : {
@@ -66,6 +72,50 @@ class PinchClient {
             })
       }
     });
+  }
+
+  async createHostedPaymentLink(
+    input: CreateHostedPaymentLinkInput
+  ): Promise<HostedPaymentLink> {
+    const payerResponse = await this.createPayer({
+      firstName: input.buyerName ?? input.buyerEmail.split("@")[0],
+      emailAddress: input.buyerEmail
+    });
+    const payerId = findStringValue(payerResponse, ["id", "payerId"]);
+    if (!payerId) {
+      throw new PinchApiError("Pinch payer response was missing payer id");
+    }
+
+    const linkResponse = await this.createPaymentLink({
+      payerId,
+      amount: input.amount,
+      description: input.description,
+      returnUrl: input.returnUrl,
+      metadata: {
+        engagementId: input.engagementId,
+        needId: input.needId,
+        supplierId: input.supplierId
+      }
+    });
+
+    const paymentLinkId = findStringValue(linkResponse, ["id", "paymentLinkId"]);
+    const hostedCheckoutUrl = findStringValue(linkResponse, [
+      "url",
+      "hostedUrl",
+      "hostedCheckoutUrl",
+      "paymentUrl"
+    ]);
+
+    if (!paymentLinkId || !hostedCheckoutUrl) {
+      throw new PinchApiError("Pinch payment link response was incomplete");
+    }
+
+    return {
+      provider: "pinch",
+      payerId,
+      paymentLinkId,
+      hostedCheckoutUrl
+    };
   }
 
   private async getAccessToken() {
@@ -183,18 +233,72 @@ async function safeReadJson(response: Response): Promise<unknown> {
   }
 }
 
-function getErrorCode(payload: unknown) {
+function getErrorCode(payload: unknown): string | undefined {
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const nested: string | undefined = getErrorCode(item);
+      if (nested) {
+        return nested;
+      }
+    }
+    return undefined;
+  }
+
   if (typeof payload !== "object" || payload === null) {
     return undefined;
   }
 
   const record = payload as Record<string, unknown>;
-  const code = record.error ?? record.code ?? record.errorCode;
-  return typeof code === "string" ? code : undefined;
+  const code = record.error ?? record.code ?? record.errorCode ?? record.message ?? record.title;
+  if (typeof code === "string") {
+    return code;
+  }
+
+  for (const value of Object.values(record)) {
+    const nested: string | undefined = getErrorCode(value);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return undefined;
 }
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
+}
+
+function findStringValue(payload: unknown, keys: string[]): string | undefined {
+  if (typeof payload !== "object" || payload === null) {
+    return undefined;
+  }
+
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const value = findStringValue(item, keys);
+      if (value) {
+        return value;
+      }
+    }
+    return undefined;
+  }
+
+  const record = payload as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+
+  for (const value of Object.values(record)) {
+    const nested = findStringValue(value, keys);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return undefined;
 }
 
 export const pinchClient = new PinchClient();

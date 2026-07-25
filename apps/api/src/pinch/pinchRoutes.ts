@@ -4,6 +4,8 @@ import { z } from "zod";
 import { pinchClient, PinchApiError } from "./pinchClient.js";
 import { verifyPinchWebhookSignature, PinchWebhookError } from "./webhookVerifier.js";
 import { listWebhookEvents, recordWebhookEvent } from "./webhookStore.js";
+import { recordAuthoritativePinchPayment } from "../marketplace/store.js";
+import { emitPaymentStatusUpdated } from "../realtime.js";
 
 export const pinchRouter = Router();
 
@@ -83,6 +85,27 @@ pinchRouter.post("/payment-link", async (request, response) => {
   }
 });
 
+pinchRouter.get("/return/:engagementId?", (request, response) => {
+  response
+    .status(200)
+    .type("html")
+    .send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Payment awaiting confirmation</title>
+  </head>
+  <body>
+    <main>
+      <h1>Payment awaiting confirmation</h1>
+      <p>Pinch redirected you back to Veltact. This page does not confirm payment success.</p>
+      <p>We will update the engagement after Veltact receives a verified Pinch payment event.</p>
+    </main>
+  </body>
+</html>`);
+});
+
 pinchRouter.post("/webhooks", (request, response) => {
   try {
     verifyPinchWebhookSignature({
@@ -91,6 +114,21 @@ pinchRouter.post("/webhooks", (request, response) => {
     });
 
     const event = recordWebhookEvent(request.body);
+    const paymentEvent = extractSuccessfulPaymentEvent(request.body);
+    if (paymentEvent) {
+      const result = recordAuthoritativePinchPayment({
+        eventId: paymentEvent.eventId,
+        eventType: paymentEvent.eventType,
+        engagementId: paymentEvent.engagementId,
+        paymentId: paymentEvent.paymentId,
+        payload: request.body
+      });
+
+      if (result.engagement && !result.duplicate) {
+        emitPaymentStatusUpdated(result.engagement);
+      }
+    }
+
     response.json({
       received: true,
       event
@@ -165,4 +203,100 @@ function findStringValue(payload: unknown, keys: string[]): string | undefined {
   }
 
   return undefined;
+}
+
+function extractSuccessfulPaymentEvent(payload: unknown):
+  | {
+      eventId: string;
+      eventType: string;
+      engagementId: string;
+      paymentId?: string;
+    }
+  | undefined {
+  const eventId = getNestedString(payload, ["Id"]) ?? getNestedString(payload, ["id"]);
+  const eventType = getNestedString(payload, ["Type"]) ?? getNestedString(payload, ["type"]);
+  if (!eventId || !eventType) {
+    return undefined;
+  }
+
+  const payment =
+    getNestedObject(payload, ["Data", "Payment"]) ??
+    getNestedObject(payload, ["data", "payment"]);
+  if (!payment || !isAuthoritativeSuccessfulPayment(eventType, payment)) {
+    return undefined;
+  }
+
+  const metadata = parseMetadata(
+    getNestedValue(payment, ["Metadata"]) ?? getNestedValue(payment, ["metadata"])
+  );
+  const engagementId =
+    getString(metadata.engagementId) ??
+    getString(metadata.EngagementId) ??
+    getString(metadata.engagement_id);
+  if (!engagementId) {
+    return undefined;
+  }
+
+  return {
+    eventId,
+    eventType,
+    engagementId,
+    paymentId: getNestedString(payment, ["Id"]) ?? getNestedString(payment, ["id"])
+  };
+}
+
+function isAuthoritativeSuccessfulPayment(eventType: string, payment: Record<string, unknown>) {
+  if (!["realtime-payment", "payment-created"].includes(eventType)) {
+    return false;
+  }
+
+  const status = (
+    getNestedString(payment, ["Status"]) ??
+    getNestedString(payment, ["status"]) ??
+    ""
+  ).toLowerCase();
+  return ["approved", "succeeded", "successful", "paid"].includes(status);
+}
+
+function parseMetadata(value: unknown): Record<string, unknown> {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  if (typeof value !== "string") {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function getNestedObject(payload: unknown, path: string[]): Record<string, unknown> | undefined {
+  const value = getNestedValue(payload, path);
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function getNestedString(payload: unknown, path: string[]) {
+  return getString(getNestedValue(payload, path));
+}
+
+function getNestedValue(payload: unknown, path: string[]): unknown {
+  return path.reduce<unknown>((current, key) => {
+    if (typeof current !== "object" || current === null) {
+      return undefined;
+    }
+    return (current as Record<string, unknown>)[key];
+  }, payload);
+}
+
+function getString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
 }

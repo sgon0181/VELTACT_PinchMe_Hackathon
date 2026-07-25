@@ -23,7 +23,9 @@ export type NeedRecord = {
   profile: NeedProfile;
   matches: SupplierMatch[];
   invitations: SupplierInvitation[];
+  status: "responses_open" | "selected" | "payment_pending" | "secured";
   createdAt: string;
+  updatedAt: string;
 };
 
 export type SupplierInvitation = {
@@ -31,8 +33,9 @@ export type SupplierInvitation = {
   needId: string;
   supplierId: string;
   supplierName: string;
-  status: "invited" | "responded";
+  status: "invited" | "viewed" | "responded";
   createdAt: string;
+  viewedAt?: string;
   respondedAt?: string;
 };
 
@@ -47,4 +50,44 @@ export type SupplierResponse = {
   relevantExperience: string;
   conditions: string;
   submittedAt: string;
+};
+
+export type Engagement = {
+  id: string;
+  needId: string;
+  supplierId: string;
+  supplierName: string;
+  supplierResponseId: string;
+  status:
+    | "supplier_selected"
+    | "payment_link_created"
+    | "payment_pending"
+    | "supplier_secured"
+    | "payment_failed"
+    | "cancelled";
+  paymentStatus:
+    | "not_started"
+    | "link_created"
+    | "awaiting_payment"
+    | "pending"
+    | "paid"
+    | "failed"
+    | "cancelled"
+    | "refunded";
+  paymentLinkId?: string;
+  hostedCheckoutUrl?: string;
+  pinchPayerId?: string;
+  pinchPaymentId?: string;
+  securedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PinchWebhookEvidence = {
+  eventId: string;
+  eventType: string;
+  engagementId: string;
+  paymentId?: string;
+  receivedAt: string;
+  payload: unknown;
 };

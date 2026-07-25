@@ -21,7 +21,8 @@ export function verifyPinchWebhookSignature(input: {
   signatureHeader: string | undefined;
   rawBody: Buffer | undefined;
 }): VerifiedWebhook {
-  if (!env.PINCH_WEBHOOK_SECRET) {
+  const webhookSecret = env.PINCH_WEBHOOK_SECRET ?? process.env.PINCH_WEBHOOK_SECRET;
+  if (!webhookSecret) {
     throw new PinchWebhookError("Pinch webhook secret is not configured", 503);
   }
 
@@ -50,7 +51,7 @@ export function verifyPinchWebhookSignature(input: {
 
   const signedPayload = `${signatureParts.timestamp}.${input.rawBody.toString("utf8")}`;
   const expectedSignature = crypto
-    .createHmac("sha256", env.PINCH_WEBHOOK_SECRET)
+    .createHmac("sha256", webhookSecret)
     .update(signedPayload)
     .digest("hex");
 
