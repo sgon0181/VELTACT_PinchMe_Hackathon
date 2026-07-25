@@ -2,6 +2,7 @@ export type Supplier = {
   id: string;
   name: string;
   contactEmail: string;
+  contactPhone?: string;
   capabilities: string[];
   industries: string[];
   locations: string[];
@@ -19,6 +20,7 @@ export const seededSuppliers: Supplier[] = [
     id: "supplier-automation-nsw",
     name: "Harbour Industrial Automation",
     contactEmail: "ops@harbour-automation.example",
+    contactPhone: "+61411111001",
     capabilities: [
       "automation",
       "plc diagnostics",
@@ -41,6 +43,7 @@ export const seededSuppliers: Supplier[] = [
     id: "supplier-controls-western-sydney",
     name: "Western Sydney Controls Response",
     contactEmail: "dispatch@ws-controls.example",
+    contactPhone: "+61411111002",
     capabilities: [
       "plc diagnostics",
       "siemens plc",
@@ -63,6 +66,7 @@ export const seededSuppliers: Supplier[] = [
     id: "supplier-electrical-sydney",
     name: "LineWorks Industrial Electrical",
     contactEmail: "service@lineworks-electrical.example",
+    contactPhone: "+61411111003",
     capabilities: [
       "electrical",
       "plc diagnostics",
@@ -85,6 +89,7 @@ export const seededSuppliers: Supplier[] = [
     id: "supplier-hydraulics-wa",
     name: "Pilbara Hydraulic Response",
     contactEmail: "field@pilbara-hydraulics.example",
+    contactPhone: "+61411111004",
     capabilities: ["hydraulics", "pneumatics", "maintenance", "breakdown", "field service"],
     industries: ["mining", "resources", "industrial"],
     locations: ["wa", "perth", "pilbara", "australia"],
@@ -100,6 +105,7 @@ export const seededSuppliers: Supplier[] = [
     id: "supplier-fabrication-sa",
     name: "Precision Plant Fabrication",
     contactEmail: "quotes@precision-plant.example",
+    contactPhone: "+61411111005",
     capabilities: ["fabrication", "welding", "conveyors", "guards", "installation"],
     industries: ["manufacturing", "agriculture", "industrial"],
     locations: ["sa", "adelaide", "australia"],

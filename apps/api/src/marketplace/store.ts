@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { matchSuppliers } from "./matching.js";
+import { sendSupplierOpportunity } from "./outreachDelivery.js";
 import { seededSuppliers } from "./suppliers.js";
 import { env } from "../env.js";
 import type {
@@ -49,9 +50,19 @@ export function createNeed(input: { buyerEmail: string; profile: NeedProfile }):
       invitationId: invitation.id,
       supplierId: invitation.supplierId,
       channel: "email",
-      destination: match.supplier.contactEmail,
+      destination: env.SUPPLIER_OUTREACH_EMAIL_TO ?? match.supplier.contactEmail,
       deliveryStatus: "not_sent"
     });
+    const smsDestination = env.SUPPLIER_OUTREACH_SMS_TO ?? match.supplier.contactPhone;
+    if (smsDestination) {
+      outreachDeliveries.set(deliveryKey(invitation.id, "sms"), {
+        invitationId: invitation.id,
+        supplierId: invitation.supplierId,
+        channel: "sms",
+        destination: smsDestination,
+        deliveryStatus: "not_sent"
+      });
+    }
     return invitation;
   });
 
@@ -85,26 +96,13 @@ export async function sendSupplierOutreachForNeed(needId: string): Promise<Suppl
 
   const updatedDeliveries: SupplierOutreachDelivery[] = [];
   for (const invitation of need.invitations) {
-    const emailDelivery = outreachDeliveries.get(deliveryKey(invitation.id, "email"));
-    if (!emailDelivery) {
-      continue;
+    for (const channel of ["email", "sms"] as const) {
+      const delivery = outreachDeliveries.get(deliveryKey(invitation.id, channel));
+      if (!delivery) {
+        continue;
+      }
+      updatedDeliveries.push(...(await sendOutreachDelivery(delivery, invitation, need)));
     }
-
-    if (emailDelivery.deliveryStatus === "sent") {
-      updatedDeliveries.push(emailDelivery);
-      continue;
-    }
-
-    emailDelivery.deliveryStatus = "queued";
-    emailDelivery.errorMessage = undefined;
-    updatedDeliveries.push({ ...emailDelivery });
-
-    const result = await sendEmailInvitation(invitation, emailDelivery.destination, need);
-    const sentAt = new Date().toISOString();
-    emailDelivery.deliveryStatus = result.ok ? "sent" : "failed";
-    emailDelivery.sentAt = result.ok ? sentAt : undefined;
-    emailDelivery.errorMessage = result.ok ? undefined : result.errorMessage;
-    updatedDeliveries.push({ ...emailDelivery });
   }
 
   return updatedDeliveries;
@@ -217,27 +215,36 @@ function updateMatchResponseStatus(invitation: SupplierInvitation, canHelp: bool
   }
 }
 
-async function sendEmailInvitation(
-  invitation: SupplierInvitation,
-  destination: string,
-  need: NeedRecord
-): Promise<{ ok: true } | { ok: false; errorMessage: string }> {
-  if (!destination) {
-    return { ok: false, errorMessage: "Supplier email destination is not configured." };
-  }
-
-  if (env.NODE_ENV === "production") {
-    return { ok: false, errorMessage: "Email provider is not configured." };
-  }
-
-  console.info(
-    `[local-demo-email] Sent supplier opportunity ${invitation.id} to ${destination}: ${need.profile.title} ${invitation.responseUrl}`
-  );
-  return { ok: true };
-}
-
 function deliveryKey(invitationId: string, channel: SupplierOutreachDelivery["channel"]) {
   return `${invitationId}:${channel}`;
+}
+
+async function sendOutreachDelivery(
+  delivery: SupplierOutreachDelivery,
+  invitation: SupplierInvitation,
+  need: NeedRecord
+) {
+  if (delivery.deliveryStatus === "sent") {
+    return [{ ...delivery }];
+  }
+
+  delivery.deliveryStatus = "queued";
+  delivery.errorMessage = undefined;
+  updatedNeedTimestamp(need);
+  const updates = [{ ...delivery }];
+
+  const result = await sendSupplierOpportunity(delivery, invitation, need);
+  const sentAt = new Date().toISOString();
+  delivery.deliveryStatus = result.ok ? "sent" : "failed";
+  delivery.sentAt = result.ok ? sentAt : undefined;
+  delivery.errorMessage = result.ok ? undefined : result.errorMessage;
+  updatedNeedTimestamp(need);
+  updates.push({ ...delivery });
+  return updates;
+}
+
+function updatedNeedTimestamp(need: NeedRecord) {
+  need.updatedAt = new Date().toISOString();
 }
 
 export function listResponsesForNeed(needId: string): SupplierResponse[] | undefined {

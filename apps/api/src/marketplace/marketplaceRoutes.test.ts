@@ -269,12 +269,24 @@ describe("marketplace core routes", () => {
 
     client.close();
     assert.equal(sent.status, 200);
-    assert.equal(sent.body.supplierOutreachDeliveries.length, 3);
-    for (const delivery of sent.body.supplierOutreachDeliveries as Record<string, any>[]) {
+    assert.equal(sent.body.supplierOutreachDeliveries.length, 6);
+    const emailDeliveries = (sent.body.supplierOutreachDeliveries as Record<string, any>[]).filter(
+      (delivery) => delivery.channel === "email"
+    );
+    const smsDeliveries = (sent.body.supplierOutreachDeliveries as Record<string, any>[]).filter(
+      (delivery) => delivery.channel === "sms"
+    );
+    assert.equal(emailDeliveries.length, 3);
+    assert.equal(smsDeliveries.length, 3);
+    for (const delivery of emailDeliveries) {
       assert.doesNotThrow(() => supplierOutreachDeliverySchema.parse(delivery));
-      assert.equal(delivery.channel, "email");
       assert.equal(delivery.deliveryStatus, "sent");
       assert.ok(delivery.sentAt);
+    }
+    for (const delivery of smsDeliveries) {
+      assert.doesNotThrow(() => supplierOutreachDeliverySchema.parse(delivery));
+      assert.equal(delivery.deliveryStatus, "failed");
+      assert.match(delivery.errorMessage, /SMS provider is not configured/);
     }
     assert.ok(
       updates.some(
