@@ -28,8 +28,10 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
   WEB_ORIGIN: z.string().url().default("http://localhost:4000"),
+  PUBLIC_BASE_URL: z.string().url().optional(),
   API_PUBLIC_URL: z.string().url().optional(),
   MARKETPLACE_DATA_FILE: optionalProviderString,
+  VELTACT_V2_DATA_FILE: optionalProviderString,
   SUPPLIER_CATALOG_FILE: optionalProviderString,
   BUYER_CAPABILITY_AUTH_REQUIRED: optionalBoolean,
   API_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
@@ -48,6 +50,10 @@ const envSchema = z.object({
   SUPPLIER_OUTREACH_WHATSAPP_TO: optionalProviderString,
   OPENAI_API_KEY: z.string().trim().min(1).optional(),
   OPENAI_MODEL: z.string().trim().min(1).default("gpt-5.6"),
+  VELTACT_RESEARCH_PROVIDER: z
+    .enum(["auto", "openai", "fixture"])
+    .default("auto"),
+  FIRECRAWL_API_KEY: optionalProviderString,
   PINCH_CLIENT_ID: z.string().min(1, "PINCH_CLIENT_ID is required"),
   PINCH_SECRET_KEY: z.string().min(1, "PINCH_SECRET_KEY is required"),
   PINCH_AUTH_URL: z.string().url(),
@@ -76,9 +82,16 @@ export const env = {
     parsedEnv.SUPPLIER_CATALOG_FILE === undefined
       ? undefined
       : resolveApiPath(parsedEnv.SUPPLIER_CATALOG_FILE),
+  VELTACT_V2_DATA_FILE:
+    parsedEnv.VELTACT_V2_DATA_FILE === undefined
+      ? parsedEnv.NODE_ENV === "test"
+        ? undefined
+        : path.join(apiRoot, ".data", "veltact-v2.json")
+      : resolveApiPath(parsedEnv.VELTACT_V2_DATA_FILE),
   BUYER_CAPABILITY_AUTH_REQUIRED:
     parsedEnv.BUYER_CAPABILITY_AUTH_REQUIRED ?? (parsedEnv.NODE_ENV === "production"),
   API_PUBLIC_URL: parsedEnv.API_PUBLIC_URL ?? `http://localhost:${parsedEnv.PORT}`,
+  PUBLIC_BASE_URL: parsedEnv.PUBLIC_BASE_URL ?? parsedEnv.WEB_ORIGIN,
   PINCH_RETURN_URL:
     parsedEnv.PINCH_RETURN_URL ?? new URL("/api/pinch/return", parsedEnv.WEB_ORIGIN).toString()
 };

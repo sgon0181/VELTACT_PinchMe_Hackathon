@@ -293,3 +293,400 @@ export const rapidMatchSocketEvent = {
 
 export type RapidMatchSocketEvent =
   (typeof rapidMatchSocketEvent)[keyof typeof rapidMatchSocketEvent];
+
+export const evidenceProviderSchema = z.enum([
+  "openai_web_search",
+  "firecrawl",
+  "fixture",
+  "manual"
+]);
+export type EvidenceProvider = z.infer<typeof evidenceProviderSchema>;
+
+export const evidenceSourceTypeSchema = z.enum([
+  "manufacturer",
+  "integrator",
+  "standards",
+  "industry_publication",
+  "supplier_website",
+  "directory",
+  "other"
+]);
+export type EvidenceSourceType = z.infer<typeof evidenceSourceTypeSchema>;
+
+export const researchCitationSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1),
+  url: z.string().url(),
+  sourceType: evidenceSourceTypeSchema,
+  provider: evidenceProviderSchema,
+  evidenceNote: z.string().trim().min(1),
+  publishedAt: isoDateTimeSchema.optional(),
+  accessedAt: isoDateTimeSchema
+});
+export type ResearchCitation = z.infer<typeof researchCitationSchema>;
+
+export const solutionApproachSchema = z.object({
+  id: z.string().min(1),
+  needProfileId: z.string().min(1),
+  title: z.string().trim().min(1),
+  summary: z.string().trim().min(1),
+  rationale: z.string().trim().min(1),
+  localActions: z.array(z.string().trim().min(1)).default([]),
+  outsourceTriggers: z.array(z.string().trim().min(1)).min(1),
+  requiredCapabilities: z.array(z.string().trim().min(1)).min(1),
+  risks: z.array(z.string().trim().min(1)).default([]),
+  confidence: z.number().min(0).max(1),
+  citationIds: z.array(z.string().min(1)).min(1)
+});
+export type SolutionApproach = z.infer<typeof solutionApproachSchema>;
+
+export const solutionResearchResultSchema = z.object({
+  id: z.string().min(1),
+  needProfileId: z.string().min(1),
+  sourceMode: z.enum(["live", "fixture"]),
+  overview: z.string().trim().min(1),
+  approaches: z.array(solutionApproachSchema).min(1),
+  citations: z.array(researchCitationSchema).min(1),
+  missingInformation: z.array(z.string().trim().min(1)).default([]),
+  safetyNotice: z.string().trim().min(1),
+  generatedAt: isoDateTimeSchema
+});
+export type SolutionResearchResult = z.infer<typeof solutionResearchResultSchema>;
+
+export const solutionDecisionTypeSchema = z.enum([
+  "local_trial",
+  "outsource",
+  "hybrid"
+]);
+export type SolutionDecisionType = z.infer<typeof solutionDecisionTypeSchema>;
+
+export const solutionDecisionSchema = z.object({
+  id: z.string().min(1),
+  needProfileId: z.string().min(1),
+  researchResultId: z.string().min(1),
+  decision: solutionDecisionTypeSchema,
+  selectedApproachIds: z.array(z.string().min(1)).min(1),
+  buyerNote: z.string().trim().min(1).optional(),
+  approvedBy: z.string().trim().min(1),
+  approvedAt: isoDateTimeSchema
+});
+export type SolutionDecision = z.infer<typeof solutionDecisionSchema>;
+
+export const supplierLifecycleStatusSchema = z.enum([
+  "discovered",
+  "approved_for_outreach",
+  "invited",
+  "claimed",
+  "supplier_profile_approved",
+  "buyer_approved",
+  "active_supplier",
+  "declined",
+  "archived"
+]);
+export type SupplierLifecycleStatus = z.infer<typeof supplierLifecycleStatusSchema>;
+
+export const supplierLeadSchema = z.object({
+  id: z.string().min(1),
+  needProfileId: z.string().min(1),
+  companyName: z.string().trim().min(1),
+  website: z.string().url(),
+  contactName: z.string().trim().min(1).optional(),
+  contactEmail: z.string().trim().email().optional(),
+  contactPhone: z.string().trim().min(1).optional(),
+  location: z.string().trim().min(1),
+  serviceRegions: z.array(z.string().trim().min(1)).default([]),
+  capabilities: z.array(z.string().trim().min(1)).min(1),
+  matchScore: z.number().min(0).max(100),
+  matchReasons: z.array(z.string().trim().min(1)).min(1),
+  risks: z.array(z.string().trim().min(1)).default([]),
+  evidence: z.array(researchCitationSchema).min(1),
+  sourceMode: z.enum(["live", "fixture"]),
+  lifecycleStatus: supplierLifecycleStatusSchema,
+  approvedForOutreachAt: isoDateTimeSchema.optional(),
+  invitedAt: isoDateTimeSchema.optional(),
+  claimedAt: isoDateTimeSchema.optional(),
+  activatedSupplierId: z.string().min(1).optional(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema
+});
+export type SupplierLead = z.infer<typeof supplierLeadSchema>;
+
+export const supplierClaimStatusSchema = z.enum([
+  "pending",
+  "claimed",
+  "expired",
+  "revoked"
+]);
+export type SupplierClaimStatus = z.infer<typeof supplierClaimStatusSchema>;
+
+export const supplierClaimSchema = z.object({
+  id: z.string().min(1),
+  supplierLeadId: z.string().min(1),
+  invitationId: z.string().min(1),
+  token: z.string().min(16),
+  status: supplierClaimStatusSchema,
+  claimantName: z.string().trim().min(1).optional(),
+  claimantEmail: z.string().trim().email().optional(),
+  claimedAt: isoDateTimeSchema.optional(),
+  expiresAt: isoDateTimeSchema,
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema
+});
+export type SupplierClaim = z.infer<typeof supplierClaimSchema>;
+
+export const supplierProfileSchema = z.object({
+  id: z.string().min(1),
+  supplierLeadId: z.string().min(1),
+  companyName: z.string().trim().min(1),
+  website: z.string().url(),
+  contactName: z.string().trim().min(1),
+  contactEmail: z.string().trim().email(),
+  contactPhone: z.string().trim().min(1).optional(),
+  location: z.string().trim().min(1),
+  categories: z.array(z.string().trim().min(1)).min(1),
+  industries: z.array(z.string().trim().min(1)).min(1),
+  serviceRegions: z.array(z.string().trim().min(1)).min(1),
+  capabilities: z.array(z.string().trim().min(1)).min(1),
+  certifications: z.array(z.string().trim().min(1)).default([]),
+  profileSummary: z.string().trim().min(1),
+  sourceDisclosure: z.string().trim().min(1),
+  supplierApprovedAt: isoDateTimeSchema.optional(),
+  buyerApprovedAt: isoDateTimeSchema.optional(),
+  activeAt: isoDateTimeSchema.optional(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema
+});
+export type SupplierProfile = z.infer<typeof supplierProfileSchema>;
+
+export const supplierCommercialResponseSchema = z.object({
+  id: z.string().min(1),
+  needProfileId: z.string().min(1),
+  supplierLeadId: z.string().min(1),
+  supplierProfileId: z.string().min(1),
+  decision: supplierResponseDecisionSchema,
+  availability: z.string().trim().min(1),
+  indicativePrice: moneySchema,
+  proposedApproach: z.string().trim().min(1),
+  relevantExperience: z.string().trim().min(1),
+  assumptions: z.array(z.string().trim().min(1)).default([]),
+  conditions: z.array(z.string().trim().min(1)).default([]),
+  submittedAt: isoDateTimeSchema
+});
+export type SupplierCommercialResponse = z.infer<
+  typeof supplierCommercialResponseSchema
+>;
+
+export const projectTemplateTypeSchema = z.enum([
+  "urgent_plc_recovery",
+  "planned_robotic_arm_integration"
+]);
+export type ProjectTemplateType = z.infer<typeof projectTemplateTypeSchema>;
+
+export const projectStatusSchema = z.enum([
+  "planning",
+  "awaiting_supplier",
+  "active",
+  "at_risk",
+  "completed",
+  "cancelled"
+]);
+export type ProjectStatus = z.infer<typeof projectStatusSchema>;
+
+export const projectMilestoneStatusSchema = z.enum([
+  "draft",
+  "awaiting_payment",
+  "funded",
+  "in_progress",
+  "awaiting_acceptance",
+  "accepted",
+  "payment_failed",
+  "cancelled"
+]);
+export type ProjectMilestoneStatus = z.infer<typeof projectMilestoneStatusSchema>;
+
+export const projectTaskStatusSchema = z.enum([
+  "not_started",
+  "in_progress",
+  "blocked",
+  "completed"
+]);
+export type ProjectTaskStatus = z.infer<typeof projectTaskStatusSchema>;
+
+export const acceptanceCriterionSchema = z.object({
+  id: z.string().min(1),
+  description: z.string().trim().min(1),
+  accepted: z.boolean().default(false),
+  acceptedAt: isoDateTimeSchema.optional(),
+  evidenceNote: z.string().trim().min(1).optional()
+});
+export type AcceptanceCriterion = z.infer<typeof acceptanceCriterionSchema>;
+
+export const projectMilestoneSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  sequence: z.number().int().positive(),
+  title: z.string().trim().min(1),
+  description: z.string().trim().min(1),
+  amount: moneySchema,
+  plannedStart: z.string().date().optional(),
+  plannedEnd: z.string().date().optional(),
+  dependencyIds: z.array(z.string().min(1)).default([]),
+  acceptanceCriteria: z.array(acceptanceCriterionSchema).min(1),
+  status: projectMilestoneStatusSchema,
+  paymentStatus: paymentStatusSchema,
+  paymentLinkId: z.string().min(1).optional(),
+  hostedCheckoutUrl: z.string().url().optional(),
+  pinchPayerId: z.string().min(1).optional(),
+  pinchPaymentId: z.string().min(1).optional(),
+  fundedAt: isoDateTimeSchema.optional(),
+  acceptedAt: isoDateTimeSchema.optional(),
+  updatedAt: isoDateTimeSchema
+});
+export type ProjectMilestone = z.infer<typeof projectMilestoneSchema>;
+
+export const projectTaskSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  milestoneId: z.string().min(1),
+  title: z.string().trim().min(1),
+  owner: z.string().trim().min(1),
+  status: projectTaskStatusSchema,
+  dependencyIds: z.array(z.string().min(1)).default([]),
+  dueDate: z.string().date().optional(),
+  updatedAt: isoDateTimeSchema
+});
+export type ProjectTask = z.infer<typeof projectTaskSchema>;
+
+export const projectActivitySchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  eventType: z.string().trim().min(1),
+  summary: z.string().trim().min(1),
+  actor: z.string().trim().min(1),
+  occurredAt: isoDateTimeSchema
+});
+export type ProjectActivity = z.infer<typeof projectActivitySchema>;
+
+export const projectRiskSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  title: z.string().trim().min(1),
+  impact: z.enum(["low", "medium", "high"]),
+  mitigation: z.string().trim().min(1),
+  status: z.enum(["open", "mitigated", "closed"]),
+  updatedAt: isoDateTimeSchema
+});
+export type ProjectRisk = z.infer<typeof projectRiskSchema>;
+
+export const projectIssueSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  title: z.string().trim().min(1),
+  owner: z.string().trim().min(1),
+  status: z.enum(["open", "in_progress", "resolved"]),
+  resolution: z.string().trim().min(1).optional(),
+  updatedAt: isoDateTimeSchema
+});
+export type ProjectIssue = z.infer<typeof projectIssueSchema>;
+
+export const projectApprovalSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  milestoneId: z.string().min(1).optional(),
+  title: z.string().trim().min(1),
+  status: z.enum(["requested", "approved", "rejected"]),
+  requestedBy: z.string().trim().min(1),
+  decidedBy: z.string().trim().min(1).optional(),
+  decidedAt: isoDateTimeSchema.optional(),
+  updatedAt: isoDateTimeSchema
+});
+export type ProjectApproval = z.infer<typeof projectApprovalSchema>;
+
+export const projectDocumentSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  title: z.string().trim().min(1),
+  documentType: z.string().trim().min(1),
+  url: z.string().url(),
+  provenance: z.enum(["buyer", "supplier", "veltact_fixture"]),
+  addedAt: isoDateTimeSchema
+});
+export type ProjectDocument = z.infer<typeof projectDocumentSchema>;
+
+export const projectChangeRequestSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  title: z.string().trim().min(1),
+  description: z.string().trim().min(1),
+  impact: z.string().trim().min(1),
+  status: z.enum(["draft", "submitted", "approved", "rejected"]),
+  requestedBy: z.string().trim().min(1),
+  approvedBy: z.string().trim().min(1).optional(),
+  updatedAt: isoDateTimeSchema
+});
+export type ProjectChangeRequest = z.infer<typeof projectChangeRequestSchema>;
+
+export const projectContactSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  name: z.string().trim().min(1),
+  role: z.string().trim().min(1),
+  organisation: z.string().trim().min(1),
+  email: z.string().trim().email(),
+  phone: z.string().trim().min(1).optional()
+});
+export type ProjectContact = z.infer<typeof projectContactSchema>;
+
+export const paymentEvidenceSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  milestoneId: z.string().min(1),
+  provider: z.enum(["pinch", "local_demo"]),
+  eventId: z.string().min(1),
+  eventType: z.string().trim().min(1),
+  paymentStatus: paymentStatusSchema,
+  authoritative: z.boolean(),
+  receivedAt: isoDateTimeSchema,
+  metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).default({})
+});
+export type PaymentEvidence = z.infer<typeof paymentEvidenceSchema>;
+
+export const industrialProjectSchema = z.object({
+  id: z.string().min(1),
+  needProfileId: z.string().min(1),
+  supplierLeadId: z.string().min(1),
+  supplierProfileId: z.string().min(1),
+  supplierName: z.string().trim().min(1),
+  templateType: projectTemplateTypeSchema,
+  title: z.string().trim().min(1),
+  objective: z.string().trim().min(1),
+  siteLocation: z.string().trim().min(1),
+  status: projectStatusSchema,
+  targetCompletion: z.string().date().optional(),
+  milestones: z.array(projectMilestoneSchema).min(1),
+  tasks: z.array(projectTaskSchema).min(1),
+  contacts: z.array(projectContactSchema).min(1),
+  activities: z.array(projectActivitySchema).default([]),
+  risks: z.array(projectRiskSchema).default([]),
+  issues: z.array(projectIssueSchema).default([]),
+  approvals: z.array(projectApprovalSchema).default([]),
+  documents: z.array(projectDocumentSchema).default([]),
+  changeRequests: z.array(projectChangeRequestSchema).default([]),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema
+});
+export type IndustrialProject = z.infer<typeof industrialProjectSchema>;
+
+export const veltactV2SocketEvent = {
+  joinNeed: "veltact:v2:need.join",
+  leaveNeed: "veltact:v2:need.leave",
+  researchUpdated: "veltact:v2:research.updated",
+  discoveryUpdated: "veltact:v2:discovery.updated",
+  supplierLifecycleUpdated: "veltact:v2:supplier.lifecycle_updated",
+  supplierResponseSubmitted: "veltact:v2:supplier.response_submitted",
+  projectUpdated: "veltact:v2:project.updated",
+  milestonePaymentUpdated: "veltact:v2:milestone.payment_updated"
+} as const;
+
+export type VeltactV2SocketEvent =
+  (typeof veltactV2SocketEvent)[keyof typeof veltactV2SocketEvent];

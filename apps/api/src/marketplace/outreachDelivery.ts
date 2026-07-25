@@ -41,6 +41,9 @@ function supplierOpportunityMessage(invitation: SupplierInvitation, need: NeedRe
   return [
     `Veltact supplier opportunity for ${invitation.supplierName}`,
     "",
+    "A buyer reviewed your public capability evidence and approved this direct opportunity.",
+    "No marketplace profile has been created for you. You decide whether to claim and respond.",
+    "",
     need.profile.title,
     need.profile.description,
     "",
@@ -48,7 +51,10 @@ function supplierOpportunityMessage(invitation: SupplierInvitation, need: NeedRe
     `Urgency: ${urgency}`,
     `Budget: ${budget}`,
     "",
-    `Respond here: ${invitation.responseUrl}`
+    `Respond here: ${invitation.responseUrl}`,
+    "",
+    "Sent by Veltact for this specific procurement request.",
+    "Ignore this message to decline. Reply STOP or contact the sender to opt out of future Veltact outreach."
   ].join("\n");
 }
 

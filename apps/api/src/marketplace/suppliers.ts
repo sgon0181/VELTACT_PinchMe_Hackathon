@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import {
   supplierCatalogEntrySchema,
+  type SupplierProfile,
   type SupplierCatalogEntry
 } from "@veltact/contracts";
 import { env } from "../env.js";
@@ -185,6 +186,43 @@ export const seededSuppliers: Supplier[] = seededSupplierInputs.map((supplier) =
 );
 
 export const supplierCatalog = loadSupplierCatalog();
+
+export function registerActivatedSupplier(profile: SupplierProfile) {
+  const supplierId = `v2-${profile.id}`;
+  const existing = supplierCatalog.find((supplier) => supplier.id === supplierId);
+  if (existing) {
+    return existing;
+  }
+
+  const supplier = supplierCatalogEntrySchema.parse({
+    id: supplierId,
+    companyName: profile.companyName,
+    contactName: profile.contactName,
+    contactEmail: profile.contactEmail,
+    contactPhone: profile.contactPhone,
+    categories: profile.categories,
+    industries: profile.industries,
+    serviceRegions: profile.serviceRegions,
+    capabilities: profile.capabilities,
+    equipmentBrands: [],
+    certifications: profile.certifications,
+    trustSignals: [
+      "Supplier-approved profile",
+      "Buyer-approved Veltact onboarding"
+    ],
+    availabilityDays: 7,
+    minimumBudgetAud: 0,
+    maximumBudgetAud: 10_000_000,
+    verified: false,
+    verificationStatus: "unverified",
+    verificationSource:
+      "Supplier-confirmed and buyer-approved profile; independent verification not completed",
+    createdAt: profile.createdAt,
+    updatedAt: profile.updatedAt
+  });
+  supplierCatalog.push(supplier);
+  return supplier;
+}
 
 function loadSupplierCatalog(): Supplier[] {
   if (!env.SUPPLIER_CATALOG_FILE) {

@@ -117,7 +117,8 @@ class PinchClient implements PaymentProvider {
       metadata: {
         engagementId: input.engagementId,
         needId: input.needId,
-        supplierId: input.supplierId
+        supplierId: input.supplierId,
+        ...input.metadata
       }
     });
 

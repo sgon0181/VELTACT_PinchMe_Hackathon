@@ -7,6 +7,7 @@ export type CreateHostedPaymentLinkInput = {
   amount: number;
   description: string;
   returnUrl: string;
+  metadata?: Record<string, string>;
 };
 
 export type HostedPaymentLink = {

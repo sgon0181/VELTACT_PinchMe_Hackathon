@@ -8,6 +8,7 @@ import { aiIntakeRouter } from "./aiIntake/aiIntakeRoutes.js";
 import { marketplaceRouter } from "./marketplace/marketplaceRoutes.js";
 import { pinchRouter } from "./pinch/pinchRoutes.js";
 import { createRateLimiter } from "./rateLimit.js";
+import { v2Router } from "./v2/routes.js";
 
 export const app = express();
 app.disable("x-powered-by");
@@ -57,9 +58,12 @@ app.get("/api/health", (_request, response) => {
     environment: env.NODE_ENV,
     readiness: {
       persistence: Boolean(env.MARKETPLACE_DATA_FILE),
+      v2Persistence: Boolean(env.VELTACT_V2_DATA_FILE),
       buyerCapabilityAuth: env.BUYER_CAPABILITY_AUTH_REQUIRED,
       pinch: true,
       openAi: Boolean(env.OPENAI_API_KEY),
+      v2Research:
+        env.VELTACT_RESEARCH_PROVIDER === "fixture" || Boolean(env.OPENAI_API_KEY),
       email:
         env.EMAIL_PROVIDER === "local_demo"
           ? env.NODE_ENV !== "production"
@@ -90,6 +94,7 @@ app.get("/api/health", (_request, response) => {
 
 app.use("/api/pinch", pinchRouter);
 app.use("/api/ai-intake", aiIntakeRouter);
+app.use("/api/v2", v2Router);
 app.use("/api", marketplaceRouter);
 
 app.get("/", (_request, response) => {

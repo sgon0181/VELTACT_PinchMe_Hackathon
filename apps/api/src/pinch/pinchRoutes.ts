@@ -7,6 +7,9 @@ import { listWebhookEvents, recordWebhookEvent } from "./webhookStore.js";
 import { recordAuthoritativePinchPayment } from "../marketplace/store.js";
 import { emitEngagementSecured, emitPaymentStatusUpdated } from "../realtime.js";
 import { env } from "../env.js";
+import { v2Service } from "../v2/service.js";
+import { veltactV2SocketEvent } from "@veltact/contracts";
+import { emitV2Update } from "../realtime.js";
 
 export const pinchRouter = Router();
 
@@ -109,7 +112,7 @@ pinchRouter.get("/return/:engagementId?", (request, response) => {
 </html>`);
 });
 
-pinchRouter.post("/webhooks", (request, response) => {
+pinchRouter.post("/webhooks", async (request, response) => {
   try {
     verifyPinchWebhookSignature({
       signatureHeader: request.header("pinch-signature"),
@@ -118,7 +121,7 @@ pinchRouter.post("/webhooks", (request, response) => {
 
     const event = recordWebhookEvent(request.body);
     const paymentEvent = extractSuccessfulPaymentEvent(request.body);
-    if (paymentEvent) {
+    if (paymentEvent?.engagementId) {
       const result = recordAuthoritativePinchPayment({
         eventId: paymentEvent.eventId,
         eventType: paymentEvent.eventType,
@@ -132,6 +135,22 @@ pinchRouter.post("/webhooks", (request, response) => {
         if (result.engagement.status === "supplier_secured") {
           emitEngagementSecured(result.engagement);
         }
+      }
+    }
+    if (paymentEvent?.projectId && paymentEvent.milestoneId) {
+      const result = await v2Service.recordPinchWebhookPayment({
+        eventId: paymentEvent.eventId,
+        eventType: paymentEvent.eventType,
+        projectId: paymentEvent.projectId,
+        milestoneId: paymentEvent.milestoneId,
+        paymentId: paymentEvent.paymentId
+      });
+      if (!result.duplicate) {
+        emitV2Update(
+          result.needProfileId,
+          veltactV2SocketEvent.milestonePaymentUpdated,
+          result
+        );
       }
     }
 
@@ -228,7 +247,9 @@ function extractSuccessfulPaymentEvent(payload: unknown):
   | {
       eventId: string;
       eventType: string;
-      engagementId: string;
+      engagementId?: string;
+      projectId?: string;
+      milestoneId?: string;
       paymentId?: string;
     }
   | undefined {
@@ -252,7 +273,15 @@ function extractSuccessfulPaymentEvent(payload: unknown):
     getString(metadata.engagementId) ??
     getString(metadata.EngagementId) ??
     getString(metadata.engagement_id);
-  if (!engagementId) {
+  const projectId =
+    getString(metadata.projectId) ??
+    getString(metadata.ProjectId) ??
+    getString(metadata.project_id);
+  const milestoneId =
+    getString(metadata.milestoneId) ??
+    getString(metadata.MilestoneId) ??
+    getString(metadata.milestone_id);
+  if (!engagementId && !(projectId && milestoneId)) {
     return undefined;
   }
 
@@ -260,6 +289,8 @@ function extractSuccessfulPaymentEvent(payload: unknown):
     eventId,
     eventType,
     engagementId,
+    projectId,
+    milestoneId,
     paymentId: getNestedString(payment, ["Id"]) ?? getNestedString(payment, ["id"])
   };
 }

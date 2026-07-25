@@ -1,5 +1,9 @@
 import type { Server as HttpServer } from "node:http";
-import { rapidMatchSocketEvent } from "@veltact/contracts";
+import {
+  rapidMatchSocketEvent,
+  veltactV2SocketEvent,
+  type VeltactV2SocketEvent
+} from "@veltact/contracts";
 import { Server } from "socket.io";
 import { env } from "./env.js";
 import { isBuyerAuthorised } from "./marketplace/store.js";
@@ -9,6 +13,7 @@ import type {
   SupplierOutreachDelivery,
   SupplierResponse
 } from "./marketplace/types.js";
+import { v2Service } from "./v2/service.js";
 
 let io: Server | undefined;
 
@@ -39,6 +44,31 @@ export function attachRealtime(httpServer: HttpServer) {
       }
       socket.leave(needProfileRoom(payload.needProfileId));
     });
+
+    socket.on(
+      veltactV2SocketEvent.joinNeed,
+      (payload: { needProfileId?: string; buyerAccessToken?: string }) => {
+        if (!payload.needProfileId) return;
+        try {
+          v2Service.getWorkspace(
+            payload.needProfileId,
+            payload.buyerAccessToken
+          );
+          socket.join(v2NeedRoom(payload.needProfileId));
+        } catch {
+          // Capability-token failures do not disclose whether a need exists.
+        }
+      }
+    );
+
+    socket.on(
+      veltactV2SocketEvent.leaveNeed,
+      (payload: { needProfileId?: string }) => {
+        if (payload.needProfileId) {
+          socket.leave(v2NeedRoom(payload.needProfileId));
+        }
+      }
+    );
   });
 
   return io;
@@ -83,6 +113,21 @@ export function emitEngagementSecured(engagement: Engagement) {
   });
 }
 
+export function emitV2Update(
+  needProfileId: string,
+  eventName: VeltactV2SocketEvent,
+  payload: unknown
+) {
+  io?.to(v2NeedRoom(needProfileId)).emit(eventName, {
+    needProfileId,
+    payload
+  });
+}
+
 function needProfileRoom(needProfileId: string) {
   return `need-profile:${needProfileId}`;
+}
+
+function v2NeedRoom(needProfileId: string) {
+  return `veltact-v2-need:${needProfileId}`;
 }
