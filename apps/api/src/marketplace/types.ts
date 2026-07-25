@@ -68,6 +68,7 @@ export type Engagement = {
   paymentStatus:
     | "not_started"
     | "link_created"
+    | "awaiting_payment"
     | "pending"
     | "paid"
     | "failed"

@@ -161,8 +161,8 @@ export function attachPaymentLinkToEngagement(input: {
   engagement.pinchPayerId = input.payerId;
   engagement.paymentLinkId = input.paymentLinkId;
   engagement.hostedCheckoutUrl = input.hostedCheckoutUrl;
-  engagement.status = "payment_link_created";
-  engagement.paymentStatus = "link_created";
+  engagement.status = "payment_pending";
+  engagement.paymentStatus = "awaiting_payment";
   engagement.updatedAt = now;
 
   if (need) {

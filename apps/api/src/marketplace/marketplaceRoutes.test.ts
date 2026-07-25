@@ -175,8 +175,8 @@ describe("marketplace core routes", () => {
       {}
     );
     assert.equal(paymentLink.status, 201);
-    assert.equal(paymentLink.body.engagement.status, "payment_link_created");
-    assert.equal(paymentLink.body.engagement.paymentStatus, "link_created");
+    assert.equal(paymentLink.body.engagement.status, "payment_pending");
+    assert.equal(paymentLink.body.engagement.paymentStatus, "awaiting_payment");
     assert.match(paymentLink.body.hostedCheckoutUrl, /^https:\/\/sandbox\.getpinch\.com\.au/);
 
     const returned = await fetch(`${baseUrl}/api/pinch/return/${selected.body.engagement.id}`);
