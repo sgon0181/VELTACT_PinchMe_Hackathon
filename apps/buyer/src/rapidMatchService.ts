@@ -13,7 +13,7 @@ const runtimeWindow = window as Window & {
   API_BASE_URL?: string;
   FRONTEND_BASE_URL?: string;
 };
-const API_BASE = runtimeWindow.API_BASE_URL ?? "http://localhost:4000/api";
+const API_BASE = runtimeWindow.API_BASE_URL ?? defaultApiBase();
 const FRONTEND_BASE = runtimeWindow.FRONTEND_BASE_URL ?? window.location.origin;
 
 type ApiNeedProfile = {
@@ -255,6 +255,31 @@ export class RapidMatchService {
     return this.confirmSupplierSecured(workspace);
   }
 
+  async completeDemoPayment(workspace: BuyerWorkspace): Promise<BuyerWorkspace> {
+    if (!workspace.engagement) {
+      throw new Error("Create an engagement before completing the demo payment.");
+    }
+
+    const payload = await requestJson<ApiEngagementResponse>(
+      `/engagements/${encodeURIComponent(workspace.engagement.id)}/demo-payment`,
+      {
+        method: "POST",
+        body: {}
+      }
+    );
+    const engagement = mapEngagement(payload.engagement);
+
+    return {
+      ...workspace,
+      needProfile: {
+        ...workspace.needProfile,
+        status: "secured",
+        updatedAt: engagement.updatedAt
+      },
+      engagement
+    };
+  }
+
   private async loadNeed(needId: string) {
     const payload = await requestJson<{ needProfile: ApiNeed }>(
       `/need-profiles/${encodeURIComponent(needId)}`,
@@ -306,16 +331,33 @@ export class RapidMatchService {
 }
 
 async function requestJson<T>(path: string, options: { method: "GET" | "POST"; body?: unknown }): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: options.method,
-    headers: options.body === undefined ? undefined : { "content-type": "application/json" },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body)
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: options.method,
+      headers: options.body === undefined ? undefined : { "content-type": "application/json" },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body)
+    });
+  } catch {
+    throw new Error(
+      "Cannot reach the Veltact API. Run `npm run dev` and open http://localhost:4000/."
+    );
+  }
   const payload = (await response.json()) as T & { message?: string };
   if (!response.ok) {
     throw new Error(payload.message ?? "Veltact API request failed.");
   }
   return payload;
+}
+
+function defaultApiBase() {
+  if (
+    ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+    window.location.port !== "4000"
+  ) {
+    return "http://localhost:4000/api";
+  }
+  return `${window.location.origin}/api`;
 }
 
 function mapNeedProfile(need: ApiNeed, input: BuyerRequirementInput): NeedProfile {

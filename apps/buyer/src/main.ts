@@ -11,7 +11,13 @@ const service = new RapidMatchService();
 const aiIntakeService = new BackendAiIntakeService();
 const app = document.querySelector<HTMLDivElement>("#app");
 const runtimeWindow = window as Window & { API_BASE_URL?: string };
-const realtimeOrigin = new URL(runtimeWindow.API_BASE_URL ?? "http://localhost:4000/api").origin;
+const localDemoMode = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const realtimeOrigin = new URL(
+  runtimeWindow.API_BASE_URL ??
+    (["localhost", "127.0.0.1"].includes(window.location.hostname) && window.location.port !== "4000"
+      ? "http://localhost:4000/api"
+      : `${window.location.origin}/api`)
+).origin;
 const rapidMatchSocketEvent = {
   joinNeedProfile: "rapidmatch:need.join",
   leaveNeedProfile: "rapidmatch:need.leave",
@@ -381,7 +387,7 @@ function renderMatches(data: BuyerWorkspace) {
           <h2>Invitation and response activity</h2>
           <p class="muted">Each supplier responds from their own secure opportunity link. Open one in another tab or copy it to a second device for the recorded demo.</p>
         </div>
-        ${outreachSent ? renderActivity(data) : renderEmpty("Ready to send", "Press Send to matched suppliers to reveal secure opportunity links.")}
+        ${renderActivity(data)}
       </div>
     </section>
     <section class="panel">
@@ -390,7 +396,7 @@ function renderMatches(data: BuyerWorkspace) {
         <h2>Compare standardised supplier responses</h2>
         <p class="muted">Pick the response that best matches the buyer priority. Unavailable suppliers stay visible so coverage is honest.</p>
       </div>
-      ${hasResponses ? renderResponseTable(data) : renderEmpty("No responses yet", outreachSent ? "Supplier invitations have been sent. Responses will appear here live." : "Send the secure opportunity links before collecting supplier responses.")}
+      ${hasResponses ? renderResponseTable(data) : renderEmpty("No responses yet", "Open a secure supplier link and submit a response. It will appear here live.")}
       <div class="actions">
         <button id="refresh-responses-button" class="secondary-action" type="button">Refresh supplier responses</button>
         <button id="select-button" class="primary" type="button" ${selectedResponseId ? "" : "disabled"}>Select Supplier</button>
@@ -569,6 +575,7 @@ function renderPayment(data: BuyerWorkspace) {
       </dl>
       <div class="actions">
         <button id="payment-status-button" class="primary" type="button">Check Pinch Payment Status</button>
+        ${localDemoMode ? '<button id="demo-payment-button" class="secondary-action" type="button">Complete demo payment</button>' : ""}
       </div>
     </section>
   `;
@@ -576,15 +583,21 @@ function renderPayment(data: BuyerWorkspace) {
 
 function renderSecured(data: BuyerWorkspace) {
   const selected = selectedSupplier(data);
+  const isDemoPayment = data.engagement?.pinchPaymentId?.startsWith("demo_");
   return `
     <section class="panel secured-panel">
       <p class="eyebrow">Step 9</p>
       <h2>Supplier secured</h2>
-      <p>${escapeHtml(selected?.supplier.companyName ?? "The supplier")} is secured after Veltact verified approved payment with Pinch.</p>
+      <p>${escapeHtml(selected?.supplier.companyName ?? "The supplier")} is secured after ${
+        isDemoPayment
+          ? "the local demo recorded a sandbox payment approval."
+          : "Veltact verified approved payment with Pinch."
+      }</p>
       <dl class="profile-list">
         ${detail("Need Profile", data.needProfile.status)}
         ${detail("Engagement", data.engagement?.status ?? "supplier_secured")}
         ${detail("Payment", data.engagement?.paymentStatus ?? "paid")}
+        ${detail("Verification", isDemoPayment ? "Local sandbox demo" : "Pinch approved payment")}
         ${detail("Secured at", data.engagement?.securedAt ? formatTime(data.engagement.securedAt) : "Pending")}
       </dl>
     </section>
@@ -792,6 +805,15 @@ function bindEvents() {
     await run(async () => {
       workspace = await service.refreshEngagement(currentWorkspace);
       stage = workspace.engagement?.status === "supplier_secured" ? "secured" : "payment";
+    });
+  });
+
+  document.querySelector<HTMLButtonElement>("#demo-payment-button")?.addEventListener("click", async () => {
+    const currentWorkspace = workspace;
+    if (!currentWorkspace) return;
+    await run(async () => {
+      workspace = await service.completeDemoPayment(currentWorkspace);
+      stage = "secured";
     });
   });
 }

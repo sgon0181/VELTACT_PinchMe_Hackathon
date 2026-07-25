@@ -15,6 +15,7 @@ import {
   submitSupplierResponse
 } from "./store.js";
 import {
+  emitEngagementSecured,
   emitOutreachDeliveryUpdated,
   emitPaymentStatusUpdated,
   emitSupplierInvitationUpdated,
@@ -330,6 +331,59 @@ marketplaceRouter.post("/engagements/:engagementId/payment-link", async (request
       message: "Unexpected payment integration error"
     });
   }
+});
+
+marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, response) => {
+  if (env.NODE_ENV === "production") {
+    response.status(404).json({
+      status: "error",
+      message: "Demo payment is unavailable in production"
+    });
+    return;
+  }
+
+  const engagement = getEngagement(request.params.engagementId);
+  if (!engagement) {
+    response.status(404).json({
+      status: "error",
+      message: "Engagement not found"
+    });
+    return;
+  }
+
+  if (engagement.paymentStatus !== "awaiting_payment" || !engagement.paymentLinkId) {
+    response.status(409).json({
+      status: "error",
+      message: "Create a payment link before completing the demo payment"
+    });
+    return;
+  }
+
+  const result = recordAuthoritativePinchPayment({
+    eventId: `demo-payment:${engagement.id}`,
+    eventType: "demo-sandbox-payment",
+    engagementId: engagement.id,
+    paymentId: `demo_${engagement.paymentLinkId}`,
+    payload: {
+      paymentLinkId: engagement.paymentLinkId,
+      status: "approved",
+      source: "local_demo"
+    }
+  });
+
+  if (!result.engagement) {
+    response.status(404).json({
+      status: "error",
+      message: "Engagement not found"
+    });
+    return;
+  }
+
+  if (!result.duplicate) {
+    emitPaymentStatusUpdated(result.engagement);
+    emitEngagementSecured(result.engagement);
+  }
+  response.json({ engagement: serialiseEngagement(result.engagement) });
 });
 
 marketplaceRouter.post("/supplier-invitations/:token/responses", (request, response) => {

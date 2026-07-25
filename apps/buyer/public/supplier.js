@@ -1,4 +1,8 @@
-const API_BASE = window.API_BASE_URL || "http://localhost:4000/api";
+const API_BASE =
+  window.API_BASE_URL ||
+  (["localhost", "127.0.0.1"].includes(window.location.hostname) && window.location.port !== "4000"
+    ? "http://localhost:4000/api"
+    : `${window.location.origin}/api`);
 
 const token = new URLSearchParams(window.location.search).get("token") || location.pathname.split("/").pop();
 const form = document.querySelector("#response-form");

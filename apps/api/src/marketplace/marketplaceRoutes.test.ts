@@ -398,6 +398,46 @@ describe("marketplace core routes", () => {
     const stillSecured = await getJson(`/api/engagements/${selected.body.engagement.id}`);
     assert.equal(stillSecured.body.engagement.securedAt, secured.body.engagement.securedAt);
   });
+
+  test("completes the local demo through the secured state without an external payment", async () => {
+    const created = await postJson("/api/needs", {
+      buyerEmail: "buyer@example.com",
+      profile: automationNeed()
+    });
+    const token = created.body.need.invitations[0].token;
+    const submitted = await postJson(`/api/supplier-invitations/${token}/responses`, {
+      canHelp: true,
+      earliestAvailability: "2026-07-28",
+      indicativePriceAud: 18500,
+      relevantExperience: "Completed urgent PLC and SCADA recovery for a packaging line.",
+      conditions: "Remote diagnostics required before site attendance."
+    });
+    const selected = await postJson(`/api/need-profiles/${created.body.need.id}/engagements`, {
+      supplierResponseId: submitted.body.response.id
+    });
+    const paymentLink = await postJson(
+      `/api/engagements/${selected.body.engagement.id}/payment-link`,
+      {}
+    );
+
+    assert.equal(paymentLink.status, 201);
+    const completed = await postJson(
+      `/api/engagements/${selected.body.engagement.id}/demo-payment`,
+      {}
+    );
+
+    assert.equal(completed.status, 200);
+    assert.doesNotThrow(() => engagementSchema.parse(completed.body.engagement));
+    assert.equal(completed.body.engagement.status, "supplier_secured");
+    assert.equal(completed.body.engagement.paymentStatus, "paid");
+    assert.match(completed.body.engagement.pinchPaymentId, /^demo_/);
+
+    const duplicate = await postJson(
+      `/api/engagements/${selected.body.engagement.id}/demo-payment`,
+      {}
+    );
+    assert.equal(duplicate.status, 409);
+  });
 });
 
 async function getJson(path: string) {
