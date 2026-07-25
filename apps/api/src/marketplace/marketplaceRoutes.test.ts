@@ -79,7 +79,7 @@ describe("marketplace core routes", () => {
           extractedText: "Fault repeats after restart. No budget confirmed yet."
         }
       ]
-    });
+    }, { "x-veltact-ai-intake-source": "local_demo" });
 
     assert.equal(structured.status, 200);
     assert.equal(structured.body.source, "local_demo");
@@ -87,6 +87,15 @@ describe("marketplace core routes", () => {
     assert.equal(structured.body.aiIntakeResult.generatedProfile.buyerPriority, "speed");
     assert.match(structured.body.aiIntakeResult.generatedProfile.location, /Western Sydney/);
     assert.ok(structured.body.aiIntakeResult.generatedProfile.requiredCapabilities.length > 0);
+  });
+
+  test("rejects low-signal AI intake before a paid model call", async () => {
+    const rejected = await postJson("/api/ai-intake/structure", {
+      rawRequirement: "asdf lol $$$$"
+    });
+
+    assert.equal(rejected.status, 400);
+    assert.equal(rejected.body.error, "low_signal_ai_intake_request");
   });
 
   test("creates and retrieves a need with deterministic explainable matches and invitation tokens", async () => {
@@ -448,11 +457,12 @@ async function getJson(path: string) {
   };
 }
 
-async function postJson(path: string, body: unknown) {
+async function postJson(path: string, body: unknown, headers: Record<string, string> = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     method: "POST",
     headers: {
-      "content-type": "application/json"
+      "content-type": "application/json",
+      ...headers
     },
     body: JSON.stringify(body)
   });

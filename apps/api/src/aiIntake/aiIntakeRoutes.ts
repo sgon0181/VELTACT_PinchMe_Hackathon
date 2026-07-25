@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../env.js";
+import { preflightAiIntake } from "./intakePreflight.js";
 import { structureRequirementLocally } from "./localAiIntakeAdapter.js";
 import { structureRequirementWithOpenAi } from "./openAiIntakeClient.js";
 
@@ -9,7 +10,7 @@ const evidenceSchema = z.object({
   name: z.string().trim().min(1),
   mimeType: z.string().trim().min(1).optional(),
   extractedText: z.string().trim().optional(),
-  dataUrl: z.string().trim().startsWith("data:").optional()
+  dataUrl: z.string().trim().startsWith("data:").max(5_600_000).optional()
 });
 
 const structureRequirementSchema = z.object({
@@ -41,8 +42,18 @@ aiIntakeRouter.post("/structure", async (request, response) => {
     return;
   }
 
+  const preflight = preflightAiIntake(parsed.data);
+  if (!preflight.allowed) {
+    response.status(400).json({
+      error: "low_signal_ai_intake_request",
+      message: preflight.reason
+    });
+    return;
+  }
+
   try {
-    const source = env.OPENAI_API_KEY && env.NODE_ENV !== "test" ? "openai" : "local_demo";
+    const forceLocalDemo = request.headers["x-veltact-ai-intake-source"] === "local_demo";
+    const source = env.OPENAI_API_KEY && env.NODE_ENV !== "test" && !forceLocalDemo ? "openai" : "local_demo";
     const aiIntakeResult =
       source === "openai"
         ? await structureRequirementWithOpenAi(parsed.data)

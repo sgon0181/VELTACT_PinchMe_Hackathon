@@ -1,0 +1,97 @@
+import type { StructureRequirementRequest } from "./localAiIntakeAdapter.js";
+
+export type IntakePreflightResult =
+  | { allowed: true; normalizedText: string }
+  | { allowed: false; reason: string };
+
+const industrialTerms = [
+  "automation",
+  "bearing",
+  "breakdown",
+  "callout",
+  "compressor",
+  "conveyor",
+  "downtime",
+  "electrical",
+  "equipment",
+  "factory",
+  "fault",
+  "hmi",
+  "hydraulic",
+  "industrial",
+  "line",
+  "machine",
+  "maintenance",
+  "manufacturing",
+  "motor",
+  "packaging",
+  "panel",
+  "plc",
+  "pneumatic",
+  "pump",
+  "robot",
+  "scada",
+  "sensor",
+  "siemens",
+  "site",
+  "supplier",
+  "technician"
+];
+
+export function preflightAiIntake(input: StructureRequirementRequest): IntakePreflightResult {
+  const normalizedText = [input.rawRequirement, ...(input.evidence ?? []).map((item) => item.extractedText ?? "")]
+    .join("\n")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalizedText) {
+    return {
+      allowed: false,
+      reason: "Enter a short factory problem statement before using AI structuring."
+    };
+  }
+
+  if (normalizedText.length < 24 || normalizedText.split(/\s+/).length < 5) {
+    return {
+      allowed: false,
+      reason: "Add a little more context, such as the equipment, fault, location, or timing."
+    };
+  }
+
+  if (isLowSignalText(normalizedText)) {
+    return {
+      allowed: false,
+      reason: "This does not look like a supplier requirement yet. Add the factory problem in plain language."
+    };
+  }
+
+  const lowerText = normalizedText.toLowerCase();
+  const hasIndustrialSignal = industrialTerms.some((term) => lowerText.includes(term));
+  if (!hasIndustrialSignal) {
+    return {
+      allowed: false,
+      reason: "This does not look like an industrial supplier request. Add the machine, process, fault, or site context."
+    };
+  }
+
+  return {
+    allowed: true,
+    normalizedText
+  };
+}
+
+function isLowSignalText(text: string) {
+  const alphanumeric = text.replace(/[^a-z0-9]/gi, "");
+  if (alphanumeric.length < 18) return true;
+
+  const uniqueCharacters = new Set(alphanumeric.toLowerCase()).size;
+  if (uniqueCharacters < 6) return true;
+
+  const repeatedCharacterRun = /(.)\1{8,}/.test(alphanumeric);
+  if (repeatedCharacterRun) return true;
+
+  const urlOnly = /^https?:\/\/\S+$/i.test(text);
+  if (urlOnly) return true;
+
+  return false;
+}
