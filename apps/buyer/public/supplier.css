@@ -173,6 +173,12 @@ button {
   font-weight: 800;
 }
 
+.secondary-button {
+  border: 1px solid #bfd0c9;
+  background: #eef5f2;
+  color: #244238;
+}
+
 button:disabled {
   background: #90a29b;
 }

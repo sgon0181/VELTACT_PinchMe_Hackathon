@@ -4,6 +4,15 @@ const token = new URLSearchParams(window.location.search).get("token") || locati
 const form = document.querySelector("#response-form");
 const statusEl = document.querySelector("#form-status");
 const receipt = document.querySelector("#submitted-receipt");
+const demoResponse = {
+  canHelp: "true",
+  earliestAvailability: new Date().toISOString().slice(0, 10),
+  indicativePriceAud: "1800",
+  relevantExperience:
+    "We have Siemens PLC and conveyor fault-response experience in food packaging sites, including urgent diagnostics, safe restart support and handover notes for maintenance teams.",
+  conditions:
+    "Remote fault photos or alarm screenshots requested before dispatch. Onsite support is subject to site induction and safe access to the control panel."
+};
 
 if (!token || token === "supplier.html") {
   setStatus("Missing invitation token.");
@@ -11,6 +20,7 @@ if (!token || token === "supplier.html") {
 } else {
   loadOpportunity(token);
   form.addEventListener("submit", (event) => submitResponse(event, token));
+  document.querySelector("#demo-fill-button").addEventListener("click", fillDemoResponse);
 }
 
 async function loadOpportunity(invitationToken) {
@@ -45,6 +55,18 @@ function renderOpportunity(need, invitation) {
       return chip;
     })
   );
+}
+
+function fillDemoResponse() {
+  const canHelpField = form.querySelector(`input[name="canHelp"][value="${demoResponse.canHelp}"]`);
+  if (canHelpField) {
+    canHelpField.checked = true;
+  }
+  setFormValue("earliestAvailability", demoResponse.earliestAvailability);
+  setFormValue("indicativePriceAud", demoResponse.indicativePriceAud);
+  setFormValue("relevantExperience", demoResponse.relevantExperience);
+  setFormValue("conditions", demoResponse.conditions);
+  setStatus("Demo response loaded.");
 }
 
 async function submitResponse(event, invitationToken) {
@@ -100,6 +122,13 @@ function text(selector, value) {
 
 function setStatus(message) {
   statusEl.textContent = message;
+}
+
+function setFormValue(name, value) {
+  const field = form.elements.namedItem(name);
+  if (field) {
+    field.value = value;
+  }
 }
 
 function formatMoney(amount) {
