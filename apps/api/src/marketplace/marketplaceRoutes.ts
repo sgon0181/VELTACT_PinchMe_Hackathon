@@ -22,12 +22,17 @@ export const marketplaceRouter = Router();
 const needProfileSchema = z.object({
   title: z.string().trim().min(1),
   description: z.string().trim().min(1),
+  problemSummary: z.string().trim().min(1).optional(),
   category: z.string().trim().min(1),
   industry: z.string().trim().min(1),
+  equipmentTechnology: z.array(z.string().trim().min(1)).optional(),
   location: z.string().trim().min(1),
   urgencyDays: z.coerce.number().int().positive().optional(),
   budgetAud: z.coerce.number().int().positive().optional(),
-  requiredCapabilities: z.array(z.string().trim().min(1)).optional()
+  constraints: z.array(z.string().trim().min(1)).optional(),
+  buyerPriority: z.enum(["speed", "technical_fit", "quality", "trust", "price"]).optional(),
+  requiredCapabilities: z.array(z.string().trim().min(1)).optional(),
+  requiredCapability: z.array(z.string().trim().min(1)).optional()
 });
 
 const createNeedSchema = z.object({
@@ -421,10 +426,10 @@ function serialiseNeedProfile(need: NonNullable<ReturnType<typeof getNeed>>) {
     companyName: inferCompanyName(need.buyerEmail),
     contactEmail: need.buyerEmail,
     title: need.profile.title,
-    description: need.profile.description,
+    description: need.profile.problemSummary ?? need.profile.description,
     category: need.profile.category,
     location: need.profile.location,
-    priority: need.profile.urgencyDays !== undefined && need.profile.urgencyDays <= 1 ? "urgent" : "soon",
+    priority: toContractPriority(need.profile.buyerPriority, need.profile.urgencyDays),
     requiredBy: need.profile.urgencyDays === undefined ? undefined : requiredByLabel(need.profile.urgencyDays),
     budget:
       need.profile.budgetAud === undefined
@@ -433,9 +438,16 @@ function serialiseNeedProfile(need: NonNullable<ReturnType<typeof getNeed>>) {
             amount: need.profile.budgetAud * 100,
             currency: "AUD"
           },
-    mustHaves: need.profile.requiredCapabilities ?? [],
+    mustHaves: [
+      ...(need.profile.requiredCapability ?? need.profile.requiredCapabilities ?? []),
+      ...(need.profile.equipmentTechnology ?? [])
+    ],
     niceToHaves: ["Comparable supplier response", "Clear availability and commercial conditions"],
-    constraints: [need.profile.industry, requiredByLabel(need.profile.urgencyDays)].filter(
+    constraints: [
+      need.profile.industry,
+      requiredByLabel(need.profile.urgencyDays),
+      ...(need.profile.constraints ?? [])
+    ].filter(
       (item): item is string => Boolean(item)
     ),
     status: need.status,
@@ -519,4 +531,17 @@ function requiredByLabel(days?: number) {
     return "Required today";
   }
   return `Required within ${days} days`;
+}
+
+function toContractPriority(
+  buyerPriority: NonNullable<NonNullable<ReturnType<typeof getNeed>>["profile"]["buyerPriority"]> | undefined,
+  urgencyDays?: number
+) {
+  if (buyerPriority === "speed" || (urgencyDays !== undefined && urgencyDays <= 1)) {
+    return "urgent";
+  }
+  if (buyerPriority === "price" || buyerPriority === "technical_fit") {
+    return "soon";
+  }
+  return "planned";
 }

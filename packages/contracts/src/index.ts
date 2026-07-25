@@ -38,6 +38,17 @@ export const supplierInvitationStatusSchema = z.enum([
 ]);
 export type SupplierInvitationStatus = z.infer<typeof supplierInvitationStatusSchema>;
 
+export const outreachChannelSchema = z.enum(["email", "sms"]);
+export type OutreachChannel = z.infer<typeof outreachChannelSchema>;
+
+export const outreachDeliveryStatusSchema = z.enum([
+  "not_sent",
+  "queued",
+  "sent",
+  "failed"
+]);
+export type OutreachDeliveryStatus = z.infer<typeof outreachDeliveryStatusSchema>;
+
 export const supplierResponseDecisionSchema = z.enum(["can_help", "cannot_help"]);
 export type SupplierResponseDecision = z.infer<typeof supplierResponseDecisionSchema>;
 
@@ -138,6 +149,17 @@ export const supplierInvitationSchema = z.object({
 });
 export type SupplierInvitation = z.infer<typeof supplierInvitationSchema>;
 
+export const supplierOutreachDeliverySchema = z.object({
+  invitationId: z.string().min(1),
+  supplierId: z.string().min(1),
+  channel: outreachChannelSchema,
+  destination: z.string().trim().min(1),
+  deliveryStatus: outreachDeliveryStatusSchema,
+  sentAt: isoDateTimeSchema.optional(),
+  errorMessage: z.string().trim().min(1).optional()
+});
+export type SupplierOutreachDelivery = z.infer<typeof supplierOutreachDeliverySchema>;
+
 export const supplierResponseSchema = z.object({
   id: z.string().min(1),
   needProfileId: z.string().min(1),
@@ -173,11 +195,35 @@ export const engagementSchema = z.object({
 });
 export type Engagement = z.infer<typeof engagementSchema>;
 
+export const aiIntakeProfileSchema = z.object({
+  title: z.string().trim().min(1),
+  problemSummary: z.string().trim().min(1),
+  category: z.string().trim().min(1),
+  equipmentOrTechnology: z.array(z.string().trim().min(1)).default([]),
+  requiredCapabilities: z.array(z.string().trim().min(1)).default([]),
+  location: z.string().trim().min(1).optional(),
+  urgency: z.string().trim().min(1).optional(),
+  budgetRange: z.string().trim().min(1).optional(),
+  certificationsOrConstraints: z.array(z.string().trim().min(1)).default([]),
+  buyerPriority: z.enum(["speed", "technical_fit", "quality", "trust", "price"]).optional()
+});
+export type AiIntakeProfile = z.infer<typeof aiIntakeProfileSchema>;
+
+export const aiIntakeResultSchema = z.object({
+  rawRequirement: z.string().trim().min(1),
+  generatedProfile: aiIntakeProfileSchema,
+  confidence: z.number().min(0).max(1).optional(),
+  missingFields: z.array(z.string().trim().min(1)).default([])
+});
+export type AiIntakeResult = z.infer<typeof aiIntakeResultSchema>;
+
 export const rapidMatchSocketEvent = {
   joinNeedProfile: "rapidmatch:need.join",
   leaveNeedProfile: "rapidmatch:need.leave",
   matchCreated: "rapidmatch:match.created",
   invitationSent: "rapidmatch:invitation.sent",
+  outreachDeliveryUpdated: "rapidmatch:outreach.delivery_updated",
+  aiIntakeStructured: "rapidmatch:ai_intake.structured",
   supplierResponseSubmitted: "rapidmatch:response.submitted",
   supplierSelected: "rapidmatch:supplier.selected",
   paymentStatusUpdated: "rapidmatch:payment.status_updated",

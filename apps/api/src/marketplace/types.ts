@@ -3,12 +3,17 @@ import type { Supplier } from "./suppliers.js";
 export type NeedProfile = {
   title: string;
   description: string;
+  problemSummary?: string;
   category: string;
   industry: string;
+  equipmentTechnology?: string[];
   location: string;
   urgencyDays?: number;
   budgetAud?: number;
+  constraints?: string[];
+  buyerPriority?: "speed" | "technical_fit" | "quality" | "trust" | "price";
   requiredCapabilities?: string[];
+  requiredCapability?: string[];
 };
 
 export type SupplierMatch = {

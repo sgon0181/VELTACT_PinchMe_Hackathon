@@ -28,3 +28,19 @@ Veltact does not pretend to diagnose industrial machinery. It converts messy ope
 
 The MVP does not include production supplier onboarding, admin tooling, refunds, disputes, automated phone outreach, or advanced AI ranking.
 
+## Polish Phase Direction
+
+The next polish phase may add real supplier outreach delivery and AI-assisted intake only as support for RapidMatch.
+
+- Email/SMS must send secure supplier opportunity links and report honest delivery status.
+- AI intake must structure messy factory context into a buyer-reviewed Need Profile.
+- Neither capability should become a standalone messaging platform, chatbot, analytics system or diagnostic product.
+
+Agent ownership:
+
+- A0: integration contracts, truthful claims and demo stability.
+- A1: Need Profile shape, supplier matching and explainable reasons.
+- A2: buyer intake, outreach and comparison UX.
+- A3: supplier response link, realtime response updates and invitation state.
+- A4: Pinch payer, hosted Payment Link and secured-state verification.
+- A5: visual polish, hierarchy, transitions and demo presentation quality.
