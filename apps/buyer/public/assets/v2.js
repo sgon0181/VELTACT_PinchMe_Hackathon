@@ -119,8 +119,8 @@ function renderIntake() {
         </div>
       </div>
       <div class="template-row">
-        <button class="button secondary small" data-action="fill-template" data-template="plc" type="button">Urgent PLC recovery</button>
-        <button class="button secondary small" data-action="fill-template" data-template="robotics" type="button">Planned robotic integration</button>
+        <button class="button secondary small" data-action="fill-template" data-template="plc" type="button">Demo: PLC</button>
+        <button class="button secondary small" data-action="fill-template" data-template="robotics" type="button">Demo: Robotic integration</button>
         <button class="button tertiary small ${busyAction === "ai-intake" ? "is-loading" : ""}" data-action="structure-intake" type="button" ${busyAction ? "disabled" : ""}>Structure with AI</button>
       </div>
       <div class="intake-layout">

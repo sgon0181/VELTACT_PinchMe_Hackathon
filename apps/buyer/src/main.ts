@@ -247,8 +247,8 @@ function renderSubmit() {
           <strong>Load a complete factory incident</strong>
         </div>
         <div class="demo-data-actions">
-          <button id="robotics-demo-button" class="demo-data-button" type="button">Robotic palletiser emergency</button>
-          <button id="plc-demo-button" class="demo-data-button" type="button">Classic PLC fault</button>
+          <button id="robotics-demo-button" class="demo-data-button" type="button">Demo: Robotic integration</button>
+          <button id="plc-demo-button" class="demo-data-button" type="button">Demo: PLC</button>
         </div>
       </section>
       <section class="ai-intake-panel">
