@@ -206,6 +206,20 @@ describe("marketplace core routes", () => {
     }
   });
 
+  test("resets in-memory marketplace demo state deterministically", async () => {
+    const created = await postJson("/api/needs", {
+      buyerEmail: "buyer@example.com",
+      profile: automationNeed()
+    });
+
+    const reset = await postJson("/api/demo/reset", {});
+    const afterReset = await getJson(`/api/needs/${created.body.need.id}`);
+
+    assert.equal(reset.status, 200);
+    assert.equal(reset.body.reset, true);
+    assert.equal(afterReset.status, 404);
+  });
+
   test("accepts supplier responses through invitation token and exposes standardised buyer responses", async () => {
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",
@@ -571,7 +585,7 @@ function structuredSiemensNeed() {
       "Packaging line stopped after intermittent Siemens PLC faults. Buyer needs safe production restored today.",
     category: "industrial automation",
     industry: "food packaging manufacturing",
-    equipmentTechnology: ["Siemens S7 PLC", "Packaging conveyor"],
+    equipmentOrTechnology: ["Siemens S7 PLC", "Packaging conveyor"],
     location: "Western Sydney NSW",
     urgencyDays: 1,
     budgetAud: 20000,

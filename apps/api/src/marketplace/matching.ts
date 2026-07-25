@@ -24,14 +24,14 @@ function scoreSupplier(need: NeedProfile, supplier: Supplier, timestamp: string)
       need.category,
       need.industry,
       need.location,
-      ...(need.equipmentTechnology ?? []),
+      ...equipmentOrTechnologyValues(need),
       ...(need.constraints ?? []),
       ...requiredCapabilityValues(need)
     ].join(" ")
   );
 
   const requiredCapabilities = requiredCapabilityValues(need);
-  const equipmentTechnology = need.equipmentTechnology ?? [];
+  const equipmentTechnology = equipmentOrTechnologyValues(need);
   const capabilityMatches = supplier.capabilities.filter((capability) =>
     isCapabilityMatch(capability, requiredCapabilities, terms)
   );
@@ -233,6 +233,10 @@ function isCapabilityMatch(capability: string, requiredCapabilities: string[], t
 
 function requiredCapabilityValues(need: NeedProfile) {
   return need.requiredCapability ?? need.requiredCapabilities ?? [];
+}
+
+function equipmentOrTechnologyValues(need: NeedProfile) {
+  return need.equipmentOrTechnology ?? need.equipmentTechnology ?? [];
 }
 
 function isStructuredPhraseMatch(phrase: string, structuredValues: string[], terms: Set<string>) {

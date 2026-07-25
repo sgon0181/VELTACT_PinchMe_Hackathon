@@ -6,6 +6,7 @@ export type NeedProfile = {
   problemSummary?: string;
   category: string;
   industry: string;
+  equipmentOrTechnology?: string[];
   equipmentTechnology?: string[];
   location: string;
   urgencyDays?: number;

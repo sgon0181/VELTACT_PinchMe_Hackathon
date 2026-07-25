@@ -33,6 +33,7 @@ const needProfileSchema = z.object({
   problemSummary: z.string().trim().min(1).optional(),
   category: z.string().trim().min(1),
   industry: z.string().trim().min(1),
+  equipmentOrTechnology: z.array(z.string().trim().min(1)).optional(),
   equipmentTechnology: z.array(z.string().trim().min(1)).optional(),
   location: z.string().trim().min(1),
   urgencyDays: z.coerce.number().int().positive().optional(),
@@ -535,7 +536,7 @@ function serialiseNeedProfile(need: NonNullable<ReturnType<typeof getNeed>>) {
           },
     mustHaves: [
       ...(need.profile.requiredCapability ?? need.profile.requiredCapabilities ?? []),
-      ...(need.profile.equipmentTechnology ?? [])
+      ...equipmentOrTechnologyValues(need.profile)
     ],
     niceToHaves: ["Comparable supplier response", "Clear availability and commercial conditions"],
     constraints: [
@@ -639,4 +640,8 @@ function toContractPriority(
     return "soon";
   }
   return "planned";
+}
+
+function equipmentOrTechnologyValues(profile: NonNullable<ReturnType<typeof getNeed>>["profile"]) {
+  return profile.equipmentOrTechnology ?? profile.equipmentTechnology ?? [];
 }
