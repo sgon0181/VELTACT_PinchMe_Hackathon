@@ -10,6 +10,7 @@ import { env } from "../env.js";
 import { v2Service } from "../v2/service.js";
 import { veltactV2SocketEvent } from "@veltact/contracts";
 import { emitV2Update } from "../realtime.js";
+import { extractApprovedPinchPaymentEvent } from "./authoritativePaymentEvent.js";
 
 export const pinchRouter = Router();
 
@@ -120,13 +121,14 @@ pinchRouter.post("/webhooks", async (request, response) => {
     });
 
     const event = recordWebhookEvent(request.body);
+    const rapidMatchPayment = extractApprovedPinchPaymentEvent(request.body);
     const paymentEvent = extractSuccessfulPaymentEvent(request.body);
-    if (paymentEvent?.engagementId) {
+    if (rapidMatchPayment) {
       const result = recordAuthoritativePinchPayment({
-        eventId: paymentEvent.eventId,
-        eventType: paymentEvent.eventType,
-        engagementId: paymentEvent.engagementId,
-        paymentId: paymentEvent.paymentId,
+        eventId: rapidMatchPayment.eventId,
+        eventType: rapidMatchPayment.eventType,
+        engagementId: rapidMatchPayment.engagementId,
+        paymentId: rapidMatchPayment.paymentId,
         payload: request.body
       });
 
@@ -305,7 +307,7 @@ function isAuthoritativeSuccessfulPayment(eventType: string, payment: Record<str
     getNestedString(payment, ["status"]) ??
     ""
   ).toLowerCase();
-  return ["approved", "succeeded", "successful", "paid"].includes(status);
+  return status === "approved";
 }
 
 function parseMetadata(value: unknown): Record<string, unknown> {
