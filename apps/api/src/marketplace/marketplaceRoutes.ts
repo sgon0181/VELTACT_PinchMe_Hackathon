@@ -1,21 +1,37 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { marketplaceNeedProfileSchema } from "@veltact/contracts";
 import {
+  marketplaceNeedProfileSchema,
+  rapidMatchBuyerWorkspaceSchema,
+  solutionDecisionTypeSchema
+} from "@veltact/contracts";
+import {
+  approveSupplierOutreachForNeed,
   attachPaymentLinkToEngagement,
+  claimSupplierInvitation,
   consumeIssuedBuyerAccessToken,
   createEngagement,
   createNeed,
+  createSolutionDecision,
+  discoverNeedSuppliers,
   getEngagement,
+  getEngagementForNeed,
   getNeed,
+  getProviderWarningsForNeed,
+  getResearchResultForNeed,
   getResponseForInvitation,
+  getSolutionDecisionForNeed,
   isBuyerAuthorised,
   listOutreachDeliveriesForNeed,
   listResponsesForNeed,
+  listSupplierLeadsForNeed,
   markInvitationViewed,
+  prepareSupplierLeadInvitationsForNeed,
   recordAuthoritativePinchPayment,
+  researchNeed,
   resetMarketplaceStore,
+  seedMarketplaceDemoFindState,
   sendSupplierOutreachForNeed,
   submitSupplierResponse
 } from "./store.js";
@@ -39,15 +55,71 @@ const createNeedSchema = z.object({
 });
 
 const supplierResponseSchema = z.object({
-  canHelp: z.boolean(),
+  canHelp: z.boolean().optional(),
+  decision: z.enum(["can_help", "cannot_help"]).optional(),
   earliestAvailability: z.string().trim().min(1),
   indicativePriceAud: z.coerce.number().int().nonnegative(),
   relevantExperience: z.string().trim().min(1),
-  conditions: z.string().trim().min(1)
+  proposedApproach: z.string().trim().min(1).optional(),
+  assumptions: z.array(z.string().trim().min(1)).default([]),
+  conditions: z
+    .union([
+      z.string().trim().min(1),
+      z.array(z.string().trim().min(1))
+    ])
+    .optional()
+    .transform((value) =>
+      value === undefined ? [] : Array.isArray(value) ? value : [value]
+    )
+})
+  .superRefine((value, context) => {
+    if (value.canHelp === undefined && value.decision === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["canHelp"],
+        message: "canHelp or decision is required"
+      });
+    }
+    if (
+      value.canHelp !== undefined &&
+      value.decision !== undefined &&
+      value.canHelp !== (value.decision === "can_help")
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["decision"],
+        message: "decision must agree with canHelp"
+      });
+    }
+  })
+  .transform((value) => ({
+    ...value,
+    canHelp: value.canHelp ?? (value.decision === "can_help")
+  }));
+
+const supplierClaimSchema = z.object({
+  claimantName: z.string().trim().min(1).optional(),
+  claimantEmail: z.string().trim().email().optional()
+});
+
+const solutionDecisionSchema = z.object({
+  decision: solutionDecisionTypeSchema,
+  selectedApproachIds: z.array(z.string().trim().min(1)).min(1),
+  buyerNote: z.string().trim().min(1).optional()
+});
+
+const demoResetSchema = z.object({
+  scenario: z
+    .enum(["plc", "robotics", "robotic-integration"])
+    .default("robotics")
 });
 
 const createEngagementSchema = z.object({
   supplierResponseId: z.string().trim().min(1)
+});
+
+const sendInvitationsSchema = z.object({
+  supplierLeadIds: z.array(z.string().trim().min(1)).min(1).optional()
 });
 
 marketplaceRouter.post("/needs", (request, response) => {
@@ -133,6 +205,168 @@ marketplaceRouter.post("/need-profiles", (request, response) => {
   });
 });
 
+marketplaceRouter.post(
+  "/need-profiles/:needProfileId/research",
+  async (request, response) => {
+    const need = getNeed(request.params.needProfileId);
+    if (!need) {
+      response.status(404).json({
+        status: "error",
+        message: "Need profile not found"
+      });
+      return;
+    }
+    if (!requireBuyerAccess(request, response, need.id)) return;
+
+    try {
+      const result = await researchNeed(need.id);
+      if (!result) {
+        response.status(404).json({
+          status: "error",
+          message: "Need profile not found"
+        });
+        return;
+      }
+      response.json({
+        researchResult: result.researchResult,
+        providerWarning: result.providerWarning,
+        workspace: serialiseBuyerWorkspace(need)
+      });
+    } catch (error) {
+      response.status(502).json({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Solution research provider failed"
+      });
+    }
+  }
+);
+
+marketplaceRouter.post(
+  "/need-profiles/:needProfileId/solution-decision",
+  (request, response) => {
+    const need = getNeed(request.params.needProfileId);
+    if (!need) {
+      response.status(404).json({
+        status: "error",
+        message: "Need profile not found"
+      });
+      return;
+    }
+    if (!requireBuyerAccess(request, response, need.id)) return;
+
+    const parsed = solutionDecisionSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({
+        status: "error",
+        message: "Invalid solution decision",
+        issues: parsed.error.flatten().fieldErrors
+      });
+      return;
+    }
+
+    const result = createSolutionDecision(need.id, parsed.data);
+    if (result.status === "research_required") {
+      response.status(409).json({
+        status: "error",
+        message: "Research must be completed before a solution decision"
+      });
+      return;
+    }
+    if (result.status === "invalid_approaches") {
+      response.status(400).json({
+        status: "error",
+        message: "Select approaches from the current research result"
+      });
+      return;
+    }
+    if (result.status === "discovery_started") {
+      response.status(409).json({
+        status: "error",
+        message: "The solution decision cannot change after supplier discovery"
+      });
+      return;
+    }
+    if (result.status === "not_found") {
+      response.status(404).json({
+        status: "error",
+        message: "Need profile not found"
+      });
+      return;
+    }
+
+    response.json({
+      solutionDecision: result.solutionDecision,
+      workspace: serialiseBuyerWorkspace(need)
+    });
+  }
+);
+
+marketplaceRouter.post(
+  "/need-profiles/:needProfileId/suppliers/discover",
+  async (request, response) => {
+    const need = getNeed(request.params.needProfileId);
+    if (!need) {
+      response.status(404).json({
+        status: "error",
+        message: "Need profile not found"
+      });
+      return;
+    }
+    if (!requireBuyerAccess(request, response, need.id)) return;
+
+    try {
+      const result = await discoverNeedSuppliers(need.id);
+      if (result.status === "research_required") {
+        response.status(409).json({
+          status: "error",
+          message: "Research must be completed before supplier discovery"
+        });
+        return;
+      }
+      if (result.status === "decision_required") {
+        response.status(409).json({
+          status: "error",
+          message: "Approve a solution decision before supplier discovery"
+        });
+        return;
+      }
+      if (result.status === "external_path_required") {
+        response.status(409).json({
+          status: "error",
+          message:
+            "Supplier discovery requires an outsource or hybrid solution decision"
+        });
+        return;
+      }
+      if (result.status === "not_found") {
+        response.status(404).json({
+          status: "error",
+          message: "Need profile not found"
+        });
+        return;
+      }
+
+      response.json({
+        supplierLeads: result.supplierLeads,
+        discoveredSuppliers: result.supplierLeads,
+        providerWarning: result.providerWarning,
+        workspace: serialiseBuyerWorkspace(need)
+      });
+    } catch (error) {
+      response.status(502).json({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Supplier discovery provider failed"
+      });
+    }
+  }
+);
+
 marketplaceRouter.get("/need-profiles/:needProfileId", (request, response) => {
   const need = getNeed(request.params.needProfileId);
   if (!need) {
@@ -144,9 +378,27 @@ marketplaceRouter.get("/need-profiles/:needProfileId", (request, response) => {
   }
   if (!requireBuyerAccess(request, response, need.id)) return;
 
+  const legacyNeed = serialiseNeed(need);
+  const workspace = serialiseBuyerWorkspace(need);
   response.json({
-    needProfile: serialiseNeed(need),
-    need: serialiseNeed(need)
+    needProfile: legacyNeed,
+    need: legacyNeed,
+    workspace,
+    phase: workspace.phase,
+    status: workspace.status,
+    nextAction: workspace.nextAction,
+    intakeEvidence: workspace.intakeEvidence,
+    researchResult: workspace.researchResult,
+    solutionDecision: workspace.solutionDecision,
+    discoveredSuppliers: workspace.discoveredSuppliers,
+    suppliers: workspace.suppliers,
+    matches: workspace.matches,
+    invitations: workspace.invitations,
+    outreachDeliveries: workspace.outreachDeliveries,
+    responses: workspace.responses,
+    engagement: workspace.engagement,
+    deployment: workspace.deployment,
+    providerWarnings: getProviderWarningsForNeed(need.id)
   });
 });
 
@@ -178,6 +430,49 @@ marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", async (
   }
   if (!requireBuyerAccess(request, response, need.id)) return;
 
+  const solutionDecision = getSolutionDecisionForNeed(need.id);
+  if (solutionDecision?.decision === "local_trial") {
+    response.status(409).json({
+      status: "error",
+      message: "Outreach requires an outsource or hybrid solution decision"
+    });
+    return;
+  }
+  const parsed = sendInvitationsSchema.safeParse(request.body ?? {});
+  if (!parsed.success) {
+    response.status(400).json({
+      status: "error",
+      message: "Invalid supplier outreach approval",
+      issues: parsed.error.flatten().fieldErrors
+    });
+    return;
+  }
+  const prepared = prepareSupplierLeadInvitationsForNeed(
+    need.id,
+    parsed.data.supplierLeadIds
+  );
+  if (prepared.status === "invalid_leads") {
+    response.status(400).json({
+      status: "error",
+      message: "One or more supplier leads were not found for this need"
+    });
+    return;
+  }
+  if (prepared.status === "invalid_lifecycle") {
+    response.status(409).json({
+      status: "error",
+      message: "One or more supplier leads cannot be invited from their current state"
+    });
+    return;
+  }
+  if (prepared.status === "not_found") {
+    response.status(404).json({
+      status: "error",
+      message: "Need profile not found"
+    });
+    return;
+  }
+  approveSupplierOutreachForNeed(need.id);
   const updatedDeliveries = await sendSupplierOutreachForNeed(
     request.params.needProfileId,
     (delivery) => {
@@ -185,7 +480,10 @@ marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", async (
         request.params.needProfileId,
         serialiseOutreachDelivery(delivery)
       );
-    }
+    },
+    prepared.supplierLeadIds.length > 0
+      ? new Set(prepared.supplierLeadIds)
+      : undefined
   );
   if (!updatedDeliveries) {
     response.status(404).json({
@@ -195,11 +493,23 @@ marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", async (
     return;
   }
 
-  const deliveries = listOutreachDeliveriesForNeed(request.params.needProfileId) ?? [];
+  const responseInvitations =
+    prepared.invitations.length > 0
+      ? prepared.invitations
+      : need.invitations;
+  const responseInvitationIds = new Set(
+    responseInvitations.map((invitation) => invitation.id)
+  );
+  const deliveries = (
+    listOutreachDeliveriesForNeed(request.params.needProfileId) ?? []
+  ).filter((delivery) => responseInvitationIds.has(delivery.invitationId));
   response.json({
-    supplierInvitations: need.invitations.map(serialiseSupplierInvitation),
-    invitations: need.invitations.map(serialiseLegacyInvitation),
-    supplierOutreachDeliveries: deliveries.map(serialiseOutreachDelivery)
+    supplierInvitations: responseInvitations.map(
+      serialiseSupplierInvitation
+    ),
+    invitations: responseInvitations.map(serialiseLegacyInvitation),
+    supplierOutreachDeliveries: deliveries.map(serialiseOutreachDelivery),
+    workspace: serialiseBuyerWorkspace(need)
   });
 });
 
@@ -413,6 +723,56 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
   response.json({ engagement: serialiseEngagement(result.engagement) });
 });
 
+marketplaceRouter.post("/supplier-invitations/:token/claim", (request, response) => {
+  const parsed = supplierClaimSchema.safeParse(request.body ?? {});
+  if (!parsed.success) {
+    response.status(400).json({
+      status: "error",
+      message: "Invalid supplier claim",
+      issues: parsed.error.flatten().fieldErrors
+    });
+    return;
+  }
+
+  const result = claimSupplierInvitation(
+    request.params.token,
+    parsed.data
+  );
+  if (result.status === "not_found") {
+    response.status(404).json({
+      status: "error",
+      message: "Supplier invitation not found"
+    });
+    return;
+  }
+  if (result.status === "expired") {
+    response.status(410).json({
+      status: "error",
+      message: "Supplier invitation has expired"
+    });
+    return;
+  }
+  if (result.status === "outreach_required") {
+    response.status(409).json({
+      status: "error",
+      message: "Buyer-approved outreach is required before supplier claim"
+    });
+    return;
+  }
+  if (result.status === "closed") {
+    response.status(409).json({
+      status: "error",
+      message: "Supplier responses are closed for this need"
+    });
+    return;
+  }
+
+  response.json({
+    supplierClaim: result.supplierClaim,
+    claim: result.supplierClaim
+  });
+});
+
 marketplaceRouter.post("/supplier-invitations/:token/responses", (request, response) => {
   const parsed = supplierResponseSchema.safeParse(request.body);
   if (!parsed.success) {
@@ -436,6 +796,13 @@ marketplaceRouter.post("/supplier-invitations/:token/responses", (request, respo
     response.status(410).json({
       status: "error",
       message: "Supplier invitation has expired"
+    });
+    return;
+  }
+  if (result.status === "not_claimed") {
+    response.status(409).json({
+      status: "error",
+      message: "Claim this supplier invitation before submitting a response"
     });
     return;
   }
@@ -474,7 +841,7 @@ marketplaceRouter.get("/needs/:needId/responses", (request, response) => {
   });
 });
 
-marketplaceRouter.post("/demo/reset", (_request, response) => {
+marketplaceRouter.post("/demo/reset", (request, response) => {
   if (env.NODE_ENV === "production") {
     response.status(404).json({
       status: "error",
@@ -483,9 +850,69 @@ marketplaceRouter.post("/demo/reset", (_request, response) => {
     return;
   }
 
+  const parsed = demoResetSchema.safeParse(request.body ?? {});
+  if (!parsed.success) {
+    response.status(400).json({
+      status: "error",
+      message: "Invalid demo reset scenario",
+      issues: parsed.error.flatten().fieldErrors
+    });
+    return;
+  }
+
+  const scenario = parsed.data.scenario === "plc" ? "plc" : "robotics";
   resetMarketplaceStore({ preserveAudit: true });
+  const createdNeed = createNeed({
+    buyerEmail:
+      scenario === "robotics"
+        ? "projects@demo-packaging.example"
+        : "maintenance@demo-packaging.example",
+    profile: demoNeedProfile(scenario)
+  });
+  const buyerAccessToken = consumeIssuedBuyerAccessToken(createdNeed.id);
+  const seeded = seedMarketplaceDemoFindState(createdNeed.id);
+  const prepared = prepareSupplierLeadInvitationsForNeed(createdNeed.id);
+  approveSupplierOutreachForNeed(createdNeed.id);
+  const workspace = serialiseBuyerWorkspace(createdNeed);
+  const supplierPaths =
+    prepared.status === "prepared"
+      ? prepared.invitations.slice(0, 2).map((invitation) => ({
+          invitationId: invitation.id,
+          supplierId: invitation.supplierId,
+          supplierName: invitation.supplierName,
+          token: invitation.token,
+          responseUrl: invitation.responseUrl,
+          sourceMode: "fixture" as const,
+          deliveryStatus: "not_sent" as const
+        }))
+      : [];
+
+  if (
+    !seeded ||
+    prepared.status !== "prepared" ||
+    !buyerAccessToken ||
+    supplierPaths.length < 2
+  ) {
+    response.status(500).json({
+      status: "error",
+      message: "Canonical demo workspace could not be created"
+    });
+    return;
+  }
+
   response.json({
-    reset: true
+    reset: true,
+    scenario,
+    sourceMode: "fixture",
+    needProfileId: createdNeed.id,
+    buyerAccessToken,
+    buyerUrl: new URL(
+      `/index.html?needId=${encodeURIComponent(createdNeed.id)}&accessToken=${encodeURIComponent(buyerAccessToken)}`,
+      env.PUBLIC_BASE_URL
+    ).toString(),
+    workspace,
+    supplierPaths,
+    supplierInvitationPaths: supplierPaths
   });
 });
 
@@ -555,6 +982,164 @@ function serialiseNeed(need: NonNullable<ReturnType<typeof getNeed>>) {
       updatedAt: match.updatedAt
     })),
     invitations: need.invitations.map(serialiseLegacyInvitation)
+  };
+}
+
+function serialiseBuyerWorkspace(
+  need: NonNullable<ReturnType<typeof getNeed>>
+) {
+  const responses = listResponsesForNeed(need.id) ?? [];
+  const engagement = getEngagementForNeed(need.id);
+  const journey = determineJourneyProjection(need, responses, engagement);
+  const discoveredSuppliers = listSupplierLeadsForNeed(need.id);
+  const discoveredSupplierIds = new Set(
+    discoveredSuppliers.map((lead) => lead.id)
+  );
+  const canonicalInvitations =
+    discoveredSupplierIds.size > 0
+      ? need.invitations.filter((invitation) =>
+          discoveredSupplierIds.has(invitation.supplierId)
+        )
+      : need.invitations;
+  const canonicalInvitationIds = new Set(
+    canonicalInvitations.map((invitation) => invitation.id)
+  );
+
+  return rapidMatchBuyerWorkspaceSchema.parse({
+    ...journey,
+    needProfile: serialiseNeedProfile(need),
+    intakeEvidence: [],
+    researchResult: getResearchResultForNeed(need.id),
+    solutionDecision: getSolutionDecisionForNeed(need.id),
+    discoveredSuppliers,
+    suppliers: need.matches.map((match) => ({
+      id: match.supplier.id,
+      companyName: match.supplier.companyName,
+      contactName: match.supplier.contactName,
+      contactEmail: match.supplier.contactEmail,
+      categories: match.supplier.categories,
+      serviceRegions: match.supplier.serviceRegions,
+      capabilities: match.supplier.capabilities,
+      verified: match.supplier.verified,
+      createdAt: match.supplier.createdAt,
+      updatedAt: match.supplier.updatedAt
+    })),
+    matches: need.matches.map((match) => ({
+      id: `${need.id}-${match.id}`,
+      needProfileId: need.id,
+      supplierId: match.supplier.id,
+      score: match.score,
+      reasons: match.explanation,
+      risks: match.risks,
+      status: match.status,
+      createdAt: match.createdAt,
+      updatedAt: match.updatedAt
+    })),
+    invitations: canonicalInvitations.map(serialiseSupplierInvitation),
+    outreachDeliveries:
+      listOutreachDeliveriesForNeed(need.id)
+        ?.filter((delivery) =>
+          canonicalInvitationIds.has(delivery.invitationId)
+        )
+        .map(serialiseOutreachDelivery) ?? [],
+    responses: responses.map(serialiseSupplierResponse),
+    engagement: engagement ? serialiseEngagement(engagement) : undefined,
+    deployment: undefined
+  });
+}
+
+function determineJourneyProjection(
+  need: NonNullable<ReturnType<typeof getNeed>>,
+  responses: SupplierResponse[],
+  engagement: NonNullable<ReturnType<typeof getEngagementForNeed>> | undefined
+) {
+  if (engagement) {
+    if (engagement.status === "supplier_secured") {
+      return {
+        phase: "deploy" as const,
+        status: "supplier_secured" as const,
+        nextAction: "track_delivery" as const
+      };
+    }
+    if (engagement.paymentStatus === "awaiting_payment") {
+      return {
+        phase: "deploy" as const,
+        status: "commitment_pending" as const,
+        nextAction: "await_payment_confirmation" as const
+      };
+    }
+    return {
+      phase: "deploy" as const,
+      status: "commitment_pending" as const,
+      nextAction: "open_pinch_checkout" as const
+    };
+  }
+
+  if (responses.length >= 2) {
+    return {
+      phase: "connect" as const,
+      status: "supplier_selection" as const,
+      nextAction: "compare_responses" as const
+    };
+  }
+  if (responses.length === 1) {
+    return {
+      phase: "connect" as const,
+      status: "supplier_responses" as const,
+      nextAction: "await_responses" as const
+    };
+  }
+
+  const decision = getSolutionDecisionForNeed(need.id);
+  if (decision?.decision === "local_trial") {
+    return {
+      phase: "find" as const,
+      status: "internal_plan_ready" as const,
+      nextAction: "use_plan_internally" as const
+    };
+  }
+  if (decision) {
+    if (listSupplierLeadsForNeed(need.id).length === 0) {
+      return {
+        phase: "connect" as const,
+        status: "supplier_matching" as const,
+        nextAction: "find_specialist" as const
+      };
+    }
+    if (!need.outreachApprovedAt) {
+      return {
+        phase: "connect" as const,
+        status: "supplier_matching" as const,
+        nextAction: "approve_outreach" as const
+      };
+    }
+    const hasSentDelivery =
+      listOutreachDeliveriesForNeed(need.id)?.some(
+        (delivery) => delivery.deliveryStatus === "sent"
+      ) ?? false;
+    return hasSentDelivery
+      ? {
+          phase: "connect" as const,
+          status: "supplier_outreach" as const,
+          nextAction: "await_responses" as const
+        }
+      : {
+          phase: "connect" as const,
+          status: "supplier_outreach" as const,
+          nextAction: "send_invitations" as const
+        };
+  }
+  if (getResearchResultForNeed(need.id)) {
+    return {
+      phase: "find" as const,
+      status: "solution_review" as const,
+      nextAction: "find_specialist" as const
+    };
+  }
+  return {
+    phase: "find" as const,
+    status: "need_profile_review" as const,
+    nextAction: "confirm_need_profile" as const
   };
 }
 
@@ -633,12 +1218,11 @@ function serialiseSupplierInvitation(invitation: NonNullable<ReturnType<typeof m
 }
 
 function serialiseLegacyInvitation(invitation: NonNullable<ReturnType<typeof markInvitationViewed>>) {
-  const legacyStatus =
-    invitation.status === "sent" || invitation.status === "pending"
-      ? "invited"
-      : invitation.status === "opened"
-        ? "viewed"
-        : "responded";
+  const legacyStatus = ["sent", "pending"].includes(invitation.status)
+    ? "invited"
+    : invitation.status === "opened"
+      ? "viewed"
+      : invitation.status;
 
   return {
     ...serialiseSupplierInvitation(invitation),
@@ -660,6 +1244,8 @@ function serialiseSupplierResponse(supplierResponse: SupplierResponse) {
     availability: supplierResponse.availability,
     indicativePrice: supplierResponse.indicativePrice,
     relevantExperience: supplierResponse.relevantExperience,
+    proposedApproach: supplierResponse.proposedApproach,
+    assumptions: supplierResponse.assumptions,
     conditions: supplierResponse.conditions,
     message: supplierResponse.canHelp
       ? `${supplierResponse.supplierName} has confirmed availability and commercial intent.`
@@ -708,4 +1294,70 @@ function toContractPriority(
 
 function equipmentOrTechnologyValues(profile: NonNullable<ReturnType<typeof getNeed>>["profile"]) {
   return profile.equipmentOrTechnology ?? profile.equipmentTechnology ?? [];
+}
+
+function demoNeedProfile(scenario: "plc" | "robotics") {
+  if (scenario === "robotics") {
+    return {
+      title: "Mixed-carton robotic palletising cell",
+      description:
+        "Plan a robotic palletising cell for mixed cartons from the existing packaging conveyor without disrupting adjacent production.",
+      problemSummary:
+        "The factory needs a safe, evidence-backed path to automate mixed-carton palletising and select an integrator for feasibility, proof of process and commissioning.",
+      category: "Robotics integration",
+      industry: "Food and beverage manufacturing",
+      equipmentOrTechnology: [
+        "Industrial robot",
+        "Machine vision",
+        "End-of-arm tooling",
+        "Packaging conveyor"
+      ],
+      location: "Western Sydney, NSW",
+      urgencyDays: 60,
+      budgetAud: 120000,
+      constraints: [
+        "Maintain access to the adjacent packaging line",
+        "Provide operator and maintenance training",
+        "Validate machinery safety before commissioning"
+      ],
+      buyerPriority: "technical_fit" as const,
+      requiredCapabilities: [
+        "Robotic systems integration",
+        "Machinery safety",
+        "Proof-of-process testing",
+        "Commissioning and training"
+      ]
+    };
+  }
+
+  return {
+    title: "Recover a stopped Siemens PLC packaging line",
+    description:
+      "The packaging line stopped after an intermittent Siemens PLC communication fault and requires evidence-led triage, controlled recovery and validation.",
+    problemSummary:
+      "Production is stopped in Western Sydney. The factory needs safe recovery today without bypassing safeguards or losing diagnostic evidence.",
+    category: "Industrial automation breakdown",
+    industry: "Food and beverage manufacturing",
+    equipmentOrTechnology: [
+      "Siemens S7 PLC",
+      "Industrial Ethernet",
+      "Variable speed drives",
+      "Packaging conveyor"
+    ],
+    location: "Western Sydney, NSW",
+    urgencyDays: 1,
+    budgetAud: 20000,
+    constraints: [
+      "No safeguard bypass",
+      "All changes require site authorisation",
+      "Validated backup and handover required"
+    ],
+    buyerPriority: "speed" as const,
+    requiredCapabilities: [
+      "Siemens PLC diagnostics",
+      "Industrial networking",
+      "Safe isolation",
+      "Controlled recovery and validation"
+    ]
+  };
 }

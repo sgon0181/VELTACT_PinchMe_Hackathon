@@ -12,21 +12,35 @@ import type {
   MarketplaceAuditEvent,
   NeedRecord,
   PinchWebhookEvidence,
+  SolutionDecision,
+  SolutionResearchResult,
+  SupplierClaim,
   SupplierInvitation,
+  SupplierLead,
   SupplierOutreachDelivery,
   SupplierResponse
 } from "./types.js";
 
 export type MarketplaceSnapshot = {
-  version: 1;
+  version: 2;
   needs: NeedRecord[];
+  researchResults: SolutionResearchResult[];
+  solutionDecisions: SolutionDecision[];
+  supplierLeads: SupplierLead[];
   invitations: SupplierInvitation[];
+  supplierClaims: SupplierClaim[];
   outreachDeliveries: SupplierOutreachDelivery[];
   responses: SupplierResponse[];
   engagements: Engagement[];
   processedPinchEventIds: string[];
   pinchWebhookEvidence: PinchWebhookEvidence[];
   auditEvents: MarketplaceAuditEvent[];
+};
+
+type PersistedMarketplaceSnapshot = Partial<
+  Omit<MarketplaceSnapshot, "version">
+> & {
+  version?: 1 | 2;
 };
 
 export function loadMarketplaceSnapshot(
@@ -36,9 +50,9 @@ export function loadMarketplaceSnapshot(
     return undefined;
   }
 
-  const parsed = JSON.parse(readFileSync(filePath, "utf8")) as Partial<MarketplaceSnapshot>;
+  const parsed = JSON.parse(readFileSync(filePath, "utf8")) as PersistedMarketplaceSnapshot;
   if (
-    parsed.version !== 1 ||
+    (parsed.version !== 1 && parsed.version !== 2) ||
     !Array.isArray(parsed.needs) ||
     !Array.isArray(parsed.invitations) ||
     !Array.isArray(parsed.outreachDeliveries) ||
@@ -48,10 +62,24 @@ export function loadMarketplaceSnapshot(
     !Array.isArray(parsed.pinchWebhookEvidence) ||
     !Array.isArray(parsed.auditEvents)
   ) {
-    throw new Error(`Marketplace data file is not a valid version 1 snapshot: ${filePath}`);
+    throw new Error(`Marketplace data file is not a valid version 1 or 2 snapshot: ${filePath}`);
   }
 
-  return parsed as MarketplaceSnapshot;
+  return {
+    version: 2,
+    needs: parsed.needs,
+    researchResults: arrayOrEmpty(parsed.researchResults),
+    solutionDecisions: arrayOrEmpty(parsed.solutionDecisions),
+    supplierLeads: arrayOrEmpty(parsed.supplierLeads),
+    invitations: parsed.invitations,
+    supplierClaims: arrayOrEmpty(parsed.supplierClaims),
+    outreachDeliveries: parsed.outreachDeliveries,
+    responses: parsed.responses,
+    engagements: parsed.engagements,
+    processedPinchEventIds: parsed.processedPinchEventIds,
+    pinchWebhookEvidence: parsed.pinchWebhookEvidence,
+    auditEvents: parsed.auditEvents
+  } as MarketplaceSnapshot;
 }
 
 export function saveMarketplaceSnapshot(
@@ -69,4 +97,8 @@ export function saveMarketplaceSnapshot(
     mode: 0o600
   });
   renameSync(temporaryPath, filePath);
+}
+
+function arrayOrEmpty<T>(value: T[] | undefined): T[] {
+  return Array.isArray(value) ? value : [];
 }

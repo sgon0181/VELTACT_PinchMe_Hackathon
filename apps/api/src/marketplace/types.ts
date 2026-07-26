@@ -3,7 +3,11 @@ import type {
   MarketplaceAuditEvent,
   MarketplaceNeedProfile,
   NeedProfileStatus,
+  SolutionDecision,
+  SolutionResearchResult,
+  SupplierClaim,
   SupplierInvitation as ContractSupplierInvitation,
+  SupplierLead,
   SupplierMatch as ContractSupplierMatch,
   SupplierOutreachDelivery,
   SupplierResponse as ContractSupplierResponse
@@ -27,6 +31,11 @@ export type NeedRecord = {
   profile: NeedProfile;
   matches: SupplierMatch[];
   invitations: SupplierInvitation[];
+  outreachApprovedAt?: string;
+  providerWarnings?: {
+    research?: string;
+    discovery?: string;
+  };
   status: Extract<
     NeedProfileStatus,
     "responses_open" | "selected" | "payment_pending" | "secured"
@@ -35,15 +44,21 @@ export type NeedRecord = {
   updatedAt: string;
 };
 
-export type SupplierInvitation = Omit<ContractSupplierInvitation, "sentAt"> & {
+export type SupplierInvitation = ContractSupplierInvitation & {
   needId: string;
   supplierName: string;
-  sentAt: string;
   openedAt?: string;
   respondedAt?: string;
 };
 
-export type { MarketplaceAuditEvent, SupplierOutreachDelivery };
+export type {
+  MarketplaceAuditEvent,
+  SolutionDecision,
+  SolutionResearchResult,
+  SupplierClaim,
+  SupplierLead,
+  SupplierOutreachDelivery
+};
 
 export type SupplierResponse = Omit<
   ContractSupplierResponse,

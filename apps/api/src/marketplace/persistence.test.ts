@@ -1,4 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, test } from "node:test";
@@ -23,9 +28,13 @@ describe("marketplace persistence", () => {
     temporaryDirectories.push(directory);
     const filePath = path.join(directory, "marketplace.json");
     const snapshot: MarketplaceSnapshot = {
-      version: 1,
+      version: 2,
       needs: [],
+      researchResults: [],
+      solutionDecisions: [],
+      supplierLeads: [],
       invitations: [],
+      supplierClaims: [],
       outreachDeliveries: [],
       responses: [],
       engagements: [],
@@ -48,6 +57,35 @@ describe("marketplace persistence", () => {
     saveMarketplaceSnapshot(filePath, snapshot);
 
     assert.deepEqual(loadMarketplaceSnapshot(filePath), snapshot);
-    assert.equal(JSON.parse(readFileSync(filePath, "utf8")).version, 1);
+    assert.equal(JSON.parse(readFileSync(filePath, "utf8")).version, 2);
+  });
+
+  test("loads version 1 snapshots with empty canonical Find collections", () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), "veltact-marketplace-"));
+    temporaryDirectories.push(directory);
+    const filePath = path.join(directory, "marketplace-v1.json");
+    writeFileSync(
+      filePath,
+      JSON.stringify({
+        version: 1,
+        needs: [],
+        invitations: [],
+        outreachDeliveries: [],
+        responses: [],
+        engagements: [],
+        processedPinchEventIds: [],
+        pinchWebhookEvidence: [],
+        auditEvents: []
+      }),
+      "utf8"
+    );
+
+    const loaded = loadMarketplaceSnapshot(filePath);
+
+    assert.equal(loaded?.version, 2);
+    assert.deepEqual(loaded?.researchResults, []);
+    assert.deepEqual(loaded?.solutionDecisions, []);
+    assert.deepEqual(loaded?.supplierLeads, []);
+    assert.deepEqual(loaded?.supplierClaims, []);
   });
 });
