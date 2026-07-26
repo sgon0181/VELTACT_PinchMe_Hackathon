@@ -675,10 +675,11 @@ function renderInternalPlan(data) {
 }
 function renderCandidates(data) {
     const profile = requireNeedProfile(data);
-    if (!data.matches.length) {
+    const candidates = supplierCandidates(data);
+    if (!candidates.length) {
         return renderUnavailable("No supplier candidates available", "The supplier discovery API returned no candidates for this requirement. No outreach has been sent.", "Refresh candidates", "refresh-workspace");
     }
-    const candidates = [...data.matches].sort((left, right) => right.score - left.score);
+    candidates.sort((left, right) => right.score - left.score);
     return `
     <div class="view-stack">
       <section class="panel">
@@ -717,7 +718,7 @@ function renderCandidate(data, match, index) {
       <div class="candidate-heading">
         <div>
           <h3>${escapeHtml(supplierName(supplier, match.supplierId))}</h3>
-          <span>${supplier?.verified ? "Verified supplier record" : "Supplier record"}</span>
+          <span>${escapeHtml(supplierRecordLabel(supplier))}</span>
         </div>
         <span class="match-score">${Math.round(match.score)}%</span>
       </div>
@@ -891,7 +892,7 @@ function renderComparison(data) {
 }
 function renderResponseCard(data, response) {
     const supplier = supplierFor(data, response.supplierId);
-    const match = data.matches.find((item) => item.supplierId === response.supplierId);
+    const match = matchForSupplier(data, response.supplierId);
     const selected = response.id === selectedResponseId;
     const canHelp = response.decision === "can_help";
     return `
@@ -969,6 +970,9 @@ function renderPayment(data) {
     }
     const hostedUrl = engagement.hostedCheckoutUrl;
     const profile = requireNeedProfile(data);
+    const commitmentAmount = data.deployment?.milestones[0]?.amount ??
+        selectedSupplier(data)?.response.indicativePrice ??
+        profile.budget;
     return `
     <section class="panel payment-panel">
       <div class="payment-heading">
@@ -980,9 +984,9 @@ function renderPayment(data) {
         <span class="payment-state">${escapeHtml(statusLabel(engagement.paymentStatus))}</span>
       </div>
       <dl class="payment-summary">
-        ${fact("Commitment amount", profile.budget
-        ? money(profile.budget.amount, profile.budget.currency)
-        : "Set by payment provider", !profile.budget)}
+        ${fact("Commitment amount", commitmentAmount
+        ? money(commitmentAmount.amount, commitmentAmount.currency)
+        : "Set by payment provider", !commitmentAmount)}
         ${fact("Supplier", supplierName(supplierFor(data, engagement.supplierId), engagement.supplierId))}
         ${fact("Engagement", shortId(engagement.id))}
         ${fact("Pinch link", hostedUrl ? "Created by API" : "Not created", !hostedUrl)}
@@ -1026,6 +1030,7 @@ function renderDeployment(data) {
     }
     const deployment = data.deployment;
     const supplier = supplierFor(data, engagement.supplierId);
+    const localDemoPayment = engagement.pinchPaymentId?.startsWith("demo_");
     const projection = Boolean(deployment?.milestones.some((item) => item.id.includes("fixture")));
     return `
     <section class="panel deployment-summary">
@@ -1046,6 +1051,14 @@ function renderDeployment(data) {
         ${fact("Secured", formatTime(engagement.securedAt), !engagement.securedAt)}
         ${fact("Payment evidence", engagement.pinchPaymentId ? shortId(engagement.pinchPaymentId) : "Confirmed by provider", false)}
       </dl>
+      ${localDemoPayment
+        ? `
+            <div class="payment-boundary">
+              <strong>Development evidence</strong>
+              <span>This secured state was created by the local demo route. It is non-authoritative and is not a Pinch webhook confirmation.</span>
+            </div>
+          `
+        : ""}
       ${deployment
         ? `
             <div class="progress-summary">
@@ -1374,7 +1387,8 @@ async function completeDemoPayment() {
         workspace = await service.completeDemoPayment(workspace);
         view = "deployment";
         persistContext();
-        liveMessage = "Local demo payment confirmed by the backend.";
+        liveMessage =
+            "Local demo payment recorded as non-authoritative development evidence.";
     });
 }
 async function refreshDeployment() {
@@ -1847,7 +1861,8 @@ function resolveRestoredView(data, storedView) {
         data.invitations.some((item) => ["opened", "responded"].includes(item.status))) {
         return storedView === "compare" ? "compare" : "outreach";
     }
-    if (data.solutionDecision?.decision === "outsource" && data.matches.length) {
+    if (data.solutionDecision?.decision === "outsource" &&
+        supplierCandidates(data).length) {
         return "candidates";
     }
     if (data.researchResult)
@@ -1902,7 +1917,30 @@ function submittedResponses(data) {
     return data.responses.filter((item) => item.status === "submitted");
 }
 function supplierFor(data, supplierId) {
-    return data.suppliers.find((item) => item.id === supplierId);
+    return (data.discoveredSuppliers.find((item) => item.id === supplierId) ??
+        data.suppliers.find((item) => item.id === supplierId));
+}
+function supplierCandidates(data) {
+    if (data.discoveredSuppliers.length) {
+        return data.discoveredSuppliers.map((supplier) => ({
+            supplierId: supplier.id,
+            score: supplier.matchScore,
+            reasons: supplier.matchReasons,
+            risks: supplier.risks
+        }));
+    }
+    return [...data.matches];
+}
+function matchForSupplier(data, supplierId) {
+    const lead = data.discoveredSuppliers.find((item) => item.id === supplierId);
+    return lead
+        ? {
+            supplierId: lead.id,
+            score: lead.matchScore,
+            reasons: lead.matchReasons,
+            risks: lead.risks
+        }
+        : data.matches.find((item) => item.supplierId === supplierId);
 }
 function invitationForSupplier(data, supplierId) {
     return data.invitations.find((item) => item.supplierId === supplierId);
@@ -2096,6 +2134,16 @@ function statusLabel(value) {
 }
 function supplierName(supplier, supplierId) {
     return supplier?.companyName ?? `Supplier ${shortId(supplierId)}`;
+}
+function supplierRecordLabel(supplier) {
+    if (!supplier)
+        return "Supplier record";
+    if ("sourceMode" in supplier) {
+        return supplier.sourceMode === "live"
+            ? "Public-source supplier lead"
+            : "Demo supplier lead";
+    }
+    return supplier.verified ? "Verified supplier record" : "Supplier record";
 }
 function shortId(value) {
     return value.length > 10 ? `${value.slice(0, 8)}...` : value;

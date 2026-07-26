@@ -100,8 +100,7 @@ async function loadOpportunity(invitationToken) {
     const claim = payload.claim || payload.supplierClaim;
     const profile = payload.supplierProfile || payload.supplierLead;
     claimComplete = Boolean(
-      profile ||
-        claim?.status === "claimed" ||
+      claim?.status === "claimed" ||
         claim?.status === "supplier_profile_approved"
     );
     renderIdentity(profile, claim, invitation);

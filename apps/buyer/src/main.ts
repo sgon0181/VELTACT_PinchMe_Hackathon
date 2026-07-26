@@ -10,6 +10,7 @@ import {
   type SolutionApproach,
   type Supplier,
   type SupplierInvitation,
+  type SupplierLead,
   type SupplierMatch,
   type SupplierOutreachDelivery,
   type SupplierResponse
@@ -39,6 +40,11 @@ type BuyerView =
 type IntakeMode = "ai" | "manual";
 type LoadState = "idle" | "loading" | "error" | "success";
 type SupplierActivityStatus = "ready" | "sent" | "failed" | "viewed" | "responded";
+type SupplierCandidate = Pick<
+  SupplierMatch,
+  "supplierId" | "score" | "reasons" | "risks"
+>;
+type SupplierReference = Supplier | SupplierLead;
 
 type PersistedContext = {
   view?: BuyerView;
@@ -862,7 +868,8 @@ function renderInternalPlan(data: BuyerWorkspace) {
 
 function renderCandidates(data: BuyerWorkspace) {
   const profile = requireNeedProfile(data);
-  if (!data.matches.length) {
+  const candidates = supplierCandidates(data);
+  if (!candidates.length) {
     return renderUnavailable(
       "No supplier candidates available",
       "The supplier discovery API returned no candidates for this requirement. No outreach has been sent.",
@@ -870,7 +877,7 @@ function renderCandidates(data: BuyerWorkspace) {
       "refresh-workspace"
     );
   }
-  const candidates = [...data.matches].sort(
+  candidates.sort(
     (left, right) => right.score - left.score
   );
   return `
@@ -905,7 +912,7 @@ function renderCandidates(data: BuyerWorkspace) {
 
 function renderCandidate(
   data: BuyerWorkspace,
-  match: SupplierMatch,
+  match: SupplierCandidate,
   index: number
 ) {
   const supplier = supplierFor(data, match.supplierId);
@@ -916,7 +923,7 @@ function renderCandidate(
       <div class="candidate-heading">
         <div>
           <h3>${escapeHtml(supplierName(supplier, match.supplierId))}</h3>
-          <span>${supplier?.verified ? "Verified supplier record" : "Supplier record"}</span>
+          <span>${escapeHtml(supplierRecordLabel(supplier))}</span>
         </div>
         <span class="match-score">${Math.round(match.score)}%</span>
       </div>
@@ -1130,9 +1137,7 @@ function renderResponseCard(
   response: SupplierResponse
 ) {
   const supplier = supplierFor(data, response.supplierId);
-  const match = data.matches.find(
-    (item) => item.supplierId === response.supplierId
-  );
+  const match = matchForSupplier(data, response.supplierId);
   const selected = response.id === selectedResponseId;
   const canHelp = response.decision === "can_help";
   return `
@@ -1254,6 +1259,10 @@ function renderPayment(data: BuyerWorkspace): string {
   }
   const hostedUrl = engagement.hostedCheckoutUrl;
   const profile = requireNeedProfile(data);
+  const commitmentAmount =
+    data.deployment?.milestones[0]?.amount ??
+    selectedSupplier(data)?.response.indicativePrice ??
+    profile.budget;
   return `
     <section class="panel payment-panel">
       <div class="payment-heading">
@@ -1267,10 +1276,10 @@ function renderPayment(data: BuyerWorkspace): string {
       <dl class="payment-summary">
         ${fact(
           "Commitment amount",
-          profile.budget
-            ? money(profile.budget.amount, profile.budget.currency)
+          commitmentAmount
+            ? money(commitmentAmount.amount, commitmentAmount.currency)
             : "Set by payment provider",
-          !profile.budget
+          !commitmentAmount
         )}
         ${fact("Supplier", supplierName(supplierFor(data, engagement.supplierId), engagement.supplierId))}
         ${fact("Engagement", shortId(engagement.id))}
@@ -1323,6 +1332,7 @@ function renderDeployment(data: BuyerWorkspace): string {
   }
   const deployment = data.deployment;
   const supplier = supplierFor(data, engagement.supplierId);
+  const localDemoPayment = engagement.pinchPaymentId?.startsWith("demo_");
   const projection = Boolean(
     deployment?.milestones.some((item) => item.id.includes("fixture"))
   );
@@ -1345,6 +1355,16 @@ function renderDeployment(data: BuyerWorkspace): string {
         ${fact("Secured", formatTime(engagement.securedAt), !engagement.securedAt)}
         ${fact("Payment evidence", engagement.pinchPaymentId ? shortId(engagement.pinchPaymentId) : "Confirmed by provider", false)}
       </dl>
+      ${
+        localDemoPayment
+          ? `
+            <div class="payment-boundary">
+              <strong>Development evidence</strong>
+              <span>This secured state was created by the local demo route. It is non-authoritative and is not a Pinch webhook confirmation.</span>
+            </div>
+          `
+          : ""
+      }
       ${
         deployment
           ? `
@@ -1715,7 +1735,8 @@ async function completeDemoPayment() {
     workspace = await service.completeDemoPayment(workspace as BuyerWorkspace);
     view = "deployment";
     persistContext();
-    liveMessage = "Local demo payment confirmed by the backend.";
+    liveMessage =
+      "Local demo payment recorded as non-authoritative development evidence.";
   });
 }
 
@@ -2253,7 +2274,10 @@ function resolveRestoredView(
   ) {
     return storedView === "compare" ? "compare" : "outreach";
   }
-  if (data.solutionDecision?.decision === "outsource" && data.matches.length) {
+  if (
+    data.solutionDecision?.decision === "outsource" &&
+    supplierCandidates(data).length
+  ) {
     return "candidates";
   }
   if (data.researchResult) return "plan";
@@ -2316,7 +2340,37 @@ function submittedResponses(data: BuyerWorkspace) {
 }
 
 function supplierFor(data: BuyerWorkspace, supplierId: string) {
-  return data.suppliers.find((item) => item.id === supplierId);
+  return (
+    data.discoveredSuppliers.find((item) => item.id === supplierId) ??
+    data.suppliers.find((item) => item.id === supplierId)
+  );
+}
+
+function supplierCandidates(data: BuyerWorkspace): SupplierCandidate[] {
+  if (data.discoveredSuppliers.length) {
+    return data.discoveredSuppliers.map((supplier) => ({
+      supplierId: supplier.id,
+      score: supplier.matchScore,
+      reasons: supplier.matchReasons,
+      risks: supplier.risks
+    }));
+  }
+  return [...data.matches];
+}
+
+function matchForSupplier(
+  data: BuyerWorkspace,
+  supplierId: string
+): SupplierCandidate | undefined {
+  const lead = data.discoveredSuppliers.find((item) => item.id === supplierId);
+  return lead
+    ? {
+        supplierId: lead.id,
+        score: lead.matchScore,
+        reasons: lead.matchReasons,
+        risks: lead.risks
+      }
+    : data.matches.find((item) => item.supplierId === supplierId);
 }
 
 function invitationForSupplier(data: BuyerWorkspace, supplierId: string) {
@@ -2553,8 +2607,21 @@ function statusLabel(value: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function supplierName(supplier: Supplier | undefined, supplierId: string) {
+function supplierName(
+  supplier: SupplierReference | undefined,
+  supplierId: string
+) {
   return supplier?.companyName ?? `Supplier ${shortId(supplierId)}`;
+}
+
+function supplierRecordLabel(supplier: SupplierReference | undefined) {
+  if (!supplier) return "Supplier record";
+  if ("sourceMode" in supplier) {
+    return supplier.sourceMode === "live"
+      ? "Public-source supplier lead"
+      : "Demo supplier lead";
+  }
+  return supplier.verified ? "Verified supplier record" : "Supplier record";
 }
 
 function shortId(value: string) {

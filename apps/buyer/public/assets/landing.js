@@ -26,7 +26,10 @@ const guidedDemoLink = document.querySelector("#guided-demo-link");
 const demoStatus = document.querySelector("#demo-launch-status");
 const demoRoleLinks = document.querySelector("#demo-role-links");
 const demoBuyerLink = document.querySelector("#demo-buyer-link");
-const demoSupplierLink = document.querySelector("#demo-supplier-link");
+const demoSupplierLinks = [
+    document.querySelector("#demo-supplier-one-link"),
+    document.querySelector("#demo-supplier-two-link")
+];
 const demoScenarioButtons = Array.from(document.querySelectorAll("[data-demo-scenario]"));
 void configureGuidedDemo();
 async function configureGuidedDemo() {
@@ -35,7 +38,7 @@ async function configureGuidedDemo() {
         !demoStatus ||
         !demoRoleLinks ||
         !demoBuyerLink ||
-        !demoSupplierLink ||
+        demoSupplierLinks.some((link) => !link) ||
         demoScenarioButtons.length === 0) {
         return;
     }
@@ -63,7 +66,10 @@ async function configureGuidedDemo() {
     });
 }
 async function launchDemoScenario(scenario) {
-    if (!demoStatus || !demoRoleLinks || !demoBuyerLink || !demoSupplierLink) {
+    if (!demoStatus ||
+        !demoRoleLinks ||
+        !demoBuyerLink ||
+        demoSupplierLinks.some((link) => !link)) {
         return;
     }
     setDemoBusy(true);
@@ -71,30 +77,44 @@ async function launchDemoScenario(scenario) {
     demoStatus.className = "demo-launch-status";
     demoStatus.textContent = `Preparing the ${scenario === "plc" ? "urgent PLC recovery" : "planned robotic integration"} workflow...`;
     try {
-        const response = await fetch("/api/v2/demo/reset", {
+        const response = await fetch("/api/demo/reset", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
                 Accept: "application/json"
             },
-            body: JSON.stringify({ seeded: true, scenario })
+            body: JSON.stringify({ scenario })
         });
         const payload = (await response.json());
         if (!response.ok) {
             throw new Error(payload.message ?? `Demo reset failed (${response.status})`);
         }
         const buyerUrl = validDemoUrl(payload.buyerUrl);
-        const supplierUrl = validDemoUrl(payload.supplierClaimUrl);
-        if (!buyerUrl || !supplierUrl) {
-            throw new Error("The demo reset did not return both role links.");
+        const suppliers = (payload.supplierPaths ?? [])
+            .slice(0, demoSupplierLinks.length)
+            .map((path) => ({
+            name: path.supplierName,
+            url: validDemoUrl(path.responseUrl)
+        }))
+            .filter((supplier) => Boolean(supplier.url));
+        if (!buyerUrl || suppliers.length !== demoSupplierLinks.length) {
+            throw new Error("The demo reset did not return the buyer and supplier role links.");
         }
         demoBuyerLink.href = buyerUrl;
-        demoSupplierLink.href = supplierUrl;
+        demoSupplierLinks.forEach((link, index) => {
+            const supplier = suppliers[index];
+            if (!link || !supplier)
+                return;
+            link.href = supplier.url;
+            link.textContent = supplier.name
+                ? `Open ${supplier.name}`
+                : `Open supplier ${index === 0 ? "A" : "B"} invitation`;
+        });
         demoRoleLinks.hidden = false;
         demoStatus.className = "demo-launch-status is-ready";
         demoStatus.textContent =
             `${scenario === "plc" ? "Urgent PLC recovery" : "Planned robotic integration"} is ready. ` +
-                "Open the buyer workspace first, then use the supplier invitation when Connect reaches the claim step.";
+                "Open the buyer workspace first, then use both private supplier invitations when Connect reaches the response step.";
         demoBuyerLink.focus();
     }
     catch (error) {
