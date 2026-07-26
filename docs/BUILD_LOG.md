@@ -160,3 +160,36 @@ browser run from a fresh reset.
 - Production provider readiness still depends on operator-supplied OpenAI,
   outreach and Pinch credentials.
 - The guided reset launcher is intentionally hidden in production.
+
+## 2026-07-26 10:41 AEST - Unified RapidMatch Gate 0
+
+### Decisions
+
+- Made `docs/PRODUCT.md` authoritative for the canonical buyer journey.
+- Confirmed RapidMatch as the application base and Connect engine.
+- Classified V2 as temporary donor code for research, provenance, milestone
+  templates and payment evidence.
+- Reserved one RapidMatch route/event namespace for Find, Connect and Deploy.
+- Defined non-overlapping A1-A4 ownership and A0 merge gates.
+
+### Contracts
+
+- Added shared intake evidence and safe evidence-summary contracts.
+- Added aggregate Find, Connect and Deploy journey state and next-action enums.
+- Added a canonical RapidMatch buyer workspace projection.
+- Extended supplier responses with optional approach, assumptions and profile
+  linkage.
+- Added lightweight deployment and milestone summaries.
+- Exported canonical RapidMatch API route templates and Socket.IO event names.
+
+### Verified
+
+- `npm run lint`: passed.
+- `npm run typecheck`: passed.
+- `npm test`: passed, 34 tests.
+- `npm run build`: passed.
+
+### Next Gate
+
+Branch A1-A4 from this baseline. Merge canonical marketplace core first, then
+supplier/outreach, Pinch/deployment and the buyer UI.

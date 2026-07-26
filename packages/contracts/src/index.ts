@@ -214,10 +214,13 @@ export const supplierResponseSchema = z.object({
   needProfileId: z.string().min(1),
   supplierId: z.string().min(1),
   invitationId: z.string().min(1),
+  supplierProfileId: z.string().min(1).optional(),
   decision: supplierResponseDecisionSchema,
   availability: z.string().trim().min(1).optional(),
   indicativePrice: moneySchema.optional(),
   relevantExperience: z.string().trim().min(1).optional(),
+  proposedApproach: z.string().trim().min(1).optional(),
+  assumptions: z.array(z.string().trim().min(1)).optional(),
   conditions: z.array(z.string().trim().min(1)).default([]),
   message: z.string().trim().min(1).optional(),
   status: supplierResponseStatusSchema,
@@ -282,13 +285,17 @@ export const rapidMatchSocketEvent = {
   joinNeedProfile: "rapidmatch:need.join",
   leaveNeedProfile: "rapidmatch:need.leave",
   matchCreated: "rapidmatch:match.created",
+  researchUpdated: "rapidmatch:research.updated",
+  solutionDecisionUpdated: "rapidmatch:solution_decision.updated",
+  supplierDiscoveryUpdated: "rapidmatch:supplier.discovery_updated",
   invitationSent: "rapidmatch:invitation.sent",
   outreachDeliveryUpdated: "rapidmatch:outreach.delivery_updated",
   aiIntakeStructured: "rapidmatch:ai_intake.structured",
   supplierResponseSubmitted: "rapidmatch:response.submitted",
   supplierSelected: "rapidmatch:supplier.selected",
   paymentStatusUpdated: "rapidmatch:payment.status_updated",
-  engagementSecured: "rapidmatch:engagement.secured"
+  engagementSecured: "rapidmatch:engagement.secured",
+  deploymentUpdated: "rapidmatch:deployment.updated"
 } as const;
 
 export type RapidMatchSocketEvent =
@@ -690,3 +697,163 @@ export const veltactV2SocketEvent = {
 
 export type VeltactV2SocketEvent =
   (typeof veltactV2SocketEvent)[keyof typeof veltactV2SocketEvent];
+
+export const aiIntakeEvidenceKindSchema = z.enum(["written", "pdf", "photo"]);
+export type AiIntakeEvidenceKind = z.infer<typeof aiIntakeEvidenceKindSchema>;
+
+export const aiIntakeEvidenceSchema = z.object({
+  kind: aiIntakeEvidenceKindSchema,
+  name: z.string().trim().min(1),
+  mimeType: z.string().trim().min(1).optional(),
+  extractedText: z.string().trim().optional(),
+  dataUrl: z.string().trim().startsWith("data:").max(5_600_000).optional()
+});
+export type AiIntakeEvidence = z.infer<typeof aiIntakeEvidenceSchema>;
+
+export const intakeEvidenceStatusSchema = z.enum([
+  "provided",
+  "processed",
+  "failed"
+]);
+export type IntakeEvidenceStatus = z.infer<typeof intakeEvidenceStatusSchema>;
+
+export const intakeEvidenceSummarySchema = z.object({
+  kind: aiIntakeEvidenceKindSchema,
+  name: z.string().trim().min(1),
+  mimeType: z.string().trim().min(1).optional(),
+  source: z.enum(["buyer", "demo_fixture"]),
+  status: intakeEvidenceStatusSchema,
+  errorMessage: z.string().trim().min(1).optional()
+});
+export type IntakeEvidenceSummary = z.infer<typeof intakeEvidenceSummarySchema>;
+
+export const rapidMatchJourneyPhaseSchema = z.enum([
+  "find",
+  "connect",
+  "deploy"
+]);
+export type RapidMatchJourneyPhase = z.infer<
+  typeof rapidMatchJourneyPhaseSchema
+>;
+
+export const rapidMatchJourneyStatusSchema = z.enum([
+  "intake",
+  "need_profile_review",
+  "solution_review",
+  "internal_plan_ready",
+  "supplier_matching",
+  "supplier_outreach",
+  "supplier_responses",
+  "supplier_selection",
+  "commitment_pending",
+  "supplier_secured",
+  "delivery_active",
+  "delivery_complete"
+]);
+export type RapidMatchJourneyStatus = z.infer<
+  typeof rapidMatchJourneyStatusSchema
+>;
+
+export const rapidMatchNextActionSchema = z.enum([
+  "analyse_requirement",
+  "confirm_need_profile",
+  "use_plan_internally",
+  "find_specialist",
+  "approve_outreach",
+  "send_invitations",
+  "await_responses",
+  "compare_responses",
+  "select_supplier",
+  "open_pinch_checkout",
+  "await_payment_confirmation",
+  "track_delivery",
+  "none"
+]);
+export type RapidMatchNextAction = z.infer<
+  typeof rapidMatchNextActionSchema
+>;
+
+export const deploymentMilestoneStatusSchema = z.enum([
+  "not_started",
+  "awaiting_payment",
+  "funded",
+  "in_progress",
+  "completed"
+]);
+export type DeploymentMilestoneStatus = z.infer<
+  typeof deploymentMilestoneStatusSchema
+>;
+
+export const deploymentMilestoneSummarySchema = z.object({
+  id: z.string().min(1),
+  engagementId: z.string().min(1),
+  sequence: z.number().int().positive(),
+  title: z.string().trim().min(1),
+  amount: moneySchema.optional(),
+  status: deploymentMilestoneStatusSchema,
+  paymentStatus: paymentStatusSchema,
+  progressPercentage: z.number().int().min(0).max(100),
+  latestUpdate: z.string().trim().min(1).optional(),
+  updatedAt: isoDateTimeSchema
+});
+export type DeploymentMilestoneSummary = z.infer<
+  typeof deploymentMilestoneSummarySchema
+>;
+
+export const deploymentSummarySchema = z.object({
+  engagementId: z.string().min(1),
+  title: z.string().trim().min(1),
+  status: z.enum(["not_started", "commitment_pending", "active", "completed"]),
+  progressPercentage: z.number().int().min(0).max(100),
+  currentMilestoneId: z.string().min(1).optional(),
+  nextMilestoneId: z.string().min(1).optional(),
+  milestones: z.array(deploymentMilestoneSummarySchema).min(1).max(4),
+  latestUpdate: z.string().trim().min(1).optional(),
+  updatedAt: isoDateTimeSchema
+});
+export type DeploymentSummary = z.infer<typeof deploymentSummarySchema>;
+
+export const rapidMatchBuyerWorkspaceSchema = z.object({
+  phase: rapidMatchJourneyPhaseSchema,
+  status: rapidMatchJourneyStatusSchema,
+  nextAction: rapidMatchNextActionSchema,
+  needProfile: needProfileSchema.optional(),
+  intakeEvidence: z.array(intakeEvidenceSummarySchema).default([]),
+  researchResult: solutionResearchResultSchema.optional(),
+  solutionDecision: solutionDecisionSchema.optional(),
+  discoveredSuppliers: z.array(supplierLeadSchema).default([]),
+  suppliers: z.array(supplierSchema).default([]),
+  matches: z.array(supplierMatchSchema).default([]),
+  invitations: z.array(supplierInvitationSchema).default([]),
+  outreachDeliveries: z.array(supplierOutreachDeliverySchema).default([]),
+  responses: z.array(supplierResponseSchema).default([]),
+  engagement: engagementSchema.optional(),
+  deployment: deploymentSummarySchema.optional()
+});
+export type RapidMatchBuyerWorkspace = z.infer<
+  typeof rapidMatchBuyerWorkspaceSchema
+>;
+
+export const rapidMatchApiRoute = {
+  structureRequirement: "/api/ai-intake/structure",
+  createNeedProfile: "/api/need-profiles",
+  needWorkspace: "/api/need-profiles/:needProfileId",
+  research: "/api/need-profiles/:needProfileId/research",
+  solutionDecision: "/api/need-profiles/:needProfileId/solution-decision",
+  discoverSuppliers: "/api/need-profiles/:needProfileId/suppliers/discover",
+  sendInvitations: "/api/need-profiles/:needProfileId/invitations/send",
+  responses: "/api/need-profiles/:needProfileId/responses",
+  createEngagement: "/api/need-profiles/:needProfileId/engagements",
+  engagement: "/api/engagements/:engagementId",
+  paymentLink: "/api/engagements/:engagementId/payment-link",
+  deployment: "/api/engagements/:engagementId/deployment",
+  deploymentMilestone:
+    "/api/engagements/:engagementId/deployment/milestones/:milestoneId",
+  supplierInvitation: "/api/supplier-invitations/:token",
+  supplierClaim: "/api/supplier-invitations/:token/claim",
+  supplierResponse: "/api/supplier-invitations/:token/responses",
+  demoReset: "/api/demo/reset"
+} as const;
+
+export type RapidMatchApiRoute =
+  (typeof rapidMatchApiRoute)[keyof typeof rapidMatchApiRoute];

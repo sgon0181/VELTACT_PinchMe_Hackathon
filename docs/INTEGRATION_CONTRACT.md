@@ -1,148 +1,235 @@
 # Veltact Integration Contract
 
-## Shared Contracts
+## Authority
 
-`@veltact/contracts` is the only owner of public status enums and wire schemas.
-It includes the original RapidMatch types plus:
+`@veltact/contracts` owns public wire schemas, route templates and Socket.IO
+event names. Agents may consume these contracts but may not create competing
+public types, routes or events without A0 review.
 
-- `MarketplaceNeedProfile`, `NeedProfile` and `AiIntakeResult`
-- `Supplier`, `SupplierCatalogEntry`, `SupplierMatch`,
-  `SupplierInvitation`, `SupplierOutreachDelivery` and `SupplierResponse`
-- `Engagement`, `PaymentStatus` and `MarketplaceAuditEvent`
-- `SolutionApproach`, `ResearchCitation`, `SolutionResearchResult` and
-  `SolutionDecision`
-- `SupplierLead`, `SupplierClaim`, `SupplierProfile` and
-  `SupplierCommercialResponse`
-- `IndustrialProject`, `ProjectMilestone`, `ProjectTask`, `ProjectDependency`,
-  `ProjectActivity`, `ProjectRisk`, `ProjectIssue`, `ProjectApproval`,
-  `ProjectDocument`, `ProjectChangeRequest` and `ProjectContact`
-- `PaymentEvidence`
+RapidMatch is the canonical namespace. V2 contracts remain available only while
+donor capabilities are migrated.
 
-API-internal records may add storage aliases, but public fields and status enums
-must derive from these contracts.
+## Canonical Aggregate
 
-## RapidMatch V1 Routes
+`RapidMatchBuyerWorkspace` is the buyer-facing aggregate:
 
+- `phase`: `find | connect | deploy`
+- `status`: aggregate journey state
+- `nextAction`: the single primary buyer action
+- `needProfile`
+- `intakeEvidence`
+- `researchResult`
+- `solutionDecision`
+- `discoveredSuppliers`
+- `suppliers`
+- `matches`
+- `invitations`
+- `outreachDeliveries`
+- `responses`
+- `engagement`
+- `deployment`
+
+The aggregate does not replace domain records. Need Profile, invitation,
+response, engagement and payment statuses remain authoritative.
+
+## Find Contracts
+
+- `AiIntakeEvidence`: written, PDF or photo evidence accepted by AI intake.
+- `IntakeEvidenceSummary`: safe workspace projection without file contents.
+- `AiIntakeResult`: raw requirement, generated fields, confidence and missing
+  fields.
+- `SolutionResearchResult`: overview, cited approaches, missing information and
+  safety notice.
+- `SolutionDecision`: selected approaches and `local_trial | hybrid |
+  outsource` decision.
+
+User-facing outcomes map as:
+
+- `Use this plan internally` -> `local_trial`
+- `Find a specialist` -> `outsource`
+- A future combined execution path may use `hybrid`
+
+## Connect Contracts
+
+- `Supplier`
+- `SupplierLead`
+- `SupplierMatch`
+- `SupplierInvitation`
+- `SupplierOutreachDelivery`
+- `SupplierProfile`
+- `SupplierResponse`
+
+`SupplierResponse` may include:
+
+- Availability.
+- Indicative price.
+- Relevant experience.
+- Proposed approach.
+- Assumptions.
+- Conditions.
+
+Public discovery produces `SupplierLead` evidence. It does not create a trusted
+`Supplier`. Buyer outreach approval and supplier confirmation remain separate
+backend records, even when the supplier UI completes confirmation and response
+from one screen.
+
+## Deploy Contracts
+
+- `Engagement`: selected supplier and Pinch commercial state.
+- `PaymentStatus`: backend payment lifecycle.
+- `DeploymentSummary`: lightweight project projection.
+- `DeploymentMilestoneSummary`: at most four demo milestones.
+
+`DeploymentSummary.progressPercentage` must be derived from milestone state.
+Payment may fund a milestone but cannot mark engineering work complete.
+
+The canonical buyer aggregate does not expose V2 task, issue, document,
+approval or change-request collections.
+
+## Canonical Routes
+
+Route templates are exported as `rapidMatchApiRoute`.
+
+### Find
+
+- `POST /api/ai-intake/structure`
 - `POST /api/need-profiles`
 - `GET /api/need-profiles/:needProfileId`
-- `GET /api/need-profiles/:needProfileId/responses`
+- `POST /api/need-profiles/:needProfileId/research`
+- `POST /api/need-profiles/:needProfileId/solution-decision`
+
+### Connect
+
+- `POST /api/need-profiles/:needProfileId/suppliers/discover`
 - `POST /api/need-profiles/:needProfileId/invitations/send`
+- `GET /api/need-profiles/:needProfileId/responses`
+- `GET /api/supplier-invitations/:token`
+- `POST /api/supplier-invitations/:token/claim`
+- `POST /api/supplier-invitations/:token/responses`
 - `POST /api/need-profiles/:needProfileId/engagements`
+
+### Deploy
+
 - `GET /api/engagements/:engagementId`
 - `POST /api/engagements/:engagementId/payment-link`
-- `GET /api/supplier-invitations/:token`
-- `POST /api/supplier-invitations/:token/responses`
+- `GET /api/engagements/:engagementId/deployment`
+- `PATCH /api/engagements/:engagementId/deployment/milestones/:milestoneId`
+- `POST /api/pinch/webhooks`
 
-## Find, Connect, Deploy V2 Routes
+### Development
 
-Buyer-scoped:
+- `POST /api/demo/reset`
 
-- `POST /api/v2/needs`
-- `GET /api/v2/needs/:needId`
-- `POST /api/v2/needs/:needId/research`
-- `POST /api/v2/needs/:needId/solution-decision`
-- `POST /api/v2/needs/:needId/suppliers/discover`
-- `POST /api/v2/needs/:needId/suppliers/approve-outreach`
-- `POST /api/v2/needs/:needId/invitations/send`
-- `POST /api/v2/needs/:needId/suppliers/:supplierLeadId/buyer-approve`
-- `POST /api/v2/needs/:needId/suppliers/:supplierLeadId/activate`
-- `POST /api/v2/needs/:needId/responses/:supplierResponseId/select`
-- `PATCH /api/v2/projects/:projectId/tasks/:taskId`
-- `POST /api/v2/projects/:projectId/milestones/:milestoneId/accept`
-- `POST /api/v2/projects/:projectId/milestones/:milestoneId/payment-link`
-- `POST /api/v2/projects/:projectId/milestones/:milestoneId/reconcile`
-- `POST /api/v2/projects/:projectId/milestones/:milestoneId/demo-payment`
-- `POST /api/v2/projects/:projectId/change-requests`
+The reset response must identify one canonical buyer workspace and at least two
+supplier invitation paths for comparison. All fixture records remain labelled.
 
-Supplier-token scoped:
+Routes not already implemented are reserved by this contract. Implementations
+must use these names rather than adding `/api/v3`, `/api/unified` or additional
+V2 endpoints.
 
-- `GET /api/v2/supplier-claims/:token`
-- `POST /api/v2/supplier-claims/:token/profile`
-- `POST /api/v2/supplier-claims/:token/response`
+## Buyer Authorization
 
-Development only:
-
-- `POST /api/v2/demo/reset`
-
-The public landing page may call the reset route only after `GET /api/health`
-reports a non-production environment. A successful reset returns one
-buyer-capability URL and one supplier-claim URL for the same seeded requirement.
-The UI must present the buyer URL first and describe the supplier URL as a
-private invitation, not a second public product entry.
-
-When capability authorization is enabled, every buyer route after creation
-requires:
+Every buyer route after Need Profile creation requires the scoped capability
+header when capability authorization is enabled:
 
 ```http
 x-veltact-buyer-token: <issued token>
 ```
 
-The supplier claim token is the capability credential for one organisation and
-one requirement. It expires and must not be logged or shared.
+Only a token hash is persisted. The raw token may appear in the initial buyer
+URL, then must be removed from the visible URL and retained by the buyer client.
 
-## Supporting Routes
+## Supplier Authorization
 
-- `POST /api/ai-intake/structure`: structure evidence without diagnosing
-  equipment.
-- `POST /api/pinch/webhooks`: accept only verified Pinch events.
-- `GET /api/health`: report non-secret provider and runtime readiness.
-- `POST /api/demo/reset` and simulated-payment routes: non-production controls.
+The invitation token authorizes one supplier to view and respond to one
+requirement. It expires and must not appear in logs.
 
-## Socket.IO Events
+Supplier claim and response are separate API transitions. The frontend may
+present them as one concise form when both complete successfully.
 
-RapidMatch V1:
+## RapidMatch Socket.IO Events
+
+Join and leave:
 
 - `rapidmatch:need.join`
 - `rapidmatch:need.leave`
+
+Find:
+
+- `rapidmatch:ai_intake.structured`
+- `rapidmatch:research.updated`
+- `rapidmatch:solution_decision.updated`
+
+Connect:
+
+- `rapidmatch:match.created`
+- `rapidmatch:supplier.discovery_updated`
 - `rapidmatch:invitation.sent`
 - `rapidmatch:outreach.delivery_updated`
-- `rapidmatch:ai_intake.structured`
 - `rapidmatch:response.submitted`
 - `rapidmatch:supplier.selected`
+
+Deploy:
+
 - `rapidmatch:payment.status_updated`
 - `rapidmatch:engagement.secured`
+- `rapidmatch:deployment.updated`
 
-Find, Connect, Deploy V2:
-
-- `veltact:v2:need.join`
-- `veltact:v2:need.leave`
-- `veltact:v2:research.updated`
-- `veltact:v2:discovery.updated`
-- `veltact:v2:supplier.lifecycle_updated`
-- `veltact:v2:supplier.response_submitted`
-- `veltact:v2:project.updated`
-- `veltact:v2:milestone.payment_updated`
-
-Join payloads include `needProfileId` and, when authorization is enabled,
+Join payloads include `needProfileId` and, when required,
 `buyerAccessToken`.
+
+Agents must not emit canonical workflow updates under `veltact:v2:*`.
 
 ## Integration Invariants
 
-- Research and supplier discovery carry provider and citation provenance.
-- Supplier discovery never triggers outreach.
-- Only `approved_for_outreach` leads can be invited.
-- Supplier approval and buyer approval are separate state transitions.
-- Project creation requires selection of an active supplier response.
-- Milestone dependencies and acceptance are enforced by the API.
-- Payment Link creation reuses an existing usable milestone link.
-- Browser return URLs do not write authoritative payment state.
-- Fixture and local-demo evidence must remain visibly labelled.
-- Public navigation starts with the buyer journey; supplier access remains
-  scoped to an invitation token.
-- Buyer and supplier surfaces may render the same lifecycle state but must not
-  share role-specific controls.
+- One Need Profile ID links Find, Connect and Deploy.
+- Research carries source and citation provenance.
+- AI output remains buyer-reviewed.
+- Discovery never triggers outreach.
+- Buyer approval precedes supplier contact.
+- Supplier confirmation precedes activation.
+- At least two deterministic responses support the guided comparison.
+- Selection requires a submitted `can_help` response.
+- One selected response creates one engagement.
+- Payment Link creation reuses an existing usable link.
+- Browser return does not update authoritative payment state.
+- Only verified webhook or reconciliation evidence secures the supplier.
+- Deployment progress is derived and cannot be advanced by payment alone.
+- Fixture and local-demo evidence remain visible.
+- Buyer and supplier controls remain separated by capability.
 
 ## Environment Conventions
 
-- Secrets belong only in `apps/api/.env` or a deployment secret store.
-- `MARKETPLACE_DATA_FILE` controls durable single-process V1 state.
-- `VELTACT_V2_DATA_FILE` controls durable V2 state.
-- `SUPPLIER_CATALOG_FILE` controls validated external supplier data.
-- `PUBLIC_BASE_URL` is canonical for claim and payment-return URLs.
+- Secrets belong in `apps/api/.env` or a deployment secret store.
+- `MARKETPLACE_DATA_FILE` is the canonical journey repository.
+- `VELTACT_V2_DATA_FILE` is migration-only.
+- `SUPPLIER_CATALOG_FILE` controls validated catalog data.
+- `PUBLIC_BASE_URL` is canonical for supplier and Pinch return links.
 - `BUYER_CAPABILITY_AUTH_REQUIRED` defaults to true in production.
 - `VELTACT_RESEARCH_PROVIDER=auto|openai|fixture` selects research behavior.
-- `OPENAI_API_KEY` enables live research; `FIRECRAWL_API_KEY` enables optional
-  discovery fallback.
-- Delivery becomes `sent` only after provider acceptance.
-- `WEB_ORIGIN` and `PUBLIC_BASE_URL` must use the API-served public origin before
-  external links are generated.
+- `OPENAI_API_KEY` enables live intake/research.
+- `FIRECRAWL_API_KEY` enables optional discovery fallback.
+- Resend or SendGrid provides email.
+- Twilio provides SMS or WhatsApp.
+- `WEB_ORIGIN` and `PUBLIC_BASE_URL` must identify the API-served public origin.
+
+Delivery state semantics:
+
+- `not_sent`: no provider attempt.
+- `queued`: accepted for asynchronous processing.
+- `sent`: provider accepted delivery.
+- `failed`: an attempted delivery failed.
+- Missing configuration is reported as unavailable readiness, not a fabricated
+  delivery attempt.
+
+## Agent File Ownership
+
+- A0: `packages/contracts`, root configuration, product/architecture/integration
+  documents and final route registration.
+- A1: RapidMatch marketplace store, persistence, research/discovery services and
+  API implementation.
+- A2: canonical buyer UI based on `apps/buyer/src/main.ts`.
+- A3: supplier page, outreach adapters and canonical realtime behavior.
+- A4: Pinch/payment modules and lightweight deployment projection.
+
+Cross-owner edits require A0 integration review.

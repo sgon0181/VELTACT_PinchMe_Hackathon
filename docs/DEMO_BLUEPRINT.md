@@ -1,427 +1,280 @@
 # Veltact Demo Blueprint
 
-## Locked Product Concept
+## Product Reference
 
-Veltact is the fastest path from an industrial need to a qualified supplier who has confirmed availability and commercial intent.
+`docs/PRODUCT.md` is authoritative. This blueprint defines the strongest
+repeatable demonstration of that product.
 
-The core product is not the chatbot, image upload, voice input, or AI model.
+Veltact is one RapidMatch-based buyer journey:
 
-The core product is the orchestration:
+**Find a solution -> Connect with responding suppliers -> Deploy through a
+Pinch-backed commitment**
 
-**Unstructured industrial need → structured supplier brief → matched suppliers → parallel outreach → standardised responses → supplier comparison → Pinch-secured engagement**
+RapidMatch is the Connect engine. V2 is not presented as a separate product.
 
-Veltact makes the supplier market respond to the buyer instead of forcing the buyer to search manually.
+## Demo Thesis
 
----
+Veltact turns an industrial problem into an evidence-backed action plan. When
+the factory cannot execute the plan internally, RapidMatch makes relevant
+suppliers respond, Pinch secures the selected provider and Veltact keeps the
+delivery visible.
 
-## One-Line Product Promise
+## Primary Scenario
 
-**From line stop to committed specialist, in one workflow.**
+A factory plans a mixed-carton robotic palletising cell in Western Sydney.
+The buyer provides a written requirement with optional report and photo
+evidence. Veltact structures the need, researches cited solution pathways and
+shows when specialist integration is required.
 
-Alternative commercial wording:
+The buyer chooses `Find a specialist`. RapidMatch identifies relevant robotics
+integrators, sends approved invitations, receives two contrasting responses and
+supports a clear selection. The buyer funds a site-assessment commitment through
+Pinch and sees the supplier become secured.
 
-**Veltact turns a specific industrial need into qualified supplier responses, so companies can compare, choose, and secure the right provider faster.**
+The urgent Siemens PLC recovery scenario remains a second deterministic dataset
+using the same product journey.
 
----
+## Demo Controls
 
-## Demo Objective
+Development-only scenario controls are:
 
-Demonstrate one believable, uninterrupted workflow where:
+- `Demo: PLC`
+- `Demo: Robotic integration`
 
-1. A factory has an urgent industrial need.
-2. The buyer submits the requirement once.
-3. Veltact converts it into a supplier-ready Need Profile.
-4. Veltact identifies relevant suppliers.
-5. Suppliers are contacted in parallel.
-6. At least one supplier submits a real standardised response.
-7. The buyer compares responses and selects a supplier.
-8. Veltact creates a real Pinch sandbox payer and hosted Payment Link.
-9. The supplier engagement becomes commercially secured through the Pinch-powered flow.
+Both controls must populate the same canonical RapidMatch buyer workspace.
+They must not launch different products.
 
-The demo should prove that Veltact delivers supplier commitment, not merely search results.
+## Canonical Screens
 
----
+### 1. Find - Describe The Need
 
-## Core User Story
+Visible controls:
 
-An ABB robotic palletiser has stopped mid-cycle before a major morning dispatch. The Siemens S7 PLC reports an intermittent safety-circuit fault and cartons are backing up.
+- One dominant requirement field.
+- Optional PDF evidence.
+- Optional photograph evidence.
+- Location.
+- Urgency.
+- Budget.
+- Buyer priority.
+- One primary `Analyse requirement` action.
 
-The buyer needs:
+Company and contact information remain secondary. Demo controls are utilities,
+not the primary action.
 
-- Industrial robotics and automation expertise
-- ABB robotic-cell and Siemens PLC experience
-- Safety-circuit fault recovery
-- Support in Western Sydney
-- Availability that night
-- Fastest response as the main priority
-- An indicative mobilisation and recovery price
-
-The buyer should be able to go from incident to selected and secured supplier with minimal friction.
-
-The original Siemens PLC packaging-conveyor incident remains the classic secondary demo dataset.
-
----
-
-# Full Product Cycle
-
-## Phase 1 — Capture the Need
-
-### Minimum viable input
-
-The buyer submits:
-
-- Requirement description
-- Location
-- Urgency
-- Budget or callout tolerance
-- Priority:
-  - Speed
-  - Technical fit
-  - Quality
-  - Trust
-  - Price
-
-### Stretch input, only if time permits before the build cutoff
-
-- Upload an HMI or alarm image
-- Record a voice note
-- Use a conversational assistant to ask only missing questions
-- Extract equipment, fault text, location, urgency, and required capability
-
-### Product principle
-
-The AI must not pretend to diagnose the machine conclusively.
-
-Its role is to convert messy evidence into a supplier-ready brief.
-
----
-
-## Phase 2 — Generate the Need Profile
-
-Veltact structures the requirement into:
-
-- Clear title
-- Problem summary
-- Required capability
-- Equipment or technology
-- Location
-- Urgency
-- Required availability
-- Budget range
-- Certifications or constraints
-- Buyer priority
-
-The buyer reviews and confirms the profile before supplier outreach begins.
-
----
-
-## Phase 3 — Match Suppliers
-
-Veltact selects a small number of relevant suppliers based on:
-
-- Technical capability
-- Equipment or brand experience
-- Location
-- Availability
-- Relevant industry experience
-- Certifications
-- Buyer priority
-
-Every match must include an understandable reason.
-
-Example:
-
-> Matched because this supplier supports Siemens PLC systems, services food-manufacturing facilities, operates in Western Sydney, and can respond today.
-
-The demo must not rely on unexplained fake percentages.
-
----
-
-## Phase 4 — Parallel Supplier Outreach
-
-The buyer presses:
-
-**Send to matched suppliers**
-
-### Minimum viable outreach
-
-- Generate a secure supplier opportunity link
-- Make the link easy to open on a second device
-- Show status changes:
-  - Sent
-  - Viewed
-  - Responded
-  - Declined
-
-### Preferred real-world channel
-
-1. SMS with a secure response link
-2. Email as backup
-3. In-app notification for active suppliers
-
-### Future escalation concept
-
-An automated call may later say:
-
-> Veltact has an urgent industrial opportunity in Western Sydney. Press 1 if you may be available and we will text you the details.
-
-This is a future enhancement unless it is genuinely implemented before the build cutoff.
-
-Do not fake completed calls or notifications.
-
----
-
-## Phase 5 — Supplier Response
-
-The supplier opens the opportunity without lengthy onboarding.
-
-They submit:
-
-- Can help / cannot help
-- Earliest availability
-- Indicative price
-- Relevant experience
-- Conditions or questions
-
-The buyer receives an actual supplier response, not a hypothetical recommendation.
-
-The strongest demo moment is a supplier submitting from another device while the response appears live in the buyer interface.
-
----
-
-## Phase 6 — Compare Responses
-
-The buyer compares suppliers using a standard format:
-
-- Availability
-- Indicative price
-- Relevant experience
-- Match explanation
-- Conditions
-- Trust or verification indicators
-
-The comparison should make trade-offs obvious.
-
-Example:
-
-- Supplier A: fastest
-- Supplier B: lowest price
-- Supplier C: strongest relevant experience
-
-The buyer chooses based on what matters for this specific need.
-
----
-
-## Phase 7 — Select and Secure
-
-The buyer selects a supplier and presses:
-
-**Secure supplier**
-
-Veltact then:
-
-1. Creates or uses a real Pinch sandbox payer.
-2. Creates a real Pinch-hosted Payment Link.
-3. Opens the Pinch sandbox checkout.
-4. Uses the payment flow to secure a diagnostic fee, callout fee, mobilisation payment, or reserved engineering time.
-
-Pinch is not decorative checkout.
-
-Pinch converts supplier interest into a commercial commitment.
-
----
-
-## Phase 8 — Engagement State
-
-The buyer interface should show clear status changes:
-
-- Supplier selected
-- Awaiting payment
-- Payment processing
-- Supplier secured
-
-The browser redirect alone must not be treated as authoritative payment success.
-
-The ideal implementation uses the Pinch webhook to confirm the final state.
-
-If the webhook is not complete by the first submission deadline, the real payer and hosted Payment Link creation remain the minimum non-negotiable proof of meaningful Pinch API use, but webhook completion should remain the highest-priority technical enhancement before the build cutoff.
-
----
-
-# Locked 60-Second Demo Story
-
-## 0–8 seconds — The problem
-
-Show the urgent industrial requirement.
-
-Narration:
-
-> When a production line stops, companies lose time searching, calling, repeating the brief, and waiting to learn who can actually help.
-
-## 8–18 seconds — Submit once
-
-Load or submit:
-
-> Our ABB palletising robot stopped mid-cycle on Line 3. The Siemens S7 PLC shows an intermittent safety-circuit fault and cartons are backing up. We need a robotics and automation specialist in Western Sydney tonight before the 6:00 am dispatch.
-
-If image or voice input is working reliably, show it briefly here.
-
-## 18–27 seconds — Structured need
-
-Show Veltact converting the input into a clear Need Profile.
-
-Narration:
-
-> Veltact turns the incident into a supplier-ready requirement.
-
-## 27–37 seconds — Parallel outreach
-
-Show three matched suppliers and press:
-
-**Send to matched suppliers**
-
-Show invitation statuses.
-
-Narration:
-
-> The most relevant suppliers are contacted in parallel.
-
-## 37–47 seconds — Real supplier response
-
-Submit a response from another device.
-
-Show it appearing live.
-
-Narration:
-
-> These are real responses, not search results.
-
-## 47–54 seconds — Compare and select
-
-Show comparable price, availability, and experience.
-
-Select the preferred supplier.
-
-## 54–59 seconds — Pinch
-
-Open the real Pinch sandbox hosted checkout.
-
-Narration:
-
-> Pinch turns the selected response into a secured commercial engagement.
-
-## 59–60 seconds — Final outcome
+### 2. Find - Review The Plan
 
 Show:
 
-**Supplier secured**
+- Structured Need Profile.
+- One recommended solution pathway.
+- Up to two alternative pathways.
+- Cited evidence.
+- Missing information.
+- Safe factory preparation.
+- Specialist escalation triggers.
+
+Primary outcomes:
+
+- `Use this plan internally`
+- `Find a specialist`
+
+Research must not claim a conclusive machinery diagnosis.
+
+### 3. Connect - RapidMatch
+
+Show:
+
+- Three explainable supplier candidates.
+- Public-evidence provenance and risk labels.
+- One buyer approval action.
+- Email and SMS delivery state.
+- Private supplier invitation links in development only.
+
+The buyer should not see separate profile approval and marketplace activation
+buttons. Any backend consent stages must resolve behind one clear next action.
+
+### 4. Supplier Opportunity
+
+The supplier opens one token-scoped link and sees:
+
+- The requirement.
+- Why it matched.
+- Source disclosure.
+- Minimal company/contact confirmation.
+- Can help / cannot help.
+- Availability.
+- Indicative price.
+- Relevant experience.
+- Proposed approach.
+- Assumptions and conditions.
+
+The supplier confirms profile information and submits the quote from one concise
+screen. No general Veltact account is created.
+
+### 5. Connect - Compare And Select
+
+At least two responses are shown in a compact comparison:
+
+- Availability.
+- Indicative price.
+- Technical fit.
+- Relevant experience.
+- Proposed approach.
+- Assumptions.
+- Conditions.
+
+The demo responses must have meaningful trade-offs, such as fastest response
+versus lower price. Fixture responses remain labelled.
+
+Primary action:
+
+`Select supplier`
+
+### 6. Deploy - Commit And Track
+
+Show:
+
+- Selected supplier.
+- Commitment milestone and amount.
+- Real Pinch hosted checkout.
+- Payment evidence status.
+- `Supplier secured` only after authoritative backend evidence.
+- Simple milestone progress.
+
+Do not show the full V2 project-management surface in the core demo.
+
+## Locked 60-Second Story
+
+### 0-8 seconds - Industrial problem
+
+Select `Demo: Robotic integration` and show the requirement plus PDF/photo
+evidence.
+
+Narration:
+
+> Industrial teams often know the outcome they need but not the safest,
+> best-supported path to deliver it.
+
+### 8-20 seconds - Find
+
+Run `Analyse requirement`. Show the Need Profile and cited solution pathways.
+
+Narration:
+
+> Veltact structures the evidence and returns current, cited solution pathways,
+> including what the factory can prepare and when specialist help is required.
+
+Choose `Find a specialist`.
+
+### 20-36 seconds - Connect
+
+Show three explainable matches and send approved invitations.
+Show email and SMS states.
+
+Narration:
+
+> RapidMatch turns the chosen scope into one standard request and contacts the
+> most relevant suppliers in parallel.
+
+### 36-46 seconds - Supplier response
+
+Submit one response through the private supplier link. A second labelled demo
+response is already available.
+
+Narration:
+
+> Suppliers return comparable commercial intent, not search results.
+
+### 46-53 seconds - Compare
+
+Compare availability, price, fit and approach. Select the preferred supplier.
+
+### 53-59 seconds - Deploy
+
+Open the real Pinch hosted checkout for the site-assessment commitment.
+Return to backend-verified payment evidence.
+
+Narration:
+
+> Pinch turns the selected response into a commercial commitment.
+
+### 59-60 seconds - Outcome
+
+Show:
+
+`Supplier secured` and `25% - Site assessment`
 
 Final line:
 
-> From line stop to committed specialist, in one workflow.
+> Find the path. Connect with the right supplier. Deploy with control.
 
----
+## Truth And Safety Rules
 
-# First Submission Priorities
+- `Live` means an external provider completed successfully in this run.
+- `Fixture` means deterministic demo evidence.
+- `Sent` means the provider accepted the delivery.
+- `Not configured` is not displayed as a failed delivery attempt.
+- Public discovery does not mean verified supplier.
+- Supplier consent is required before marketplace activation.
+- Browser return does not confirm payment.
+- Pinch billing is not escrow.
+- Payment does not mark engineering work complete.
+- Veltact provides decision support, not unsafe diagnostic instructions.
 
-## P0 — Non-Negotiable Eligibility
+## P0 - Canonical Journey
 
-Must be complete before the build cutoff:
+- One RapidMatch-based buyer workspace.
+- Text, PDF and photo intake.
+- Need Profile.
+- Cited solution pathways.
+- Internal-plan or specialist decision.
+- Explainable supplier matching.
+- Buyer-approved outreach.
+- Private supplier response.
+- Two comparable responses.
+- Selection.
+- Real Pinch authentication, payer and hosted Payment Link.
+- Backend-verified secured state.
+- Repeatable PLC and robotics scenarios.
+- No exposed credentials.
 
-- Working prototype
-- Buyer requirement submission
-- Supplier matching
-- Supplier response path
-- Supplier comparison and selection
-- Real Pinch sandbox authentication
-- Real Pinch payer creation
-- Real Pinch hosted Payment Link creation
-- No committed credentials
-- Stable demo route
-- Team name
-- Team members
-- Team contact email
-- Non-private 60-second YouTube demo link
-- Disclosure of pre-existing Veltact work
+## P1 - Demo Clarity
 
-## P1 — Winning Demo Value
+- One primary action per state.
+- Live supplier response update.
+- Honest email/SMS status.
+- Clear RapidMatch transition inside Connect.
+- Decision-focused comparison.
+- Strong selected-to-secured transition.
+- Lightweight milestone progress.
+- Browser refresh does not lose the active buyer workspace.
+- Desktop and mobile layouts have no overlap or horizontal overflow.
 
-Highest-value enhancements before the cutoff:
+## P2 - Only After P0 And P1
 
-- Live supplier response update
-- Clear outreach statuses
-- Excellent first screen
-- Explainable matching
-- Smooth comparison
-- Strong selected-to-secured state change
-- Reliable demo-data reset
+- Additional evidence formats.
+- More live supplier-discovery providers.
+- Production account system.
+- Additional deployment collaboration.
+- Automated voice escalation.
 
-## P2 — Stretch Features Before the Cutoff
+## Explicitly Excluded
 
-Only attempt after P0 and P1 are stable:
+- A separate V2 product.
+- A second buyer workspace.
+- Complex project management.
+- General chat or messaging.
+- Autonomous supplier enrolment.
+- Scraping without provenance.
+- Full KYC.
+- Unsupported commission, verification or escrow claims.
 
-- Image upload
-- Voice input
-- Conversational intake
-- Real SMS delivery
-- Email delivery
-- Verified webhook-driven final state
-- Automated voice escalation
+## Build Rule
 
-## Do Not Build Before the First Submission
+Every implementation decision must answer:
 
-- Full authentication system
-- Admin dashboard
-- Supplier analytics
-- General messaging platform
-- Live web scraping
-- Complex project management
-- Multi-industry support
-- Complete supplier KYC onboarding
-- Parts marketplace
-- Broad telemetry integration
+> Does this make the single journey from problem evidence to secured and visible
+> delivery clearer, more reliable or more truthful?
 
----
-
-# Polish Week Boundary
-
-The core concept submitted at the end of the build weekend is locked.
-
-Allowed after the cutoff:
-
-- Bug fixes
-- Performance improvements
-- Reliability
-- UX improvements
-- Visual polish
-- Better demo data
-- Better transitions
-- Pitch preparation
-- Video preparation
-
-Not allowed after the cutoff:
-
-- Major new functionality
-- New core workflow stages
-- A fundamental product pivot
-- Turning a placeholder into a substantial new feature
-
-Placeholders do not reserve permission to build a major feature later.
-
----
-
-# Product Decision Rule
-
-Before adding any feature, ask:
-
-> Does this materially improve eligibility, supplier response speed, buyer decision quality, Pinch relevance, or the 60-second demo?
-
-If not, do not build it.
-
----
-
-# Final Demo Thesis
-
-Veltact does not merely help industrial companies find suppliers.
-
-**Veltact makes the right suppliers respond to the need, compares their commercial intent, and secures the chosen provider through Pinch.**
+If not, it is outside the canonical demo.
