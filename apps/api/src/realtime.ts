@@ -27,10 +27,8 @@ export function attachRealtime(httpServer: HttpServer) {
   io.on("connection", (socket) => {
     socket.on(
       rapidMatchSocketEvent.joinNeedProfile,
-      (payload: { needProfileId?: string; buyerAccessToken?: string }) => {
-        if (!payload.needProfileId) {
-          return;
-        }
+      (payload: unknown) => {
+        if (!isNeedRoomPayload(payload)) return;
         if (!isBuyerAuthorised(payload.needProfileId, payload.buyerAccessToken)) {
           return;
         }
@@ -38,17 +36,18 @@ export function attachRealtime(httpServer: HttpServer) {
       }
     );
 
-    socket.on(rapidMatchSocketEvent.leaveNeedProfile, (payload: { needProfileId?: string }) => {
-      if (!payload.needProfileId) {
-        return;
+    socket.on(
+      rapidMatchSocketEvent.leaveNeedProfile,
+      (payload: unknown) => {
+        if (!isNeedRoomPayload(payload)) return;
+        socket.leave(needProfileRoom(payload.needProfileId));
       }
-      socket.leave(needProfileRoom(payload.needProfileId));
-    });
+    );
 
     socket.on(
       veltactV2SocketEvent.joinNeed,
-      (payload: { needProfileId?: string; buyerAccessToken?: string }) => {
-        if (!payload.needProfileId) return;
+      (payload: unknown) => {
+        if (!isNeedRoomPayload(payload)) return;
         try {
           v2Service.getWorkspace(
             payload.needProfileId,
@@ -63,10 +62,9 @@ export function attachRealtime(httpServer: HttpServer) {
 
     socket.on(
       veltactV2SocketEvent.leaveNeed,
-      (payload: { needProfileId?: string }) => {
-        if (payload.needProfileId) {
-          socket.leave(v2NeedRoom(payload.needProfileId));
-        }
+      (payload: unknown) => {
+        if (!isNeedRoomPayload(payload)) return;
+        socket.leave(v2NeedRoom(payload.needProfileId));
       }
     );
   });
@@ -75,24 +73,33 @@ export function attachRealtime(httpServer: HttpServer) {
 }
 
 export function emitSupplierResponseSubmitted(supplierResponse: SupplierResponse) {
-  io?.to(needProfileRoom(supplierResponse.needId)).emit(rapidMatchSocketEvent.supplierResponseSubmitted, {
-    needProfileId: supplierResponse.needId,
-    supplierResponse
-  });
+  io
+    ?.to(needProfileRoom(supplierResponse.needId))
+    .emit(rapidMatchSocketEvent.supplierResponseSubmitted, {
+      needProfileId: supplierResponse.needId,
+      supplierResponse
+    });
 }
 
 export function emitSupplierInvitationUpdated(supplierInvitation: SupplierInvitation) {
-  io?.to(needProfileRoom(supplierInvitation.needProfileId)).emit(rapidMatchSocketEvent.invitationSent, {
-    needProfileId: supplierInvitation.needProfileId,
-    supplierInvitation
-  });
+  io
+    ?.to(needProfileRoom(supplierInvitation.needProfileId))
+    .emit(rapidMatchSocketEvent.invitationSent, {
+      needProfileId: supplierInvitation.needProfileId,
+      supplierInvitation
+    });
 }
 
-export function emitOutreachDeliveryUpdated(needProfileId: string, outreachDelivery: SupplierOutreachDelivery) {
-  io?.to(needProfileRoom(needProfileId)).emit(rapidMatchSocketEvent.outreachDeliveryUpdated, {
-    needProfileId,
-    outreachDelivery
-  });
+export function emitOutreachDeliveryUpdated(
+  needProfileId: string,
+  outreachDelivery: SupplierOutreachDelivery
+) {
+  io
+    ?.to(needProfileRoom(needProfileId))
+    .emit(rapidMatchSocketEvent.outreachDeliveryUpdated, {
+      needProfileId,
+      outreachDelivery
+    });
 }
 
 export function emitPaymentStatusUpdated(engagement: Engagement) {
@@ -130,4 +137,20 @@ function needProfileRoom(needProfileId: string) {
 
 function v2NeedRoom(needProfileId: string) {
   return `veltact-v2-need:${needProfileId}`;
+}
+
+function isNeedRoomPayload(
+  payload: unknown
+): payload is { needProfileId: string; buyerAccessToken?: string } {
+  if (!payload || typeof payload !== "object") return false;
+  const candidate = payload as {
+    needProfileId?: unknown;
+    buyerAccessToken?: unknown;
+  };
+  return (
+    typeof candidate.needProfileId === "string" &&
+    candidate.needProfileId.length > 0 &&
+    (candidate.buyerAccessToken === undefined ||
+      typeof candidate.buyerAccessToken === "string")
+  );
 }

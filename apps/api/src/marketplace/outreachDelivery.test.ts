@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { env } from "../env.js";
-import { sendSupplierOpportunity } from "./outreachDelivery.js";
+import {
+  getOutreachDeliveryReadiness,
+  redactOutreachError,
+  sendSupplierOpportunity,
+  supplierSmsMessage
+} from "./outreachDelivery.js";
 import {
   createNeed,
   listOutreachDeliveriesForNeed,
@@ -35,13 +40,24 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
 
     assert.deepEqual(
       await sendSupplierOpportunity(emailDelivery(), invitation(), need()),
-      { ok: true }
+      {
+        ok: true,
+        outcome: "sent",
+        attempted: true,
+        provider: "local_demo"
+      }
     );
 
     Object.assign(env, { NODE_ENV: "production" });
     assert.deepEqual(
       await sendSupplierOpportunity(emailDelivery(), invitation(), need()),
-      { ok: false, errorMessage: "Production email provider is not configured." }
+      {
+        ok: false,
+        outcome: "not_configured",
+        attempted: false,
+        provider: "local_demo",
+        errorMessage: "Production email provider is not configured."
+      }
     );
   });
 
@@ -59,7 +75,12 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
 
     const result = await sendSupplierOpportunity(emailDelivery(), invitation(), need());
 
-    assert.deepEqual(result, { ok: true });
+    assert.deepEqual(result, {
+      ok: true,
+      outcome: "sent",
+      attempted: true,
+      provider: "resend"
+    });
     assert.equal(request?.url, "https://api.resend.com/emails");
     assert.equal(
       request?.init?.headers && new Headers(request.init.headers).get("authorization"),
@@ -85,11 +106,16 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
 
     const result = await sendSupplierOpportunity(emailDelivery(), invitation(), need());
 
-    assert.deepEqual(result, { ok: true });
+    assert.deepEqual(result, {
+      ok: true,
+      outcome: "sent",
+      attempted: true,
+      provider: "sendgrid"
+    });
     assert.equal(request?.url, "https://api.sendgrid.com/v3/mail/send");
     const body = JSON.parse(String(request?.init?.body));
     assert.equal(body.personalizations[0].to[0].email, "supplier@example.com");
-    assert.match(body.content[0].value, /Respond here:/);
+    assert.match(body.content[0].value, /Review and respond:/);
   });
 
   test("sends the secure opportunity link through Twilio SMS", async () => {
@@ -107,7 +133,12 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
 
     const result = await sendSupplierOpportunity(smsDelivery(), invitation(), need());
 
-    assert.deepEqual(result, { ok: true });
+    assert.deepEqual(result, {
+      ok: true,
+      outcome: "sent",
+      attempted: true,
+      provider: "twilio_sms"
+    });
     assert.equal(
       request?.url,
       "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json"
@@ -119,6 +150,8 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
       body.get("Body") ?? "",
       /https:\/\/demo\.veltact\.test\/supplier\.html\?token=token-123/
     );
+    assert.equal(body.get("Body"), supplierSmsMessage(invitation()));
+    assert.ok((body.get("Body") ?? "").length <= 160);
   });
 
   test("sends the secure opportunity link through the Twilio WhatsApp Sandbox", async () => {
@@ -136,7 +169,12 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
 
     const result = await sendSupplierOpportunity(whatsAppDelivery(), invitation(), need());
 
-    assert.deepEqual(result, { ok: true });
+    assert.deepEqual(result, {
+      ok: true,
+      outcome: "sent",
+      attempted: true,
+      provider: "twilio_whatsapp"
+    });
     assert.equal(
       request?.url,
       "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json"
@@ -171,7 +209,7 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
     );
   });
 
-  test("fails WhatsApp honestly when its sender is not configured", async () => {
+  test("reports missing WhatsApp setup as not configured without attempting delivery", async () => {
     Object.assign(env, {
       SMS_PROVIDER: "twilio",
       TWILIO_ACCOUNT_SID: "AC123",
@@ -183,12 +221,45 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
       await sendSupplierOpportunity(whatsAppDelivery(), invitation(), need()),
       {
         ok: false,
+        outcome: "not_configured",
+        attempted: false,
+        provider: "twilio_whatsapp",
         errorMessage: "Twilio WhatsApp credentials are not configured."
       }
     );
   });
 
-  test("returns failed results for provider rejection and network errors", async () => {
+  test("does not call a provider when delivery configuration is unavailable", async () => {
+    Object.assign(env, {
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: undefined
+    });
+    let providerCalled = false;
+    globalThis.fetch = async () => {
+      providerCalled = true;
+      return new Response(null, { status: 200 });
+    };
+
+    assert.deepEqual(getOutreachDeliveryReadiness(emailDelivery()), {
+      available: false,
+      provider: "resend",
+      reason: "RESEND_API_KEY is not configured."
+    });
+    assert.deepEqual(
+      await sendSupplierOpportunity(emailDelivery(), invitation(), need()),
+      {
+        ok: false,
+        outcome: "not_configured",
+        attempted: false,
+        provider: "resend",
+        errorMessage: "RESEND_API_KEY is not configured."
+      }
+    );
+    assert.equal(providerCalled, false);
+  });
+
+  test("returns failed only after provider rejection or a request error", async () => {
     Object.assign(env, {
       EMAIL_PROVIDER: "resend",
       EMAIL_FROM: "Veltact <opportunities@veltact.test>",
@@ -200,6 +271,8 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
     const rejected = await sendSupplierOpportunity(emailDelivery(), invitation(), need());
     assert.equal(rejected.ok, false);
     if (!rejected.ok) {
+      assert.equal(rejected.outcome, "failed");
+      assert.equal(rejected.attempted, true);
       assert.match(rejected.errorMessage, /Resend rejected delivery \(422\)/);
       assert.match(rejected.errorMessage, /sender domain is not verified/);
     }
@@ -210,8 +283,43 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
     const unavailable = await sendSupplierOpportunity(emailDelivery(), invitation(), need());
     assert.deepEqual(unavailable, {
       ok: false,
+      outcome: "failed",
+      attempted: true,
+      provider: "resend",
       errorMessage: "Resend delivery request failed: provider connection unavailable"
     });
+  });
+
+  test("redacts invitation tokens and provider credentials from failure details", async () => {
+    Object.assign(env, {
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_sensitive_key"
+    });
+    globalThis.fetch = async () =>
+      new Response(
+        `Rejected https://demo.veltact.test/supplier.html?token=private-token re_sensitive_key`,
+        { status: 422 }
+      );
+
+    const result = await sendSupplierOpportunity(
+      emailDelivery(),
+      invitation(),
+      need()
+    );
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.doesNotMatch(result.errorMessage, /private-token/);
+      assert.doesNotMatch(result.errorMessage, /re_sensitive_key/);
+      assert.match(result.errorMessage, /token=\[redacted\]/);
+    }
+    assert.equal(
+      redactOutreachError(
+        "https://example.test/supplier.html?token=another-private-token"
+      ),
+      "https://example.test/supplier.html?token=[redacted]"
+    );
   });
 });
 

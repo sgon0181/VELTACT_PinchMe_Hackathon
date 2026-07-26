@@ -3,32 +3,42 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Veltact RapidMatch Supplier</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="./supplier.css?v=alloy-3" />
+    <meta name="referrer" content="same-origin" />
+    <title>Veltact Supplier Opportunity</title>
+    <link rel="stylesheet" href="./supplier.css?v=unified-1" />
   </head>
   <body>
     <a class="skip-link" href="#supplier-content">Skip to supplier opportunity</a>
-    <main class="supplier-shell">
+    <main id="supplier-content" class="supplier-shell">
       <header class="brand-header">
-        <div>
-          <a class="brand-identity" href="./landing.html" aria-label="Veltact home">
-            <span class="brand-notch" aria-hidden="true"></span>
+        <a class="brand-identity" href="./landing.html" aria-label="Veltact home">
+          <span class="brand-notch" aria-hidden="true"></span>
+          <span>
             <span class="brand-mark">Veltact</span>
-          </a>
-          <p class="brand-copy">RapidMatch / Supplier response</p>
-        </div>
-        <span class="access-badge">No login required</span>
+            <span class="brand-copy">RapidMatch supplier opportunity</span>
+          </span>
+        </a>
+        <span class="access-badge">Private link / no login</span>
       </header>
 
-      <section id="supplier-content" class="summary" aria-live="polite">
-        <p class="eyebrow">Supplier opportunity</p>
-        <h1 id="need-title">Loading opportunity...</h1>
+      <section id="page-state" class="state-panel" role="status" hidden>
+        <p id="page-state-label" class="eyebrow">Invitation status</p>
+        <h1 id="page-state-title">Checking invitation</h1>
+        <p id="page-state-copy" class="state-copy"></p>
+      </section>
+
+      <section id="opportunity-summary" class="summary" aria-live="polite" aria-busy="true">
+        <div class="summary-heading">
+          <div>
+            <p class="eyebrow">Private supplier opportunity</p>
+            <h1 id="need-title">Loading opportunity...</h1>
+          </div>
+          <div class="invitation-meta">
+            <span id="supplier-name">Supplier</span>
+            <span id="invitation-expiry">Checking expiry</span>
+          </div>
+        </div>
+
         <dl class="summary-grid">
           <div>
             <dt>Location</dt>
@@ -39,62 +49,205 @@
             <dd id="need-urgency">-</dd>
           </div>
           <div>
-            <dt>Budget</dt>
+            <dt>Indicative budget</dt>
             <dd id="need-budget">-</dd>
           </div>
         </dl>
-        <p id="need-description" class="description"></p>
-        <div id="capabilities" class="chips" aria-label="Required capabilities"></div>
-      </section>
 
-      <form id="response-form" class="response-form">
-        <div class="form-heading">
-          <p class="eyebrow">Standardised response</p>
-          <h2>Tell the buyer if you can help</h2>
-          <p>Submit availability, indicative pricing, relevant experience and any conditions so the buyer can compare responses live.</p>
+        <div class="requirement-block">
+          <h2>Requirement</h2>
+          <p id="need-description" class="description"></p>
+          <div id="capabilities" class="chips" aria-label="Required capabilities"></div>
         </div>
 
-        <fieldset>
-          <legend>Can you help?</legend>
-          <label class="choice">
-            <input type="radio" name="canHelp" value="true" checked />
-            <span>Can help</span>
+        <div class="match-disclosure">
+          <div>
+            <h2>Why you matched</h2>
+            <ul id="match-reasons"></ul>
+          </div>
+          <div>
+            <h2>Source disclosure</h2>
+            <p id="source-disclosure"></p>
+          </div>
+        </div>
+      </section>
+
+      <form id="response-form" class="response-form" hidden>
+        <div class="form-heading">
+          <p class="eyebrow">Confirm and respond</p>
+          <h2>One concise supplier response</h2>
+          <p>
+            Confirm who is responding, then provide comparable availability,
+            pricing and delivery details. Veltact will not create an account.
+          </p>
+        </div>
+
+        <section class="form-section" aria-labelledby="identity-heading">
+          <div class="section-heading">
+            <span class="step-number">1</span>
+            <div>
+              <h3 id="identity-heading">Company and contact</h3>
+              <p id="claim-status">Confirm the person authorised to respond for this company.</p>
+            </div>
+          </div>
+
+          <div class="field-grid">
+            <label class="field-wide">
+              <span>Company name</span>
+              <input name="companyName" autocomplete="organization" required />
+            </label>
+            <label>
+              <span>Contact name</span>
+              <input name="contactName" autocomplete="name" required />
+            </label>
+            <label>
+              <span>Contact email</span>
+              <input name="contactEmail" type="email" autocomplete="email" required />
+            </label>
+            <label class="field-wide">
+              <span>Contact phone <small>Optional</small></span>
+              <input name="contactPhone" type="tel" autocomplete="tel" />
+            </label>
+          </div>
+
+          <label class="confirmation">
+            <input name="sourceDisclosureAccepted" type="checkbox" required />
+            <span>
+              I confirm these details and understand the match is based on
+              catalogue or public-source evidence, not Veltact identity, licence
+              or availability verification.
+            </span>
           </label>
-          <label class="choice">
-            <input type="radio" name="canHelp" value="false" />
-            <span>Cannot help</span>
+        </section>
+
+        <section class="form-section" aria-labelledby="response-heading">
+          <div class="section-heading">
+            <span class="step-number">2</span>
+            <div>
+              <h3 id="response-heading">Opportunity response</h3>
+              <p>Tell the buyer whether this requirement fits your current capability.</p>
+            </div>
+          </div>
+
+          <fieldset>
+            <legend>Can you help?</legend>
+            <label class="choice">
+              <input type="radio" name="canHelp" value="true" checked />
+              <span>
+                <strong>Can help</strong>
+                <small>Provide availability and an indicative offer</small>
+              </span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="canHelp" value="false" />
+              <span>
+                <strong>Cannot help</strong>
+                <small>Decline this opportunity without creating an account</small>
+              </span>
+            </label>
+          </fieldset>
+
+          <div id="help-response-fields">
+            <div class="field-grid">
+              <label>
+                <span>Earliest availability</span>
+                <input name="earliestAvailability" type="date" data-help-required required />
+              </label>
+              <label>
+                <span>Indicative price (AUD)</span>
+                <input
+                  name="indicativePriceAud"
+                  type="number"
+                  min="0"
+                  step="100"
+                  inputmode="numeric"
+                  data-help-required
+                  required
+                />
+              </label>
+            </div>
+
+            <label>
+              <span>Relevant experience</span>
+              <textarea
+                name="relevantExperience"
+                rows="4"
+                data-help-required
+                required
+                placeholder="Comparable equipment, sites or outcomes"
+              ></textarea>
+            </label>
+
+            <label>
+              <span>Proposed approach</span>
+              <textarea
+                name="proposedApproach"
+                rows="4"
+                data-help-required
+                required
+                placeholder="How you would assess and deliver the work"
+              ></textarea>
+            </label>
+
+            <label>
+              <span>Assumptions</span>
+              <textarea
+                name="assumptions"
+                rows="3"
+                data-help-required
+                required
+                placeholder="One assumption per line"
+              ></textarea>
+            </label>
+
+            <label>
+              <span>Conditions</span>
+              <textarea
+                name="conditions"
+                rows="3"
+                data-help-required
+                required
+                placeholder="One condition per line"
+              ></textarea>
+            </label>
+          </div>
+
+          <label id="decline-reason-field" hidden>
+            <span>Reason or note <small>Optional</small></span>
+            <textarea
+              name="declineReason"
+              rows="3"
+              placeholder="For example: no crew available in the required timeframe"
+            ></textarea>
           </label>
-        </fieldset>
+        </section>
 
-        <label>
-          <span>Earliest availability</span>
-          <input name="earliestAvailability" type="date" required />
-        </label>
+        <details id="demo-tools" class="demo-tools">
+          <summary>Fixture demo response</summary>
+          <p>Development utility. Loaded values remain editable before submission.</p>
+          <div class="demo-controls">
+            <label>
+              <span>Preset</span>
+              <select id="demo-response-select"></select>
+            </label>
+            <button id="demo-fill-button" class="secondary-button" type="button">
+              Fill fixture response
+            </button>
+          </div>
+        </details>
 
-        <label>
-          <span>Indicative price (AUD)</span>
-          <input name="indicativePriceAud" type="number" min="0" step="100" inputmode="numeric" required />
-        </label>
-
-        <label>
-          <span>Relevant experience</span>
-          <textarea name="relevantExperience" rows="4" required></textarea>
-        </label>
-
-        <label>
-          <span>Conditions</span>
-          <textarea name="conditions" rows="3" required></textarea>
-        </label>
-
-        <button id="demo-fill-button" class="secondary-button" type="button">Use demo response</button>
-        <button type="submit">Submit response</button>
+        <button id="submit-button" type="submit">Confirm and submit response</button>
         <p id="form-status" class="form-status" role="status"></p>
       </form>
 
       <section id="submitted-receipt" class="receipt" hidden>
-        <p class="eyebrow">Response submitted</p>
-        <h2>Buyer dashboard updated</h2>
-        <p class="receipt-copy">Your response is now visible to the buyer for comparison. Veltact has not created an engagement until the buyer selects a supplier.</p>
+        <div class="receipt-check" aria-hidden="true">✓</div>
+        <p class="eyebrow">Response received</p>
+        <h2 id="receipt-title">The buyer comparison is updated</h2>
+        <p class="receipt-copy">
+          Veltact has accepted your response and notified the buyer workspace.
+          No engagement exists unless the buyer selects your company.
+        </p>
         <dl class="receipt-grid">
           <div>
             <dt>Decision</dt>
@@ -108,9 +261,14 @@
             <dt>Indicative price</dt>
             <dd id="receipt-price">-</dd>
           </div>
+          <div>
+            <dt>Submitted</dt>
+            <dd id="receipt-submitted">-</dd>
+          </div>
         </dl>
+        <p id="receipt-reference" class="receipt-reference"></p>
       </section>
     </main>
-    <script src="./supplier.js?v=alloy-3" type="module"></script>
+    <script src="./supplier.js?v=unified-1" type="module"></script>
   </body>
 </html>
