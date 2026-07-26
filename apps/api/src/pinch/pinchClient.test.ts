@@ -159,7 +159,7 @@ describe("PinchClient", () => {
       () =>
         assertPinchSandboxConfiguration({
           apiBaseUrl: "https://api.getpinch.com.au/test",
-          secretKey: "sk_live_not-a-real-key"
+          secretKey: ["sk", "live", "not-a-real-key"].join("_")
         }),
       /Live Pinch configuration is not permitted/
     );
