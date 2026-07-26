@@ -1,10 +1,15 @@
+import { aiIntakeResultSchema, rapidMatchApiRoute } from "@veltact/contracts";
 const runtimeWindow = window;
-const API_BASE = runtimeWindow.API_BASE_URL ?? "http://localhost:4000/api";
+const API_BASE = runtimeWindow.API_BASE_URL ?? defaultApiBase();
 export class BackendAiIntakeService {
     fallback = new DemoAiIntakeService();
+    lastSourceMode = "fixture";
+    sourceMode() {
+        return this.lastSourceMode;
+    }
     async structureRequirement(input) {
         try {
-            const response = await fetch(`${API_BASE}/ai-intake/structure`, {
+            const response = await fetch(canonicalApiUrl(rapidMatchApiRoute.structureRequirement), {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
@@ -15,14 +20,19 @@ export class BackendAiIntakeService {
             if (!response.ok) {
                 throw new Error(payload.message ?? "Unable to structure the requirement.");
             }
-            const result = payload.aiIntakeResult ?? payload.result;
-            if (!result) {
+            const parsedResult = aiIntakeResultSchema.safeParse(payload.aiIntakeResult ?? payload.result);
+            if (!parsedResult.success) {
                 throw new Error("AI intake service returned an empty result.");
             }
-            return result;
+            this.lastSourceMode =
+                payload.source === "openai" || payload.source === "live"
+                    ? "live"
+                    : "fixture";
+            return parsedResult.data;
         }
         catch (error) {
             if (error instanceof TypeError) {
+                this.lastSourceMode = "fixture";
                 return this.fallback.structureRequirement(input);
             }
             throw error;
@@ -30,6 +40,9 @@ export class BackendAiIntakeService {
     }
 }
 export class DemoAiIntakeService {
+    sourceMode() {
+        return "fixture";
+    }
     async structureRequirement(input) {
         // Local-only fallback for demo environments where the API server is not running.
         await delay(320);
@@ -48,7 +61,7 @@ export class DemoAiIntakeService {
         const location = detectLocation(normalised);
         const budgetRange = detectBudget(rawRequirement);
         const constraints = detectConstraints(normalised, isUrgent, input.evidence ?? []);
-        return {
+        return aiIntakeResultSchema.parse({
             rawRequirement,
             generatedProfile: {
                 title: titleFromRequirement(rawRequirement, equipmentOrTechnology),
@@ -73,8 +86,19 @@ export class DemoAiIntakeService {
                 isUrgent,
                 evidence: input.evidence ?? []
             })
-        };
+        });
     }
+}
+function canonicalApiUrl(route) {
+    const base = API_BASE.replace(/\/$/, "");
+    return base.endsWith("/api") ? `${base}${route.slice(4)}` : `${base}${route}`;
+}
+function defaultApiBase() {
+    if (["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+        window.location.port !== "4000") {
+        return "http://localhost:4000/api";
+    }
+    return `${window.location.origin}/api`;
 }
 function delay(ms) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));
