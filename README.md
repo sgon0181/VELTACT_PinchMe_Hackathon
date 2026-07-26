@@ -4,6 +4,7 @@ Veltact turns industrial requirements into cited solution options, qualified
 supplier responses and controlled deployments with Pinch milestone payments.
 
 # PLEASE WATCH THIS VIDEO AS IT WILL BE REALLY HELPFUL: 
+Feel free to bring the speed to 1x and not 1.2 x haha. 
 https://www.loom.com/share/78842dc66a984bb18dbca402c7949854
 
 There is one canonical RapidMatch-based workflow:
