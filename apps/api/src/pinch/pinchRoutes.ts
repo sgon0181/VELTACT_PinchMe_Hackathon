@@ -4,8 +4,15 @@ import { z } from "zod";
 import { pinchClient, PinchApiError } from "./pinchClient.js";
 import { verifyPinchWebhookSignature, PinchWebhookError } from "./webhookVerifier.js";
 import { listWebhookEvents, recordWebhookEvent } from "./webhookStore.js";
-import { recordAuthoritativePinchPayment } from "../marketplace/store.js";
-import { emitEngagementSecured, emitPaymentStatusUpdated } from "../realtime.js";
+import {
+  getDeployment,
+  recordAuthoritativePinchPayment
+} from "../marketplace/store.js";
+import {
+  emitDeploymentUpdated,
+  emitEngagementSecured,
+  emitPaymentStatusUpdated
+} from "../realtime.js";
 import { env } from "../env.js";
 import { v2Service } from "../v2/service.js";
 import { veltactV2SocketEvent } from "@veltact/contracts";
@@ -136,6 +143,14 @@ pinchRouter.post("/webhooks", async (request, response) => {
         emitPaymentStatusUpdated(result.engagement);
         if (result.engagement.status === "supplier_secured") {
           emitEngagementSecured(result.engagement);
+        }
+        const deployment = getDeployment(result.engagement.id);
+        if (deployment) {
+          emitDeploymentUpdated({
+            needProfileId: result.engagement.needId,
+            engagementId: result.engagement.id,
+            deployment
+          });
         }
       }
     }

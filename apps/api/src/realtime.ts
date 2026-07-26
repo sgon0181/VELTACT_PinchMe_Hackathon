@@ -6,6 +6,7 @@ import {
 } from "@veltact/contracts";
 import { Server } from "socket.io";
 import { env } from "./env.js";
+import type { DeploymentUpdatedEvent } from "./deployment/types.js";
 import { isBuyerAuthorised } from "./marketplace/store.js";
 import type {
   Engagement,
@@ -118,6 +119,12 @@ export function emitEngagementSecured(engagement: Engagement) {
     paymentStatus: engagement.paymentStatus,
     engagement
   });
+}
+
+export function emitDeploymentUpdated(event: DeploymentUpdatedEvent) {
+  io
+    ?.to(needProfileRoom(event.needProfileId))
+    .emit(rapidMatchSocketEvent.deploymentUpdated, event);
 }
 
 export function emitV2Update(

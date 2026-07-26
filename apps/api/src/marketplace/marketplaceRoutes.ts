@@ -8,7 +8,6 @@ import {
 } from "@veltact/contracts";
 import {
   approveSupplierOutreachForNeed,
-  attachPaymentLinkToEngagement,
   claimSupplierInvitation,
   consumeIssuedBuyerAccessToken,
   createEngagement,
@@ -17,6 +16,7 @@ import {
   discoverNeedSuppliers,
   getEngagement,
   getEngagementForNeed,
+  getDeployment,
   getNeed,
   getProviderWarningsForNeed,
   getResearchResultForNeed,
@@ -37,14 +37,21 @@ import {
   submitSupplierResponse
 } from "./store.js";
 import {
+  emitDeploymentUpdated,
   emitEngagementSecured,
   emitOutreachDeliveryUpdated,
   emitPaymentStatusUpdated,
   emitSupplierInvitationUpdated,
   emitSupplierResponseSubmitted
 } from "../realtime.js";
+import { marketplaceDeploymentIntegration } from "../deployment/marketplaceIntegration.js";
 import { env } from "../env.js";
 import { PinchApiError } from "../pinch/pinchClient.js";
+import {
+  CommitmentPaymentError,
+  createLocalDemoPaymentEvidence
+} from "../payments/commitmentPaymentService.js";
+import { marketplaceCommitmentPaymentService } from "../payments/marketplaceCommitment.js";
 import { getPaymentProvider } from "../payments/providerRegistry.js";
 import type { SupplierResponse } from "./types.js";
 
@@ -617,6 +624,8 @@ marketplaceRouter.get("/engagements/:engagementId", async (request, response) =>
           engagement = result.engagement;
           if (!result.duplicate) {
             emitPaymentStatusUpdated(result.engagement);
+            emitEngagementSecured(result.engagement);
+            emitCurrentDeployment(result.engagement.id, result.engagement.needId);
           }
         }
       }
@@ -629,58 +638,40 @@ marketplaceRouter.get("/engagements/:engagementId", async (request, response) =>
 });
 
 marketplaceRouter.post("/engagements/:engagementId/payment-link", async (request, response) => {
-  const engagement = getEngagement(request.params.engagementId);
-  if (!engagement) {
-    response.status(404).json({
-      status: "error",
-      message: "Engagement not found"
-    });
-    return;
-  }
-
-  const need = getNeed(engagement.needId);
-  if (!need) {
-    response.status(404).json({
-      status: "error",
-      message: "Need profile not found"
-    });
-    return;
-  }
-  if (!requireBuyerAccess(request, response, need.id)) return;
-
-  if (engagement.hostedCheckoutUrl && engagement.paymentLinkId && engagement.pinchPayerId) {
-    response.json({ engagement: serialiseEngagement(engagement) });
-    return;
-  }
-
   try {
     const returnUrl = new URL(env.PINCH_RETURN_URL);
-    returnUrl.pathname = `/api/pinch/return/${engagement.id}`;
+    returnUrl.pathname = `/api/pinch/return/${request.params.engagementId}`;
     returnUrl.search = "";
     returnUrl.hash = "";
-    const paymentLink = await getPaymentProvider().createHostedPaymentLink({
-      engagementId: engagement.id,
-      needId: engagement.needId,
-      supplierId: engagement.supplierId,
-      buyerEmail: need.buyerEmail,
-      buyerName: need.profile.title,
-      amount: (need.profile.budgetAud ?? 1000) * 100,
-      description: `Veltact engagement ${engagement.id}`,
-      returnUrl: returnUrl.toString()
-    });
+    const result =
+      await marketplaceCommitmentPaymentService.createOrReuseHostedPaymentLink(
+        {
+          engagementId: request.params.engagementId,
+          buyerAccessToken: request.header("x-veltact-buyer-token"),
+          returnUrl: returnUrl.toString()
+        }
+      );
+    const engagement = getEngagement(request.params.engagementId);
+    const deployment =
+      await marketplaceDeploymentIntegration.service.getDeployment(
+        request.params.engagementId,
+        request.header("x-veltact-buyer-token")
+      );
 
-    const updatedEngagement = attachPaymentLinkToEngagement({
-      engagementId: engagement.id,
-      payerId: paymentLink.payerId,
-      paymentLinkId: paymentLink.paymentLinkId,
-      hostedCheckoutUrl: paymentLink.hostedCheckoutUrl
-    });
-
-    response.status(201).json({
-      engagement: updatedEngagement ? serialiseEngagement(updatedEngagement) : undefined,
-      hostedCheckoutUrl: paymentLink.hostedCheckoutUrl
+    response.status(result.reused ? 200 : 201).json({
+      engagement: engagement ? serialiseEngagement(engagement) : undefined,
+      hostedCheckoutUrl: result.paymentLink.hostedCheckoutUrl,
+      reused: result.reused,
+      commitmentMilestone: deployment?.milestones[0]
     });
   } catch (error) {
+    if (error instanceof CommitmentPaymentError) {
+      response.status(error.statusCode).json({
+        status: "error",
+        message: error.message
+      });
+      return;
+    }
     if (error instanceof PinchApiError) {
       response.status(error.statusCode).json({
         status: "error",
@@ -748,8 +739,12 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
   if (!result.duplicate) {
     emitPaymentStatusUpdated(result.engagement);
     emitEngagementSecured(result.engagement);
+    emitCurrentDeployment(result.engagement.id, result.engagement.needId);
   }
-  response.json({ engagement: serialiseEngagement(result.engagement) });
+  response.json({
+    engagement: serialiseEngagement(result.engagement),
+    paymentEvidence: createLocalDemoPaymentEvidence(env.NODE_ENV)
+  });
 });
 
 marketplaceRouter.post("/supplier-invitations/:token/claim", (request, response) => {
@@ -1073,7 +1068,7 @@ function serialiseBuyerWorkspace(
         .map(serialiseOutreachDelivery) ?? [],
     responses: responses.map(serialiseSupplierResponse),
     engagement: engagement ? serialiseEngagement(engagement) : undefined,
-    deployment: undefined
+    deployment: engagement ? getDeployment(engagement.id) : undefined
   });
 }
 
@@ -1291,6 +1286,19 @@ function serialiseEngagement(engagement: NonNullable<ReturnType<typeof getEngage
     ...engagement,
     needProfileId: engagement.needId
   };
+}
+
+function emitCurrentDeployment(
+  engagementId: string,
+  needProfileId: string
+) {
+  const deployment = getDeployment(engagementId);
+  if (!deployment) return;
+  emitDeploymentUpdated({
+    needProfileId,
+    engagementId,
+    deployment
+  });
 }
 
 function inferCompanyName(email: string) {

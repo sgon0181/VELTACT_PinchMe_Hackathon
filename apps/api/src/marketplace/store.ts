@@ -21,6 +21,8 @@ import {
   createMarketplaceFixtureSupplierLeads,
   inferMarketplaceDemoScenario
 } from "./findFixtures.js";
+import type { DeploymentSummary } from "@veltact/contracts";
+import { syncCommitmentPayment } from "../deployment/templates.js";
 import type {
   Engagement,
   MarketplaceAuditEvent,
@@ -75,6 +77,12 @@ const responses = new Map<string, SupplierResponse>(
 );
 const engagements = new Map<string, Engagement>(
   initialSnapshot?.engagements.map((engagement) => [engagement.id, engagement]) ?? []
+);
+const deployments = new Map<string, DeploymentSummary>(
+  initialSnapshot?.deployments.map((deployment) => [
+    deployment.engagementId,
+    deployment
+  ]) ?? []
 );
 const processedPinchEventIds = new Set<string>(
   initialSnapshot?.processedPinchEventIds ?? []
@@ -1230,6 +1238,31 @@ export function getEngagementForNeed(needId: string): Engagement | undefined {
   );
 }
 
+export function getDeployment(
+  engagementId: string
+): DeploymentSummary | undefined {
+  const deployment = deployments.get(engagementId);
+  return deployment ? structuredClone(deployment) : undefined;
+}
+
+export function saveDeployment(
+  deployment: DeploymentSummary
+): DeploymentSummary {
+  const saved = structuredClone(deployment);
+  deployments.set(saved.engagementId, saved);
+  commitMarketplaceMutation({
+    eventType: "deployment.updated",
+    actorType: "buyer",
+    entityType: "engagement",
+    entityId: saved.engagementId,
+    metadata: {
+      status: saved.status,
+      progressPercentage: saved.progressPercentage
+    }
+  });
+  return structuredClone(saved);
+}
+
 export function attachPaymentLinkToEngagement(input: {
   engagementId: string;
   payerId: string;
@@ -1307,6 +1340,18 @@ export function recordAuthoritativePinchPayment(input: {
   engagement.securedAt = receivedAt;
   engagement.updatedAt = receivedAt;
 
+  const deployment = deployments.get(engagement.id);
+  if (deployment) {
+    const synced = syncCommitmentPayment(
+      deployment,
+      engagement.paymentStatus,
+      receivedAt
+    );
+    if (synced.changed) {
+      deployments.set(engagement.id, synced.deployment);
+    }
+  }
+
   if (need) {
     need.status = "secured";
     need.updatedAt = receivedAt;
@@ -1335,6 +1380,7 @@ export function resetMarketplaceStore(options: { preserveAudit?: boolean } = {})
   outreachDeliveries.clear();
   responses.clear();
   engagements.clear();
+  deployments.clear();
   processedPinchEventIds.clear();
   pinchWebhookEvidence.clear();
   issuedBuyerAccessTokens.clear();
@@ -1410,6 +1456,13 @@ export function reloadMarketplaceStore(
       engagement
     ])
   );
+  replaceMap(
+    deployments,
+    snapshot.deployments.map((deployment) => [
+      deployment.engagementId,
+      deployment
+    ])
+  );
   processedPinchEventIds.clear();
   for (const eventId of snapshot.processedPinchEventIds) {
     processedPinchEventIds.add(eventId);
@@ -1460,6 +1513,7 @@ function persistMarketplaceState() {
     outreachDeliveries: [...outreachDeliveries.values()],
     responses: [...responses.values()],
     engagements: [...engagements.values()],
+    deployments: [...deployments.values()],
     processedPinchEventIds: [...processedPinchEventIds],
     pinchWebhookEvidence: [...pinchWebhookEvidence.values()],
     auditEvents

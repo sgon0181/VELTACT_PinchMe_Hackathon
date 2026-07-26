@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import type { Server } from "node:http";
 import {
   aiIntakeResultSchema,
+  deploymentSummarySchema,
   engagementSchema,
   needProfileSchema,
   rapidMatchBuyerWorkspaceSchema,
@@ -44,7 +45,9 @@ beforeEach(async () => {
   process.env.PINCH_WEBHOOK_SECRET = "whsec_test_secret";
   setPaymentProviderForTest({
     async createHostedPaymentLink(input) {
-      assert.equal(input.amount, 2_000_000);
+      assert.equal(input.amount, 1_850_000);
+      assert.equal(input.metadata?.commitmentType, "commercial_commitment");
+      assert.match(input.metadata?.milestoneId ?? "", /-m1-diagnosis$/);
       assert.match(input.returnUrl, new RegExp(`/api/pinch/return/${input.engagementId}$`));
       return {
         provider: "pinch",
@@ -1330,6 +1333,34 @@ describe("marketplace core routes", () => {
     assert.equal(paymentLink.body.engagement.status, "payment_pending");
     assert.equal(paymentLink.body.engagement.paymentStatus, "awaiting_payment");
     assert.match(paymentLink.body.hostedCheckoutUrl, /^https:\/\/sandbox\.getpinch\.com\.au/);
+    assert.equal(paymentLink.body.commitmentMilestone.title, "Diagnosis");
+    assert.equal(
+      paymentLink.body.commitmentMilestone.amount.amount,
+      1_850_000
+    );
+    assert.equal(
+      paymentLink.body.commitmentMilestone.status,
+      "awaiting_payment"
+    );
+
+    const reusedPaymentLink = await postJson(
+      `/api/engagements/${selected.body.engagement.id}/payment-link`,
+      {}
+    );
+    assert.equal(reusedPaymentLink.status, 200);
+    assert.equal(reusedPaymentLink.body.reused, true);
+
+    const pendingDeployment = await getJson(
+      `/api/engagements/${selected.body.engagement.id}/deployment`
+    );
+    assert.equal(pendingDeployment.status, 200);
+    assert.doesNotThrow(() =>
+      deploymentSummarySchema.parse(pendingDeployment.body.deployment)
+    );
+    assert.equal(
+      pendingDeployment.body.deployment.milestones[0].status,
+      "awaiting_payment"
+    );
 
     const returned = await fetch(`${baseUrl}/api/pinch/return/${selected.body.engagement.id}`);
     const returnText = await returned.text();
@@ -1359,6 +1390,50 @@ describe("marketplace core routes", () => {
     assert.equal(secured.body.engagement.status, "supplier_secured");
     assert.equal(secured.body.engagement.paymentStatus, "paid");
     assert.equal(secured.body.engagement.pinchPaymentId, "pmt_approved");
+
+    const securedWorkspace = await getJson(
+      `/api/need-profiles/${created.body.need.id}`
+    );
+    assert.equal(
+      securedWorkspace.body.workspace.deployment.milestones[0].status,
+      "funded"
+    );
+
+    const fundedDeployment = await getJson(
+      `/api/engagements/${selected.body.engagement.id}/deployment`
+    );
+    assert.equal(fundedDeployment.body.deployment.status, "active");
+    assert.equal(fundedDeployment.body.deployment.progressPercentage, 0);
+    assert.equal(
+      fundedDeployment.body.deployment.milestones[0].status,
+      "funded"
+    );
+
+    const firstMilestone = fundedDeployment.body.deployment.milestones[0];
+    const started = await patchJson(
+      `/api/engagements/${selected.body.engagement.id}/deployment/milestones/${firstMilestone.id}`,
+      {
+        status: "in_progress",
+        latestUpdate: "Controlled diagnosis is underway."
+      }
+    );
+    assert.equal(started.status, 200);
+    assert.equal(started.body.deployment.progressPercentage, 0);
+
+    const completedMilestone = await patchJson(
+      `/api/engagements/${selected.body.engagement.id}/deployment/milestones/${firstMilestone.id}`,
+      {
+        status: "completed",
+        latestUpdate: "Diagnosis evidence accepted by the buyer."
+      }
+    );
+    assert.equal(completedMilestone.status, 200);
+    assert.equal(completedMilestone.body.deployment.progressPercentage, 25);
+
+    const workspace = await getJson(
+      `/api/need-profiles/${created.body.need.id}`
+    );
+    assert.equal(workspace.body.workspace.deployment.progressPercentage, 25);
 
     const duplicate = await postSignedWebhook(eventPayload);
     assert.equal(duplicate.status, 200);
@@ -1400,6 +1475,8 @@ describe("marketplace core routes", () => {
     assert.equal(completed.body.engagement.status, "supplier_secured");
     assert.equal(completed.body.engagement.paymentStatus, "paid");
     assert.match(completed.body.engagement.pinchPaymentId, /^demo_/);
+    assert.equal(completed.body.paymentEvidence.authoritative, false);
+    assert.match(completed.body.paymentEvidence.label, /Local demo only/);
 
     const duplicate = await postJson(
       `/api/engagements/${selected.body.engagement.id}/demo-payment`,
@@ -1420,6 +1497,25 @@ async function getJson(path: string, headers: Record<string, string> = {}) {
 async function postJson(path: string, body: unknown, headers: Record<string, string> = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...headers
+    },
+    body: JSON.stringify(body)
+  });
+  return {
+    status: response.status,
+    body: (await response.json()) as Record<string, any>
+  };
+}
+
+async function patchJson(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {}
+) {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "PATCH",
     headers: {
       "content-type": "application/json",
       ...headers
