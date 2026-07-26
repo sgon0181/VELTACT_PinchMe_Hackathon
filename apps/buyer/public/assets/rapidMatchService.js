@@ -1,4 +1,5 @@
 import { deploymentSummarySchema, rapidMatchApiRoute, rapidMatchBuyerWorkspaceSchema, solutionDecisionSchema, solutionResearchResultSchema, supplierResponseSchema } from "@veltact/contracts";
+import { parseUrgencyDays } from "./urgency.js";
 const runtimeWindow = window;
 const API_BASE = runtimeWindow.API_BASE_URL ?? defaultApiBase();
 const FRONTEND_BASE = runtimeWindow.FRONTEND_BASE_URL ?? window.location.origin;
@@ -559,7 +560,7 @@ function requirementToMarketplaceProfile(input, priority) {
         industry: "Manufacturing",
         equipmentOrTechnology: input.equipmentOrTechnology,
         location: input.location,
-        urgencyDays: urgencyDays(input.requiredBy),
+        urgencyDays: parseUrgencyDays(input.requiredBy),
         budgetAud: input.budgetAmount || parseBudgetAmount(input.budgetRange),
         constraints: input.constraints,
         buyerPriority: priority,
@@ -829,17 +830,6 @@ function inferCapabilities(description) {
         capabilities.add("Machinery safety");
     capabilities.add("Industrial onsite support");
     return [...capabilities];
-}
-function urgencyDays(requiredBy) {
-    const normalised = requiredBy.toLowerCase();
-    if (/today|tonight|immediate|urgent/.test(normalised))
-        return 1;
-    const dayMatch = normalised.match(/(\d+)\s*day/);
-    if (dayMatch)
-        return Number(dayMatch[1]);
-    if (normalised.includes("week"))
-        return 7;
-    return undefined;
 }
 function parseBudgetAmount(value) {
     const match = value.match(/(\d[\d,]*)/);

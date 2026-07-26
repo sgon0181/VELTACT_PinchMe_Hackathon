@@ -1063,10 +1063,16 @@ function renderDelivery(
       ? "Sent"
       : delivery.deliveryStatus === "failed"
         ? "Failed"
-        : "Ready";
+        : delivery.deliveryStatus === "queued"
+          ? "Queued"
+          : /local demo/i.test(delivery.errorMessage ?? "")
+            ? "Local demo only"
+            : /not configured/i.test(delivery.errorMessage ?? "")
+              ? "Not configured"
+              : "Ready";
   const detail =
     delivery.deliveryStatus === "queued"
-      ? "Queued by backend"
+      ? "Provider request in progress"
       : delivery.errorMessage ??
         (delivery.sentAt
           ? `Confirmed ${formatTime(delivery.sentAt)}`
@@ -2266,7 +2272,9 @@ function resolveRestoredView(
     storedView === "outreach" ||
     storedView === "compare" ||
     data.outreachDeliveries.some(
-      (item) => item.deliveryStatus !== "not_sent"
+      (item) =>
+        item.deliveryStatus !== "not_sent" ||
+        Boolean(item.errorMessage)
     ) ||
     data.invitations.some((item) =>
       ["opened", "responded"].includes(item.status)
@@ -2275,7 +2283,8 @@ function resolveRestoredView(
     return storedView === "compare" ? "compare" : "outreach";
   }
   if (
-    data.solutionDecision?.decision === "outsource" &&
+    data.solutionDecision &&
+    data.solutionDecision.decision !== "local_trial" &&
     supplierCandidates(data).length
   ) {
     return "candidates";

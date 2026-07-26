@@ -5,7 +5,10 @@ import {
   timingSafeEqual
 } from "node:crypto";
 import { matchSuppliers } from "./matching.js";
-import { sendSupplierOpportunity } from "./outreachDelivery.js";
+import {
+  getOutreachDeliveryReadiness,
+  sendSupplierOpportunity
+} from "./outreachDelivery.js";
 import { supplierCatalog } from "./suppliers.js";
 import { env } from "../env.js";
 import {
@@ -510,7 +513,7 @@ export function seedMarketplaceDemoFindState(
     needId,
     need.profile,
     currentTime
-  );
+  ).slice(0, 2);
   const solutionDecision: SolutionDecision = {
     id: `${needId}:decision:${scenario}`,
     needProfileId: needId,
@@ -1098,6 +1101,34 @@ async function sendOutreachDelivery(
     return [{ ...delivery }];
   }
 
+  const activatedAt = new Date().toISOString();
+  activateSecureInvitation(need, invitation, activatedAt);
+  const readiness = getOutreachDeliveryReadiness(delivery);
+  if (!readiness.available || readiness.provider === "local_demo") {
+    const result = await sendSupplierOpportunity(delivery, invitation, need);
+    delivery.deliveryStatus = "not_sent";
+    delivery.sentAt = undefined;
+    delivery.errorMessage = result.ok ? undefined : result.errorMessage;
+    updatedNeedTimestamp(need);
+    const update = { ...delivery };
+    commitMarketplaceMutation({
+      eventType:
+        result.outcome === "local_demo"
+          ? "outreach.local_demo_prepared"
+          : "outreach.not_configured",
+      actorType: "system",
+      entityType: "outreach",
+      entityId: deliveryKey(delivery.invitationId, delivery.channel),
+      metadata: {
+        channel: delivery.channel,
+        supplierId: delivery.supplierId,
+        status: delivery.deliveryStatus
+      }
+    });
+    onDeliveryUpdated?.(update);
+    return [update];
+  }
+
   delivery.deliveryStatus = "queued";
   delivery.errorMessage = undefined;
   updatedNeedTimestamp(need);
@@ -1116,33 +1147,31 @@ async function sendOutreachDelivery(
 
   const result = await sendSupplierOpportunity(delivery, invitation, need);
   const sentAt = new Date().toISOString();
-  delivery.deliveryStatus = result.ok ? "sent" : "failed";
-  delivery.sentAt = result.ok ? sentAt : undefined;
-  delivery.errorMessage = result.ok ? undefined : result.errorMessage;
-  if (result.ok) {
+  delivery.deliveryStatus =
+    result.outcome === "sent"
+      ? "sent"
+      : result.outcome === "failed"
+        ? "failed"
+        : "not_sent";
+  delivery.sentAt = result.outcome === "sent" ? sentAt : undefined;
+  delivery.errorMessage =
+    result.outcome === "sent" ? undefined : result.errorMessage;
+  if (result.outcome === "sent") {
     invitation.sentAt = invitation.sentAt ?? sentAt;
     invitation.updatedAt = sentAt;
     if (invitation.status === "pending") {
       invitation.status = "sent";
     }
-    const match = need.matches.find(
-      (candidate) => candidate.supplier.id === invitation.supplierId
-    );
-    if (match?.status === "matched") {
-      match.status = "invited";
-      match.updatedAt = sentAt;
-    }
-    const lead = supplierLeads.get(invitation.supplierId);
-    if (lead?.lifecycleStatus === "approved_for_outreach") {
-      lead.lifecycleStatus = "invited";
-      lead.invitedAt = lead.invitedAt ?? sentAt;
-      lead.updatedAt = sentAt;
-    }
   }
   updatedNeedTimestamp(need);
   updates.push({ ...delivery });
   commitMarketplaceMutation({
-    eventType: result.ok ? "outreach.sent" : "outreach.failed",
+    eventType:
+      result.outcome === "sent"
+        ? "outreach.sent"
+        : result.outcome === "failed"
+          ? "outreach.failed"
+          : "outreach.not_configured",
     actorType: "system",
     entityType: "outreach",
     entityId: deliveryKey(delivery.invitationId, delivery.channel),
@@ -1154,6 +1183,27 @@ async function sendOutreachDelivery(
   });
   onDeliveryUpdated?.(updates[1]);
   return updates;
+}
+
+function activateSecureInvitation(
+  need: NeedRecord,
+  invitation: SupplierInvitation,
+  activatedAt: string
+) {
+  const match = need.matches.find(
+    (candidate) => candidate.supplier.id === invitation.supplierId
+  );
+  if (match?.status === "matched") {
+    match.status = "invited";
+    match.updatedAt = activatedAt;
+  }
+
+  const lead = supplierLeads.get(invitation.supplierId);
+  if (lead?.lifecycleStatus === "approved_for_outreach") {
+    lead.lifecycleStatus = "invited";
+    lead.invitedAt = lead.invitedAt ?? activatedAt;
+    lead.updatedAt = activatedAt;
+  }
 }
 
 function updatedNeedTimestamp(need: NeedRecord) {

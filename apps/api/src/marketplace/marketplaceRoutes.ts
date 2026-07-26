@@ -1137,11 +1137,13 @@ function determineJourneyProjection(
         nextAction: "approve_outreach" as const
       };
     }
-    const hasSentDelivery =
+    const hasOutreachResult =
       listOutreachDeliveriesForNeed(need.id)?.some(
-        (delivery) => delivery.deliveryStatus === "sent"
+        (delivery) =>
+          delivery.deliveryStatus !== "not_sent" ||
+          Boolean(delivery.errorMessage)
       ) ?? false;
-    return hasSentDelivery
+    return hasOutreachResult
       ? {
           phase: "connect" as const,
           status: "supplier_outreach" as const,

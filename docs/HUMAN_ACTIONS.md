@@ -1,4 +1,4 @@
-# Veltact 2.0 Human Actions
+# Veltact Demo Operator Actions
 
 The complete workflow runs with labelled deterministic fallbacks. External
 provider claims require the corresponding credentials and a successful call in
@@ -30,12 +30,12 @@ npm run dev
 ```
 
 Open `http://localhost:4000/`. In development, the **Launch guided demo**
-section can seed either scenario and returns a buyer workspace plus its private
-supplier invitation. Open the buyer workspace first. Open the supplier link in
-a second tab only when the buyer reaches Connect.
+section seeds either scenario and returns one buyer workspace plus two private
+supplier response links. Open the buyer workspace first. Open both supplier
+links in separate tabs only when the buyer reaches Connect.
 
-The launcher resets all V2 demonstration state. It is intentionally unavailable
-when the API reports `production`.
+The launcher resets the canonical marketplace demonstration state. It is
+intentionally unavailable when the API reports `production`.
 
 The equivalent CLI commands are:
 
@@ -47,15 +47,17 @@ npm run demo:reset
 npm run demo:reset -- --robotics
 ```
 
-The reset output contains the buyer capability URL and one supplier claim URL.
-Open both exactly as printed. The deterministic path uses:
+The reset output contains the buyer capability URL and two supplier response
+URLs. Open them exactly as printed. The deterministic path uses:
 
 - `VELTACT_RESEARCH_PROVIDER=fixture`
 - `EMAIL_PROVIDER=local_demo`
 - `SMS_PROVIDER=none`
 
-The development-only milestone action records local evidence so the UI can be
-tested without external payment. It is not a Pinch transaction.
+The development-only payment action records local evidence so the secured UI
+can be rehearsed without an external payment. It is not a Pinch transaction,
+does not authoritatively secure the supplier and does not advance engineering
+progress.
 
 ## External Provider Status
 

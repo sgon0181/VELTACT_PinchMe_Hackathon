@@ -248,8 +248,8 @@ describe("marketplace core routes", () => {
     const sent = await postJson(`/api/need-profiles/${created.body.need.id}/invitations/send`, {});
     assert.equal(sent.status, 200);
     assert.equal(sent.body.supplierInvitations.length, 3);
-    assert.equal(sent.body.supplierInvitations[0].status, "sent");
-    assert.ok(sent.body.supplierInvitations[0].sentAt);
+    assert.equal(sent.body.supplierInvitations[0].status, "pending");
+    assert.equal(sent.body.supplierInvitations[0].sentAt, undefined);
     assert.doesNotThrow(() => supplierInvitationSchema.parse(sent.body.supplierInvitations[0]));
 
     const retrieved = await getJson(`/api/needs/${created.body.need.id}`);
@@ -262,7 +262,7 @@ describe("marketplace core routes", () => {
     );
     assert.ok(
       retrieved.body.need.supplierInvitations.every(
-        (invitation: { status: string }) => invitation.status === "sent"
+        (invitation: { status: string }) => invitation.status === "pending"
       )
     );
   });
@@ -506,7 +506,7 @@ describe("marketplace core routes", () => {
       );
       assert.ok(
         sent.body.supplierInvitations.every(
-          (invitation: { status: string }) => invitation.status === "sent"
+          (invitation: { status: string }) => invitation.status === "pending"
         )
       );
       assert.deepEqual(
@@ -627,8 +627,8 @@ describe("marketplace core routes", () => {
       );
       assert.equal(reset.body.workspace.researchResult.sourceMode, "fixture");
       assert.ok(reset.body.workspace.researchResult.citations.length >= 3);
-      assert.equal(reset.body.workspace.discoveredSuppliers.length, 3);
-      assert.ok(reset.body.supplierPaths.length >= 2);
+      assert.equal(reset.body.workspace.discoveredSuppliers.length, 2);
+      assert.equal(reset.body.supplierPaths.length, 2);
       assert.ok(
         reset.body.supplierPaths.every(
           (path: {
@@ -790,7 +790,7 @@ describe("marketplace core routes", () => {
         buyerHeaders
       );
       assert.equal(sent.status, 200);
-      assert.equal(sent.body.supplierInvitations[0].status, "sent");
+      assert.equal(sent.body.supplierInvitations[0].status, "pending");
 
       const buyerTokenAsSupplierToken = await postJson(
         `/api/supplier-invitations/${buyerAccessToken}/claim`,
@@ -1156,7 +1156,7 @@ describe("marketplace core routes", () => {
     assert.equal(update.supplierInvitation.supplierId, "supplier-automation-nsw");
   });
 
-  test("sends supplier outreach through the local demo email adapter and emits delivery updates", async () => {
+  test("keeps local demo and unavailable outreach unsent without reporting failures", async () => {
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",
       profile: automationNeed()
@@ -1187,12 +1187,13 @@ describe("marketplace core routes", () => {
     assert.equal(smsDeliveries.length, 3);
     for (const delivery of emailDeliveries) {
       assert.doesNotThrow(() => supplierOutreachDeliverySchema.parse(delivery));
-      assert.equal(delivery.deliveryStatus, "sent");
-      assert.ok(delivery.sentAt);
+      assert.equal(delivery.deliveryStatus, "not_sent");
+      assert.equal(delivery.sentAt, undefined);
+      assert.match(delivery.errorMessage, /Local demo only/);
     }
     for (const delivery of smsDeliveries) {
       assert.doesNotThrow(() => supplierOutreachDeliverySchema.parse(delivery));
-      assert.equal(delivery.deliveryStatus, "failed");
+      assert.equal(delivery.deliveryStatus, "not_sent");
       assert.match(delivery.errorMessage, /SMS provider is not configured/);
     }
     assert.ok(
@@ -1200,16 +1201,15 @@ describe("marketplace core routes", () => {
         (update) =>
           update.needProfileId === needProfileId &&
           update.outreachDelivery.channel === "email" &&
-          update.outreachDelivery.deliveryStatus === "queued"
+          update.outreachDelivery.deliveryStatus === "not_sent" &&
+          /Local demo only/.test(update.outreachDelivery.errorMessage)
       )
     );
-    assert.ok(
+    assert.equal(
       updates.some(
-        (update) =>
-          update.needProfileId === needProfileId &&
-          update.outreachDelivery.channel === "email" &&
-          update.outreachDelivery.deliveryStatus === "sent"
-      )
+        (update) => update.outreachDelivery.deliveryStatus === "failed"
+      ),
+      false
     );
   });
 
@@ -1250,20 +1250,32 @@ describe("marketplace core routes", () => {
 
       assert.equal(result.status, 200);
       assert.equal(result.body.supplierOutreachDeliveries.length, 6);
-      assert.ok(
-        result.body.supplierOutreachDeliveries.every(
-          (delivery: { deliveryStatus: string }) => delivery.deliveryStatus === "failed"
-        )
-      );
       const emailDeliveries = result.body.supplierOutreachDeliveries.filter(
         (delivery: { channel: string }) => delivery.channel === "email"
       );
+      const smsDeliveries = result.body.supplierOutreachDeliveries.filter(
+        (delivery: { channel: string }) => delivery.channel === "sms"
+      );
       assert.equal(emailDeliveries.length, 3);
+      assert.equal(smsDeliveries.length, 3);
       assert.ok(
         emailDeliveries.every((delivery: { errorMessage: string }) =>
           /Resend delivery request failed: provider connection unavailable/.test(
             delivery.errorMessage
           )
+        )
+      );
+      assert.ok(
+        emailDeliveries.every(
+          (delivery: { deliveryStatus: string }) =>
+            delivery.deliveryStatus === "failed"
+        )
+      );
+      assert.ok(
+        smsDeliveries.every(
+          (delivery: { deliveryStatus: string; errorMessage: string }) =>
+            delivery.deliveryStatus === "not_sent" &&
+            /SMS provider is not configured/.test(delivery.errorMessage)
         )
       );
       assert.ok(

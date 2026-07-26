@@ -21,6 +21,7 @@ import {
   type SupplierResponse
 } from "@veltact/contracts";
 import type { BuyerRequirementInput, PrioritySignal } from "./types.js";
+import { parseUrgencyDays } from "./urgency.js";
 
 const runtimeWindow = window as Window & {
   API_BASE_URL?: string;
@@ -794,7 +795,7 @@ function requirementToMarketplaceProfile(
     industry: "Manufacturing",
     equipmentOrTechnology: input.equipmentOrTechnology,
     location: input.location,
-    urgencyDays: urgencyDays(input.requiredBy),
+    urgencyDays: parseUrgencyDays(input.requiredBy),
     budgetAud: input.budgetAmount || parseBudgetAmount(input.budgetRange),
     constraints: input.constraints,
     buyerPriority: priority,
@@ -1134,15 +1135,6 @@ function inferCapabilities(description: string) {
   if (normalised.includes("safety")) capabilities.add("Machinery safety");
   capabilities.add("Industrial onsite support");
   return [...capabilities];
-}
-
-function urgencyDays(requiredBy: string) {
-  const normalised = requiredBy.toLowerCase();
-  if (/today|tonight|immediate|urgent/.test(normalised)) return 1;
-  const dayMatch = normalised.match(/(\d+)\s*day/);
-  if (dayMatch) return Number(dayMatch[1]);
-  if (normalised.includes("week")) return 7;
-  return undefined;
 }
 
 function parseBudgetAmount(value: string) {

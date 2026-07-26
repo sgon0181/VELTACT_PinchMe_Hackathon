@@ -17,7 +17,10 @@ import type {
   SupplierProfile
 } from "@veltact/contracts";
 import { env } from "../env.js";
-import { sendSupplierOpportunity } from "../marketplace/outreachDelivery.js";
+import {
+  getOutreachDeliveryReadiness,
+  sendSupplierOpportunity
+} from "../marketplace/outreachDelivery.js";
 import { registerActivatedSupplier } from "../marketplace/suppliers.js";
 import type {
   NeedRecord,
@@ -981,22 +984,24 @@ export class VeltactV2Service {
     const legacyInvitation: LegacySupplierInvitation = {
       ...invitation,
       needId: need.id,
-      supplierName: lead.companyName,
-      sentAt: invitation.sentAt ?? invitation.createdAt
+      supplierName: lead.companyName
     };
 
     for (const delivery of deliveries) {
-      await this.repository.mutate((draft) => {
-        const current = draft.outreachDeliveries.find(
-          (candidate) =>
-            candidate.invitationId === delivery.invitationId &&
-            candidate.channel === delivery.channel
-        );
-        if (current) {
-          current.deliveryStatus = "queued";
-          current.errorMessage = undefined;
-        }
-      });
+      const readiness = getOutreachDeliveryReadiness(delivery);
+      if (readiness.available && readiness.provider !== "local_demo") {
+        await this.repository.mutate((draft) => {
+          const current = draft.outreachDeliveries.find(
+            (candidate) =>
+              candidate.invitationId === delivery.invitationId &&
+              candidate.channel === delivery.channel
+          );
+          if (current) {
+            current.deliveryStatus = "queued";
+            current.errorMessage = undefined;
+          }
+        });
+      }
       const result = await sendSupplierOpportunity(
         delivery,
         legacyInvitation,
@@ -1009,12 +1014,17 @@ export class VeltactV2Service {
             candidate.channel === delivery.channel
         );
         if (!current) return;
-        if (result.ok) {
+        if (result.outcome === "sent") {
           current.deliveryStatus = "sent";
           current.sentAt = new Date().toISOString();
           current.errorMessage = undefined;
-        } else {
+        } else if (result.outcome === "failed") {
           current.deliveryStatus = "failed";
+          current.sentAt = undefined;
+          current.errorMessage = result.errorMessage;
+        } else {
+          current.deliveryStatus = "not_sent";
+          current.sentAt = undefined;
           current.errorMessage = result.errorMessage;
         }
       });
@@ -1028,22 +1038,22 @@ export class VeltactV2Service {
         (candidate) => candidate.id === lead.id
       );
       if (!currentInvitation || !currentLead) return;
+      const now = new Date().toISOString();
       const delivered = draft.outreachDeliveries.some(
         (delivery) =>
           delivery.invitationId === invitationId &&
           delivery.deliveryStatus === "sent"
       );
       if (delivered) {
-        const now = new Date().toISOString();
         currentInvitation.status = "sent";
         currentInvitation.sentAt = currentInvitation.sentAt ?? now;
         currentInvitation.updatedAt = now;
-        if (currentLead.lifecycleStatus === "approved_for_outreach") {
-          transitionLead(currentLead, "invited");
-        }
-        currentLead.invitedAt = currentLead.invitedAt ?? now;
-        currentLead.updatedAt = now;
       }
+      if (currentLead.lifecycleStatus === "approved_for_outreach") {
+        transitionLead(currentLead, "invited");
+      }
+      currentLead.invitedAt = currentLead.invitedAt ?? now;
+      currentLead.updatedAt = now;
     });
   }
 

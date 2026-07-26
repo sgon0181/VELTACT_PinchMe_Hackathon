@@ -10,6 +10,13 @@ export type DeliveryResult =
     }
   | {
       ok: false;
+      outcome: "local_demo";
+      attempted: false;
+      provider: "local_demo";
+      errorMessage: string;
+    }
+  | {
+      ok: false;
       outcome: "not_configured";
       attempted: false;
       provider: OutreachProvider;
@@ -169,9 +176,9 @@ async function sendEmail(input: {
 }): Promise<DeliveryResult> {
   if (input.provider === "local_demo") {
     console.info(
-      `[local-demo-email] Provider accepted supplier opportunity: ${input.subject}`
+      `[local-demo-email] Prepared supplier opportunity without external delivery: ${input.subject}`
     );
-    return sent(input.provider);
+    return localDemo();
   }
 
   if (input.provider === "resend") {
@@ -333,6 +340,17 @@ function providerErrorMessage(error: unknown) {
 
 function sent(provider: OutreachProvider): DeliveryResult {
   return { ok: true, outcome: "sent", attempted: true, provider };
+}
+
+function localDemo(): DeliveryResult {
+  return {
+    ok: false,
+    outcome: "local_demo",
+    attempted: false,
+    provider: "local_demo",
+    errorMessage:
+      "Local demo only: secure invitation generated; no external email was sent."
+  };
 }
 
 function unavailable(
