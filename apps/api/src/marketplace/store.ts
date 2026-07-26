@@ -882,7 +882,10 @@ export function claimSupplierInvitation(
   }
 
   const lead = supplierLeads.get(invitation.supplierId);
-  if (lead?.lifecycleStatus === "invited") {
+  if (
+    lead?.lifecycleStatus === "invited" ||
+    lead?.lifecycleStatus === "approved_for_outreach"
+  ) {
     lead.lifecycleStatus = "claimed";
     lead.claimedAt = lead.claimedAt ?? claimedAt;
     lead.updatedAt = claimedAt;
@@ -1108,7 +1111,12 @@ async function sendOutreachDelivery(
 
   const result = await sendSupplierOpportunity(delivery, invitation, need);
   const sentAt = new Date().toISOString();
-  delivery.deliveryStatus = result.ok ? "sent" : "failed";
+  delivery.deliveryStatus =
+    result.outcome === "sent"
+      ? "sent"
+      : result.outcome === "not_configured"
+        ? "not_sent"
+        : "failed";
   delivery.sentAt = result.ok ? sentAt : undefined;
   delivery.errorMessage = result.ok ? undefined : result.errorMessage;
   if (result.ok) {
@@ -1134,14 +1142,22 @@ async function sendOutreachDelivery(
   updatedNeedTimestamp(need);
   updates.push({ ...delivery });
   commitMarketplaceMutation({
-    eventType: result.ok ? "outreach.sent" : "outreach.failed",
+    eventType:
+      result.outcome === "sent"
+        ? "outreach.sent"
+        : result.outcome === "not_configured"
+          ? "outreach.not_configured"
+          : "outreach.failed",
     actorType: "system",
     entityType: "outreach",
     entityId: deliveryKey(delivery.invitationId, delivery.channel),
     metadata: {
       channel: delivery.channel,
       supplierId: delivery.supplierId,
-      status: delivery.deliveryStatus
+      status: delivery.deliveryStatus,
+      outcome: result.outcome,
+      provider: result.provider,
+      attempted: result.attempted
     }
   });
   onDeliveryUpdated?.(updates[1]);

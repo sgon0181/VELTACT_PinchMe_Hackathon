@@ -625,23 +625,102 @@ describe("marketplace core routes", () => {
       assert.equal(reset.body.workspace.researchResult.sourceMode, "fixture");
       assert.ok(reset.body.workspace.researchResult.citations.length >= 3);
       assert.equal(reset.body.workspace.discoveredSuppliers.length, 3);
-      assert.ok(reset.body.supplierPaths.length >= 2);
+      assert.equal(reset.body.supplierPaths.length, 2);
+      assert.deepEqual(
+        new Set(
+          reset.body.supplierPaths.map(
+            (path: { tradeOff: string }) => path.tradeOff
+          )
+        ),
+        new Set(["fastest_response", "lower_price"])
+      );
       assert.ok(
         reset.body.supplierPaths.every(
           (path: {
             sourceMode: string;
             deliveryStatus: string;
             responseUrl: string;
+            fixtureLabel: string;
+            evidenceLabel: string;
+            supplierResponseId: string;
           }) =>
             path.sourceMode === "fixture" &&
             path.deliveryStatus === "not_sent" &&
+            path.evidenceLabel === "Fixture" &&
+            /\(Fixture\)$/.test(path.fixtureLabel) &&
+            typeof path.supplierResponseId === "string" &&
             /supplier\.html\?token=/.test(path.responseUrl)
         )
       );
+      assert.deepEqual(
+        reset.body.workspace.invitations.map(
+          (invitation: { status: string }) => invitation.status
+        ),
+        ["responded", "responded", "pending"]
+      );
+      assert.equal(reset.body.workspace.responses.length, 2);
+      assert.equal(reset.body.workspace.status, "supplier_selection");
+      assert.equal(reset.body.workspace.nextAction, "compare_responses");
+      assert.deepEqual(
+        reset.body.workspace.discoveredSuppliers.map(
+          (supplierLead: { lifecycleStatus: string }) =>
+            supplierLead.lifecycleStatus
+        ),
+        ["claimed", "claimed", "approved_for_outreach"]
+      );
       assert.ok(
-        reset.body.workspace.invitations.every(
-          (invitation: { status: string }) => invitation.status === "pending"
+        reset.body.workspace.responses.every(
+          (supplierResponse: {
+            proposedApproach?: string;
+            assumptions?: string[];
+            conditions: string[];
+          }) =>
+            Boolean(supplierResponse.proposedApproach) &&
+            (supplierResponse.assumptions?.length ?? 0) >= 2 &&
+            supplierResponse.conditions.length >= 2
         )
+      );
+
+      for (const path of reset.body.supplierPaths) {
+        const supplierOpportunity = await getJson(
+          `/api/supplier-invitations/${path.token}`
+        );
+        assert.equal(supplierOpportunity.status, 200);
+        assert.equal(
+          supplierOpportunity.body.supplierClaim.status,
+          "claimed"
+        );
+        assert.equal(
+          supplierOpportunity.body.supplierResponse.id,
+          path.supplierResponseId
+        );
+      }
+      const responseIds = new Set(
+        reset.body.workspace.responses.map(
+          (supplierResponse: { id: string }) => supplierResponse.id
+        )
+      );
+      const invitationIds = new Set(
+        reset.body.supplierPaths.map(
+          (path: { invitationId: string }) => path.invitationId
+        )
+      );
+      const auditEvents = listMarketplaceAuditEvents();
+      assert.equal(
+        auditEvents.filter(
+          (event) =>
+            event.eventType === "response.submitted" &&
+            responseIds.has(event.entityId)
+        ).length,
+        2
+      );
+      assert.equal(
+        auditEvents.filter(
+          (event) =>
+            event.eventType === "supplier_claim.claimed" &&
+            invitationIds.has(event.entityId)
+        ).length,
+        2
       );
 
       const retrieved = await getJson(
@@ -1189,9 +1268,19 @@ describe("marketplace core routes", () => {
     }
     for (const delivery of smsDeliveries) {
       assert.doesNotThrow(() => supplierOutreachDeliverySchema.parse(delivery));
-      assert.equal(delivery.deliveryStatus, "failed");
+      assert.equal(delivery.deliveryStatus, "not_sent");
+      assert.equal(delivery.sentAt, undefined);
       assert.match(delivery.errorMessage, /SMS provider is not configured/);
     }
+    assert.equal(
+      listMarketplaceAuditEvents().filter(
+        (event) =>
+          event.eventType === "outreach.not_configured" &&
+          event.metadata.outcome === "not_configured" &&
+          event.metadata.attempted === false
+      ).length,
+      3
+    );
     assert.ok(
       updates.some(
         (update) =>
@@ -1210,7 +1299,7 @@ describe("marketplace core routes", () => {
     );
   });
 
-  test("marks provider network failures as failed and continues every delivery", async () => {
+  test("marks attempted provider failures while leaving unconfigured channels unsent", async () => {
     const originalEmailProvider = env.EMAIL_PROVIDER;
     const originalEmailFrom = env.EMAIL_FROM;
     const originalResendApiKey = env.RESEND_API_KEY;
@@ -1247,20 +1336,32 @@ describe("marketplace core routes", () => {
 
       assert.equal(result.status, 200);
       assert.equal(result.body.supplierOutreachDeliveries.length, 6);
-      assert.ok(
-        result.body.supplierOutreachDeliveries.every(
-          (delivery: { deliveryStatus: string }) => delivery.deliveryStatus === "failed"
-        )
-      );
       const emailDeliveries = result.body.supplierOutreachDeliveries.filter(
         (delivery: { channel: string }) => delivery.channel === "email"
       );
+      const smsDeliveries = result.body.supplierOutreachDeliveries.filter(
+        (delivery: { channel: string }) => delivery.channel === "sms"
+      );
       assert.equal(emailDeliveries.length, 3);
+      assert.equal(smsDeliveries.length, 3);
+      assert.ok(
+        emailDeliveries.every(
+          (delivery: { deliveryStatus: string }) =>
+            delivery.deliveryStatus === "failed"
+        )
+      );
       assert.ok(
         emailDeliveries.every((delivery: { errorMessage: string }) =>
           /Resend delivery request failed: provider connection unavailable/.test(
             delivery.errorMessage
           )
+        )
+      );
+      assert.ok(
+        smsDeliveries.every(
+          (delivery: { deliveryStatus: string; errorMessage: string }) =>
+            delivery.deliveryStatus === "not_sent" &&
+            /SMS provider is not configured/.test(delivery.errorMessage)
         )
       );
       assert.ok(

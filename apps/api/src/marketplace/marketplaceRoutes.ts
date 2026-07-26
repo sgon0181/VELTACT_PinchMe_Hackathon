@@ -46,7 +46,14 @@ import {
 import { env } from "../env.js";
 import { PinchApiError } from "../pinch/pinchClient.js";
 import { getPaymentProvider } from "../payments/providerRegistry.js";
-import type { SupplierResponse } from "./types.js";
+import {
+  getSupplierDemoResponses,
+  type SupplierDemoResponse
+} from "./supplierDemoResponses.js";
+import type {
+  SupplierInvitation,
+  SupplierResponse
+} from "./types.js";
 
 export const marketplaceRouter = Router();
 
@@ -902,23 +909,35 @@ marketplaceRouter.post("/demo/reset", (request, response) => {
   const seeded = seedMarketplaceDemoFindState(createdNeed.id);
   const prepared = prepareSupplierLeadInvitationsForNeed(createdNeed.id);
   approveSupplierOutreachForNeed(createdNeed.id);
+  const demoSubmissions =
+    prepared.status === "prepared"
+      ? submitSupplierDemoFixtures(
+          prepared.invitations,
+          getSupplierDemoResponses(scenario)
+        )
+      : undefined;
   const workspace = serialiseBuyerWorkspace(createdNeed);
   const supplierPaths =
-    prepared.status === "prepared"
-      ? prepared.invitations.slice(0, 2).map((invitation) => ({
-          invitationId: invitation.id,
-          supplierId: invitation.supplierId,
-          supplierName: invitation.supplierName,
-          token: invitation.token,
-          responseUrl: invitation.responseUrl,
-          sourceMode: "fixture" as const,
-          deliveryStatus: "not_sent" as const
-        }))
-      : [];
+    demoSubmissions?.map(({ fixture, invitation, supplierResponse }) => ({
+      invitationId: invitation.id,
+      supplierId: invitation.supplierId,
+      supplierName: invitation.supplierName,
+      token: invitation.token,
+      responseUrl: invitation.responseUrl,
+      sourceMode: "fixture" as const,
+      deliveryStatus: "not_sent" as const,
+      fixtureKey: fixture.key,
+      fixtureLabel: fixture.label,
+      fixtureCompanyName: fixture.company.companyName,
+      evidenceLabel: fixture.evidenceLabel,
+      tradeOff: fixture.tradeOff,
+      supplierResponseId: supplierResponse.id
+    })) ?? [];
 
   if (
     !seeded ||
     prepared.status !== "prepared" ||
+    !demoSubmissions ||
     !buyerAccessToken ||
     supplierPaths.length < 2
   ) {
@@ -944,6 +963,51 @@ marketplaceRouter.post("/demo/reset", (request, response) => {
     supplierInvitationPaths: supplierPaths
   });
 });
+
+function submitSupplierDemoFixtures(
+  invitations: SupplierInvitation[],
+  fixtures: SupplierDemoResponse[]
+):
+  | Array<{
+      fixture: SupplierDemoResponse;
+      invitation: SupplierInvitation;
+      supplierResponse: SupplierResponse;
+    }>
+  | undefined {
+  if (invitations.length < fixtures.length) {
+    return undefined;
+  }
+
+  const submissions: Array<{
+    fixture: SupplierDemoResponse;
+    invitation: SupplierInvitation;
+    supplierResponse: SupplierResponse;
+  }> = [];
+  for (const [index, fixture] of fixtures.entries()) {
+    const invitation = invitations[index];
+    const claim = claimSupplierInvitation(invitation.token, {
+      claimantName: fixture.company.contactName,
+      claimantEmail: fixture.company.contactEmail
+    });
+    if (claim.status !== "claimed") {
+      return undefined;
+    }
+
+    const submission = submitSupplierResponse(
+      invitation.token,
+      fixture.response
+    );
+    if (submission.status !== "submitted") {
+      return undefined;
+    }
+    submissions.push({
+      fixture,
+      invitation,
+      supplierResponse: submission.supplierResponse
+    });
+  }
+  return submissions;
+}
 
 function requireBuyerAccess(request: Request, response: Response, needId: string) {
   if (isBuyerAuthorised(needId, request.header("x-veltact-buyer-token"))) {
