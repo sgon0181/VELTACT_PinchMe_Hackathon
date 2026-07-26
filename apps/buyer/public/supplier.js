@@ -1,10 +1,11 @@
 import { demoResponsesForRequirement } from "./supplierDemoResponses.js";
 
+const isFrontendDevServer =
+  ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+  ["4173", "5173"].includes(window.location.port);
 const API_BASE =
   window.API_BASE_URL ||
-  (["localhost", "127.0.0.1"].includes(window.location.hostname) &&
-  window.location.port &&
-  window.location.port !== "4000"
+  (isFrontendDevServer
     ? "http://localhost:4000/api"
     : `${window.location.origin}/api`);
 
@@ -98,13 +99,9 @@ async function loadOpportunity(invitationToken) {
     }
 
     const claim = payload.claim || payload.supplierClaim;
-    const profile = payload.supplierProfile || payload.supplierLead;
-    claimComplete = Boolean(
-      profile ||
-        claim?.status === "claimed" ||
-        claim?.status === "supplier_profile_approved"
-    );
-    renderIdentity(profile, claim, invitation);
+    const identity = payload.supplierProfile || payload.supplierLead;
+    claimComplete = claim?.status === "claimed";
+    renderIdentity(identity, claim, invitation);
     form.hidden = false;
     setFormStatus(
       claimComplete
