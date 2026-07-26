@@ -385,7 +385,7 @@ function renderConnect() {
       ${renderConnectHandoff()}
       <div class="record-list">${workspace.supplierLeads.map(renderSupplierLead).join("")}</div>
       <div class="button-row" style="margin-top: 18px">
-        <button class="button secondary ${busyAction === "approve-leads" ? "is-loading" : ""}" data-action="approve-leads" type="button" ${selectedLeadIds.size === 0 || busyAction ? "disabled" : ""}>Approve selected for outreach</button>
+        <button class="button secondary ${busyAction === "approve-leads" ? "is-loading" : ""}" data-action="approve-leads" type="button" ${selectedDiscoverableLeadIds().length === 0 || busyAction ? "disabled" : ""}>Approve selected for outreach</button>
         <button class="button ${busyAction === "invite-leads" ? "is-loading" : ""}" data-action="invite-leads" type="button" ${selectedApprovedLeadIds().length === 0 || busyAction ? "disabled" : ""}>Send approved invitations</button>
       </div>
     </section>
@@ -439,22 +439,15 @@ function renderSupplierLead(lead: SupplierLead) {
 }
 
 function renderProfileApproval(lead: SupplierLead, profile: SupplierProfile) {
-  const actions: string[] = [];
-  if (lead.lifecycleStatus === "supplier_profile_approved") {
-    actions.push(
-      `<button class="button small" data-action="buyer-approve-profile" data-lead="${escapeHtml(lead.id)}" type="button">Approve supplier profile</button>`
-    );
-  }
-  if (lead.lifecycleStatus === "buyer_approved") {
-    actions.push(
-      `<button class="button small" data-action="activate-supplier" data-lead="${escapeHtml(lead.id)}" type="button">Activate in RapidMatch</button>`
-    );
-  }
   return `
     <div class="banner success" style="margin-top: 14px">
-      <strong>Supplier-reviewed profile</strong><br />
+      <strong>Supplier-confirmed profile</strong><br />
       ${escapeHtml(profile.profileSummary)}
-      ${actions.length ? `<div class="button-row" style="margin-top: 10px">${actions.join("")}</div>` : ""}
+      ${
+        lead.lifecycleStatus === "active_supplier"
+          ? `<div class="micro-label" style="margin-top: 10px">Activated when selected</div>`
+          : `<div class="micro-label" style="margin-top: 10px">Private response link remains open</div>`
+      }
     </div>
   `;
 }
@@ -485,7 +478,7 @@ function renderConnectHandoff() {
     },
     {
       title: "Response returns here",
-      detail: "Buyer activation unlocks the comparable response.",
+      detail: "The supplier submits comparable commercial terms from the same link.",
       complete: hasResponse
     }
   ];
@@ -537,8 +530,8 @@ function renderResponses() {
       <div class="panel-header">
         <div>
           <span class="micro-label">Comparable commercial responses</span>
-          <h2>${workspace.supplierResponses.length ? `${workspace.supplierResponses.length} response(s)` : "Waiting for an active supplier response"}</h2>
-          <p>The supplier claim page updates after buyer approval. The active supplier then submits the standard response here.</p>
+          <h2>${workspace.supplierResponses.length ? `${workspace.supplierResponses.length} response(s)` : "Waiting for supplier responses"}</h2>
+          <p>Suppliers confirm their profiles and submit comparable terms from their private links. Selecting a response activates the chosen supplier.</p>
         </div>
       </div>
       ${workspace.supplierResponses.length === 0
@@ -830,7 +823,9 @@ async function handleAction(action: string, target: HTMLElement) {
     await runAction("approve-leads", async () => {
       await api(`/needs/${encodedNeedId()}/suppliers/approve-outreach`, {
         method: "POST",
-        body: JSON.stringify({ supplierLeadIds: [...selectedLeadIds] })
+        body: JSON.stringify({
+          supplierLeadIds: selectedDiscoverableLeadIds()
+        })
       });
       await loadWorkspace(false);
       notice = {
@@ -997,6 +992,18 @@ async function loadWorkspace(shouldRender = true, reportErrors = true) {
   if (!needId) return;
   try {
     workspace = await api<Workspace>(`/needs/${encodeURIComponent(needId)}`);
+    const selectableLeadIds = new Set(
+      workspace.supplierLeads
+        .filter((lead) =>
+          ["discovered", "approved_for_outreach"].includes(
+            lead.lifecycleStatus
+          )
+        )
+        .map((lead) => lead.id)
+    );
+    selectedLeadIds = new Set(
+      [...selectedLeadIds].filter((leadId) => selectableLeadIds.has(leadId))
+    );
     if (workspace.solutionDecision) {
       decisionType = workspace.solutionDecision.decision;
       selectedApproachIds = new Set(workspace.solutionDecision.selectedApproachIds);
@@ -1091,6 +1098,18 @@ function selectedApprovedLeadIds() {
         (lead) =>
           selectedLeadIds.has(lead.id) &&
           lead.lifecycleStatus === "approved_for_outreach"
+      )
+      .map((lead) => lead.id) ?? []
+  );
+}
+
+function selectedDiscoverableLeadIds() {
+  return (
+    workspace?.supplierLeads
+      .filter(
+        (lead) =>
+          selectedLeadIds.has(lead.id) &&
+          lead.lifecycleStatus === "discovered"
       )
       .map((lead) => lead.id) ?? []
   );

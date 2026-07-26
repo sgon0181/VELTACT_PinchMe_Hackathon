@@ -275,7 +275,16 @@ export class VeltactV2Service {
           transitionLead(lead, "approved_for_outreach");
           lead.approvedForOutreachAt = now;
           lead.updatedAt = now;
-        } else if (lead.lifecycleStatus !== "approved_for_outreach") {
+        } else if (
+          ![
+            "approved_for_outreach",
+            "invited",
+            "claimed",
+            "supplier_profile_approved",
+            "buyer_approved",
+            "active_supplier"
+          ].includes(lead.lifecycleStatus)
+        ) {
           throw new V2ServiceError(
             `${lead.companyName} cannot be approved from ${lead.lifecycleStatus}`,
             409
@@ -577,9 +586,15 @@ export class VeltactV2Service {
     return this.repository.mutate((draft) => {
       const claim = requireLiveClaim(draft, token);
       const lead = requireLead(draft, claim.supplierLeadId);
-      if (lead.lifecycleStatus !== "active_supplier") {
+      if (
+        ![
+          "supplier_profile_approved",
+          "buyer_approved",
+          "active_supplier"
+        ].includes(lead.lifecycleStatus)
+      ) {
         throw new V2ServiceError(
-          "The buyer must approve and activate the supplier before a commercial response",
+          "The supplier must confirm its profile before a commercial response",
           409
         );
       }
@@ -616,7 +631,7 @@ export class VeltactV2Service {
     buyerAccessToken: string | undefined,
     supplierResponseId: string
   ) {
-    return this.repository.mutate((draft) => {
+    const result = await this.repository.mutate((draft) => {
       const need = this.requireBuyer(draft, needId, buyerAccessToken);
       const response = draft.supplierResponses.find(
         (candidate) =>
@@ -632,16 +647,39 @@ export class VeltactV2Service {
           409
         );
       }
-      const existingProject = draft.projects.find(
-        (project) => project.needProfileId === needId
-      );
-      if (existingProject) {
-        return existingProject;
-      }
       const profile = draft.supplierProfiles.find(
         (candidate) => candidate.id === response.supplierProfileId
       );
       if (!profile) throw new V2ServiceError("Supplier profile not found", 404);
+      const existingProject = draft.projects.find(
+        (project) => project.needProfileId === needId
+      );
+      if (existingProject) {
+        return { project: existingProject, profile, activated: false };
+      }
+      const lead = requireLead(draft, response.supplierLeadId);
+      if (lead.needProfileId !== needId) {
+        throw new V2ServiceError("Supplier lead was not found for this need", 404);
+      }
+      if (lead.lifecycleStatus === "supplier_profile_approved") {
+        transitionLead(lead, "buyer_approved");
+      }
+      if (lead.lifecycleStatus === "buyer_approved") {
+        transitionLead(lead, "active_supplier");
+      } else if (lead.lifecycleStatus !== "active_supplier") {
+        throw new V2ServiceError(
+          "Only a supplier-confirmed response may be selected",
+          409
+        );
+      }
+
+      const now = new Date().toISOString();
+      profile.buyerApprovedAt = profile.buyerApprovedAt ?? now;
+      profile.activeAt = profile.activeAt ?? now;
+      profile.updatedAt = now;
+      lead.updatedAt = now;
+      lead.activatedSupplierId = lead.activatedSupplierId ?? `v2-${profile.id}`;
+
       const project = createIndustrialProject({
         needProfileId: needId,
         profile: need.profile,
@@ -652,10 +690,14 @@ export class VeltactV2Service {
         buyerEmail: need.buyerEmail
       });
       need.selectedSupplierResponseId = response.id;
-      need.updatedAt = new Date().toISOString();
+      need.updatedAt = now;
       draft.projects.push(project);
-      return project;
+      return { project, profile, activated: true };
     });
+    if (result.activated) {
+      registerActivatedSupplier(result.profile);
+    }
+    return result.project;
   }
 
   async updateProjectTask(
