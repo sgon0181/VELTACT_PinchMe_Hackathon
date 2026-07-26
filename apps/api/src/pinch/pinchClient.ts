@@ -29,7 +29,7 @@ export class PinchApiError extends Error {
   }
 }
 
-class PinchClient implements PaymentProvider {
+export class PinchClient implements PaymentProvider {
   private cachedToken: CachedToken | undefined;
 
   async health() {
@@ -143,6 +143,10 @@ class PinchClient implements PaymentProvider {
   }
 
   private async getAccessToken() {
+    assertPinchSandboxConfiguration({
+      apiBaseUrl: env.PINCH_API_BASE_URL,
+      secretKey: env.PINCH_SECRET_KEY
+    });
     const now = Date.now();
     if (this.cachedToken && this.cachedToken.expiresAt > now + 60_000) {
       return this.cachedToken.accessToken;
@@ -228,6 +232,27 @@ class PinchClient implements PaymentProvider {
     }
 
     return payload as T;
+  }
+}
+
+export function assertPinchSandboxConfiguration(input: {
+  apiBaseUrl: string;
+  secretKey: string;
+}) {
+  const apiUrl = new URL(input.apiBaseUrl);
+  const isPinchHost =
+    apiUrl.hostname === "api.getpinch.com.au" ||
+    apiUrl.hostname.endsWith(".api.getpinch.com.au");
+  const usesSandboxPath =
+    apiUrl.pathname === "/test" || apiUrl.pathname.startsWith("/test/");
+  const usesObviousLiveSecret = input.secretKey
+    .toLowerCase()
+    .startsWith("sk_live_");
+  if (usesObviousLiveSecret || (isPinchHost && !usesSandboxPath)) {
+    throw new PinchApiError(
+      "Live Pinch configuration is not permitted in this integration",
+      503
+    );
   }
 }
 
