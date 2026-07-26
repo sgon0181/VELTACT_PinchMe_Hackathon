@@ -22,6 +22,7 @@ import {
   getResearchResultForNeed,
   getResponseForInvitation,
   getSolutionDecisionForNeed,
+  getSupplierClaim,
   isBuyerAuthorised,
   listOutreachDeliveriesForNeed,
   listResponsesForNeed,
@@ -99,8 +100,13 @@ const supplierResponseSchema = z.object({
 
 const supplierClaimSchema = z.object({
   claimantName: z.string().trim().min(1).optional(),
-  claimantEmail: z.string().trim().email().optional()
-});
+  claimantEmail: z.string().trim().email().optional(),
+  contactName: z.string().trim().min(1).optional(),
+  contactEmail: z.string().trim().email().optional()
+}).transform((value) => ({
+  claimantName: value.claimantName ?? value.contactName,
+  claimantEmail: value.claimantEmail ?? value.contactEmail
+}));
 
 const solutionDecisionSchema = z.object({
   decision: solutionDecisionTypeSchema,
@@ -170,6 +176,13 @@ marketplaceRouter.get("/supplier-invitations/:token", (request, response) => {
 
   const need = getNeed(invitation.needId);
   const existingResponse = getResponseForInvitation(invitation.id);
+  const supplierClaim = getSupplierClaim(request.params.token);
+  const supplierLead = listSupplierLeadsForNeed(invitation.needId).find(
+    (lead) => lead.id === invitation.supplierId
+  );
+  const supplierMatch = need?.matches.find(
+    (match) => match.supplier.id === invitation.supplierId
+  );
   response.json({
     invitation: {
       ...serialiseSupplierInvitation(invitation),
@@ -179,6 +192,22 @@ marketplaceRouter.get("/supplier-invitations/:token", (request, response) => {
       respondedAt: invitation.respondedAt
     },
     supplierInvitation: serialiseSupplierInvitation(invitation),
+    supplierClaim,
+    claim: supplierClaim,
+    supplierLead,
+    supplierMatch: supplierMatch
+      ? {
+          id: `${invitation.needId}-${supplierMatch.id}`,
+          needProfileId: invitation.needId,
+          supplierId: supplierMatch.supplier.id,
+          score: supplierMatch.score,
+          reasons: supplierMatch.explanation,
+          risks: supplierMatch.risks,
+          status: supplierMatch.status,
+          createdAt: supplierMatch.createdAt,
+          updatedAt: supplierMatch.updatedAt
+        }
+      : undefined,
     supplierResponse: existingResponse ? serialiseSupplierResponse(existingResponse) : undefined,
     response: existingResponse,
     need: need ? serialiseSupplierNeed(need) : undefined

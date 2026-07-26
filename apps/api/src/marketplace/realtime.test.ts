@@ -5,6 +5,8 @@ import { rapidMatchSocketEvent } from "@veltact/contracts";
 import { io as createSocketClient, type Socket } from "socket.io-client";
 import { env } from "../env.js";
 import {
+  approveSupplierOutreachForNeed,
+  claimSupplierInvitation,
   consumeIssuedBuyerAccessToken,
   createNeed,
   resetMarketplaceStore,
@@ -86,6 +88,16 @@ describe("canonical RapidMatch realtime", { concurrency: false }, () => {
         buyerAccessToken: "wrong-buyer-token"
       });
       await wait(30);
+
+      assert.ok(approveSupplierOutreachForNeed(need.id));
+      const claimed = claimSupplierInvitation(
+        need.invitations[0].token,
+        {
+          claimantName: "Realtime test supplier",
+          claimantEmail: "supplier@example.com"
+        }
+      );
+      assert.equal(claimed.status, "claimed");
 
       const submitted = submitSupplierResponse(need.invitations[0].token, {
         canHelp: true,

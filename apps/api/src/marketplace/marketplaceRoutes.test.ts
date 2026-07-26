@@ -804,8 +804,11 @@ describe("marketplace core routes", () => {
       const claimed = await postJson(
         `/api/supplier-invitations/${supplierToken}/claim`,
         {
-          claimantName: "Taylor Controls",
-          claimantEmail: "taylor@supplier.example"
+          companyName: "Taylor Controls",
+          contactName: "Taylor Controls",
+          contactEmail: "taylor@supplier.example",
+          confirmsCompanyAuthority: true,
+          sourceDisclosureAccepted: true
         }
       );
       assert.equal(claimed.status, 200);
@@ -813,6 +816,23 @@ describe("marketplace core routes", () => {
         supplierClaimSchema.parse(claimed.body.supplierClaim)
       );
       assert.equal(claimed.body.supplierClaim.status, "claimed");
+      assert.equal(
+        claimed.body.supplierClaim.claimantName,
+        "Taylor Controls"
+      );
+      assert.equal(
+        claimed.body.supplierClaim.claimantEmail,
+        "taylor@supplier.example"
+      );
+
+      const claimedInvitation = await getJson(
+        `/api/supplier-invitations/${supplierToken}`
+      );
+      assert.equal(
+        claimedInvitation.body.supplierClaim.claimantEmail,
+        "taylor@supplier.example"
+      );
+      assert.ok(claimedInvitation.body.supplierMatch.reasons.length > 0);
 
       const repeatedClaim = await postJson(
         `/api/supplier-invitations/${supplierToken}/claim`,
