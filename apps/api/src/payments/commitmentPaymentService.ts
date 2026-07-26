@@ -87,9 +87,13 @@ export class CommitmentPaymentService {
       input.buyerAccessToken
     );
     if (context.existingPaymentLink) {
-      if (isUsableHostedPaymentLink(context.existingPaymentLink)) {
+      const currentLink = {
+        ...context.existingPaymentLink,
+        paymentStatus: context.paymentStatus
+      };
+      if (isUsableHostedPaymentLink(currentLink)) {
         return {
-          paymentLink: toHostedPaymentLink(context.existingPaymentLink),
+          paymentLink: toHostedPaymentLink(currentLink),
           reused: true
         };
       }

@@ -98,6 +98,31 @@ describe("CommitmentPaymentService", () => {
     assert.equal(persistence.context.existingPaymentLink, undefined);
   });
 
+  test("does not reopen or replace a link after authoritative payment", async () => {
+    const context = commitmentContext();
+    context.paymentStatus = "paid";
+    context.existingPaymentLink = {
+      ...hostedPaymentLink("paid"),
+      paymentStatus: "awaiting_payment"
+    };
+    const persistence = new MemoryCommitmentAdapter(context);
+    const provider = new FakePaymentProvider();
+
+    await assert.rejects(
+      new CommitmentPaymentService(
+        persistence,
+        provider
+      ).createOrReuseHostedPaymentLink({
+        engagementId: context.engagementId,
+        buyerAccessToken: "buyer-token",
+        returnUrl: "https://veltact.example/api/pinch/return/eng-robotics"
+      }),
+      (error: unknown) =>
+        error instanceof CommitmentPaymentError && error.statusCode === 409
+    );
+    assert.equal(provider.createCalls, 0);
+  });
+
   test("secures only through explicit approved provider reconciliation", async () => {
     const context = commitmentContext();
     context.existingPaymentLink = {

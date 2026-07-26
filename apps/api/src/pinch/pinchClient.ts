@@ -240,15 +240,16 @@ export function assertPinchSandboxConfiguration(input: {
   secretKey: string;
 }) {
   const apiUrl = new URL(input.apiBaseUrl);
-  const isPinchHost =
-    apiUrl.hostname === "api.getpinch.com.au" ||
-    apiUrl.hostname.endsWith(".api.getpinch.com.au");
   const usesSandboxPath =
     apiUrl.pathname === "/test" || apiUrl.pathname.startsWith("/test/");
+  const isTestFixtureHost = apiUrl.hostname.endsWith(".test");
   const usesObviousLiveSecret = input.secretKey
     .toLowerCase()
     .startsWith("sk_live_");
-  if (usesObviousLiveSecret || (isPinchHost && !usesSandboxPath)) {
+  if (
+    usesObviousLiveSecret ||
+    (!usesSandboxPath && !isTestFixtureHost)
+  ) {
     throw new PinchApiError(
       "Live Pinch configuration is not permitted in this integration",
       503

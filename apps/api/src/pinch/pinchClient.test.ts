@@ -150,6 +150,14 @@ describe("PinchClient", () => {
     assert.throws(
       () =>
         assertPinchSandboxConfiguration({
+          apiBaseUrl: "https://payments-proxy.example/api",
+          secretKey: "test-secret"
+        }),
+      /Live Pinch configuration is not permitted/
+    );
+    assert.throws(
+      () =>
+        assertPinchSandboxConfiguration({
           apiBaseUrl: "https://api.getpinch.com.au/test",
           secretKey: "sk_live_not-a-real-key"
         }),
