@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1600" viewBox="0 0 1600 1600" role="img" aria-labelledby="title desc">
+  <title id="title">AxisForge Robotics logo</title>
+  <desc id="desc">Angular industrial robotics emblem combining an A, an axis cross and a precision-machined hexagonal frame.</desc>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Precision-machined outer frame -->
+    <path d="M425 250 L685 110 H915 L1175 250 L1285 470 V730 L1175 950 L915 1090 H685 L425 950 L315 730 V470 Z"
+          stroke="#173A5E" stroke-width="54"/>
+    <path d="M468 300 L710 170 H890 L1132 300 L1225 492 V708 L1132 900 L890 1030 H710 L468 900 L375 708 V492 Z"
+          stroke="#2E6FA3" stroke-width="22"/>
+
+    <!-- Stylised A / robotic axis -->
+    <path d="M520 850 L760 325 H850 L1080 850"
+          stroke="#DCE7F1" stroke-width="88"/>
+    <path d="M615 690 H995"
+          stroke="#DCE7F1" stroke-width="76"/>
+
+    <!-- Red forged axis spine -->
+    <path d="M805 350 V845"
+          stroke="#D7263D" stroke-width="62"/>
+    <path d="M640 540 H970"
+          stroke="#D7263D" stroke-width="42"/>
+
+    <!-- Joint bearings -->
+    <circle cx="805" cy="540" r="84" fill="#0B1F33" stroke="#D7263D" stroke-width="28"/>
+    <circle cx="805" cy="540" r="28" fill="#DCE7F1" stroke="none"/>
+    <circle cx="640" cy="540" r="28" fill="#D7263D" stroke="none"/>
+    <circle cx="970" cy="540" r="28" fill="#D7263D" stroke="none"/>
+
+    <!-- End-effector motif -->
+    <path d="M735 850 L805 925 L875 850"
+          stroke="#D7263D" stroke-width="42"/>
+    <path d="M740 925 L690 995 M870 925 L920 995"
+          stroke="#173A5E" stroke-width="34"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="800" y="1280" text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif" font-size="142" font-weight="800"
+        letter-spacing="-3" fill="#0B1F33">AxisForge</text>
+  <text x="800" y="1385" text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="700"
+        letter-spacing="16" fill="#2E6FA3">ROBOTICS</text>
+</svg>

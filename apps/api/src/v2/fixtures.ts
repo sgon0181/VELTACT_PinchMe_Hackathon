@@ -429,17 +429,18 @@ function roboticsResearchSources(accessedAt: string): ResearchCitation[] {
   return [
     {
       id: randomUUID(),
-      title: "Guide to machinery and equipment safety",
-      url: "https://www.safeworkaustralia.gov.au/doc/guide-machinery-and-equipment-safety",
+      title: "Guide for safe design of plant",
+      url: "https://www.safeworkaustralia.gov.au/doc/guide-safe-design-plant",
       sourceType: "standards",
       provider: "fixture",
       evidenceNote:
-        "Safe Work Australia guidance supports identifying machinery hazards and controlling risk across design, operation and maintenance.",
+        "Safe Work Australia guidance supports integrating risk controls early in plant design and considering safety across the plant lifecycle.",
       accessedAt
     },
     {
       id: randomUUID(),
-      title: "ISO 10218-2:2025 Robotics - Safety requirements",
+      title:
+        "ISO 10218-2:2025 — Robotics — Safety requirements — Part 2: Industrial robot applications and robot cells",
       url: "https://www.iso.org/standard/73934.html",
       sourceType: "standards",
       provider: "fixture",
@@ -449,12 +450,12 @@ function roboticsResearchSources(accessedAt: string): ResearchCitation[] {
     },
     {
       id: randomUUID(),
-      title: "Robotics application engineering",
-      url: "https://new.abb.com/products/robotics",
+      title: "ABB Robotics",
+      url: "https://www.abb.com/global/en/areas/robotics",
       sourceType: "manufacturer",
       provider: "fixture",
       evidenceNote:
-        "Manufacturer material illustrates the application, tooling, software and service disciplines involved in robot integration.",
+        "ABB's official robotics portfolio covers industrial robots, controllers, software, application solutions, services and equipment relevant to integration.",
       accessedAt
     }
   ];

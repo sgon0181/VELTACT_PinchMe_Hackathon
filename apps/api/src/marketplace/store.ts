@@ -28,6 +28,7 @@ import type { DeploymentSummary } from "@veltact/contracts";
 import { syncCommitmentPayment } from "../deployment/templates.js";
 import type {
   Engagement,
+  LocalDemoPaymentEvidence,
   MarketplaceAuditEvent,
   NeedProfile,
   NeedRecord,
@@ -92,6 +93,12 @@ const processedPinchEventIds = new Set<string>(
 );
 const pinchWebhookEvidence = new Map<string, PinchWebhookEvidence>(
   initialSnapshot?.pinchWebhookEvidence.map((evidence) => [
+    evidence.eventId,
+    evidence
+  ]) ?? []
+);
+const localDemoPaymentEvidence = new Map<string, LocalDemoPaymentEvidence>(
+  initialSnapshot?.localDemoPaymentEvidence.map((evidence) => [
     evidence.eventId,
     evidence
   ]) ?? []
@@ -261,6 +268,14 @@ export function isBuyerAuthorised(needId: string, accessToken: string | undefine
 
 export function listMarketplaceAuditEvents() {
   return [...auditEvents];
+}
+
+export function listPinchWebhookEvidence() {
+  return [...pinchWebhookEvidence.values()];
+}
+
+export function listLocalDemoPaymentEvidence() {
+  return [...localDemoPaymentEvidence.values()];
 }
 
 export function getNeed(id: string): NeedRecord | undefined {
@@ -1249,7 +1264,9 @@ export function createEngagement(input: {
   if (
     supplierResponse.status !== "submitted" ||
     supplierResponse.decision !== "can_help" ||
-    !supplierResponse.canHelp
+    !supplierResponse.canHelp ||
+    supplierResponse.indicativePriceAud <= 0 ||
+    supplierResponse.indicativePrice.amount <= 0
   ) {
     return { status: "not_selectable" };
   }
@@ -1396,6 +1413,13 @@ export function recordAuthoritativePinchPayment(input: {
   engagement.status = "supplier_secured";
   engagement.paymentStatus = "paid";
   engagement.pinchPaymentId = input.paymentId ?? engagement.pinchPaymentId;
+  engagement.localDemoPaymentId = undefined;
+  engagement.paymentEvidenceProvider = "pinch";
+  engagement.paymentEvidenceSource =
+    input.eventType === "payment-api-reconciliation"
+      ? "pinch_reconciliation"
+      : "pinch_webhook";
+  engagement.paymentEvidenceAuthoritative = true;
   engagement.securedAt = receivedAt;
   engagement.updatedAt = receivedAt;
 
@@ -1429,6 +1453,92 @@ export function recordAuthoritativePinchPayment(input: {
   return { engagement, duplicate: false };
 }
 
+export function recordLocalDemoPayment(input: {
+  eventId: string;
+  eventType: string;
+  engagementId: string;
+  paymentId: string;
+  payload: unknown;
+}): { engagement?: Engagement; duplicate: boolean } {
+  if (localDemoPaymentEvidence.has(input.eventId)) {
+    return {
+      engagement: engagements.get(input.engagementId),
+      duplicate: true
+    };
+  }
+
+  const receivedAt = new Date().toISOString();
+  localDemoPaymentEvidence.set(input.eventId, {
+    provider: "local_demo",
+    source: "local_demo",
+    authoritative: false,
+    ...input,
+    receivedAt
+  });
+
+  const engagement = engagements.get(input.engagementId);
+  if (!engagement) {
+    commitMarketplaceMutation({
+      eventType: "payment.local_demo_unmatched",
+      actorType: "system",
+      actorId: "local_demo",
+      entityType: "payment",
+      entityId: input.engagementId,
+      metadata: {
+        provider: "local_demo",
+        source: "local_demo",
+        authoritative: false,
+        eventType: input.eventType
+      }
+    });
+    return { duplicate: false };
+  }
+
+  const need = needs.get(engagement.needId);
+  engagement.status = "supplier_secured";
+  engagement.paymentStatus = "paid";
+  engagement.pinchPaymentId = undefined;
+  engagement.localDemoPaymentId = input.paymentId;
+  engagement.paymentEvidenceProvider = "local_demo";
+  engagement.paymentEvidenceSource = "local_demo";
+  engagement.paymentEvidenceAuthoritative = false;
+  engagement.securedAt = receivedAt;
+  engagement.updatedAt = receivedAt;
+
+  const deployment = deployments.get(engagement.id);
+  if (deployment) {
+    const synced = syncCommitmentPayment(
+      deployment,
+      engagement.paymentStatus,
+      receivedAt
+    );
+    if (synced.changed) {
+      deployments.set(engagement.id, synced.deployment);
+    }
+  }
+
+  if (need) {
+    need.status = "secured";
+    need.updatedAt = receivedAt;
+  }
+
+  commitMarketplaceMutation({
+    eventType: "payment.local_demo_secured",
+    actorType: "system",
+    actorId: "local_demo",
+    entityType: "payment",
+    entityId: engagement.id,
+    metadata: {
+      provider: "local_demo",
+      source: "local_demo",
+      authoritative: false,
+      eventType: input.eventType,
+      paymentStatus: engagement.paymentStatus
+    }
+  });
+  return { engagement, duplicate: false };
+}
+
 export function resetMarketplaceStore(options: { preserveAudit?: boolean } = {}) {
   needs.clear();
   researchResults.clear();
@@ -1442,6 +1552,7 @@ export function resetMarketplaceStore(options: { preserveAudit?: boolean } = {})
   deployments.clear();
   processedPinchEventIds.clear();
   pinchWebhookEvidence.clear();
+  localDemoPaymentEvidence.clear();
   issuedBuyerAccessTokens.clear();
   if (!options.preserveAudit) {
     auditEvents.splice(0);
@@ -1533,6 +1644,13 @@ export function reloadMarketplaceStore(
       evidence
     ])
   );
+  replaceMap(
+    localDemoPaymentEvidence,
+    snapshot.localDemoPaymentEvidence.map((evidence) => [
+      evidence.eventId,
+      evidence
+    ])
+  );
   auditEvents.splice(0, auditEvents.length, ...snapshot.auditEvents);
   issuedBuyerAccessTokens.clear();
   return true;
@@ -1575,6 +1693,7 @@ function persistMarketplaceState() {
     deployments: [...deployments.values()],
     processedPinchEventIds: [...processedPinchEventIds],
     pinchWebhookEvidence: [...pinchWebhookEvidence.values()],
+    localDemoPaymentEvidence: [...localDemoPaymentEvidence.values()],
     auditEvents
   });
 }

@@ -5,6 +5,7 @@ import {
   solutionDecisionSchema,
   solutionResearchResultSchema,
   supplierResponseSchema,
+  type DeploymentMilestoneStatus,
   type DeploymentSummary,
   type Engagement,
   type IntakeEvidenceSummary,
@@ -20,14 +21,14 @@ import {
   type SupplierOutreachDelivery,
   type SupplierResponse
 } from "@veltact/contracts";
+import { apiBaseUrl } from "./apiBase.js";
 import type { BuyerRequirementInput, PrioritySignal } from "./types.js";
 import { parseUrgencyDays } from "./urgency.js";
 
 const runtimeWindow = window as Window & {
-  API_BASE_URL?: string;
   FRONTEND_BASE_URL?: string;
 };
-const API_BASE = runtimeWindow.API_BASE_URL ?? defaultApiBase();
+const API_BASE = apiBaseUrl();
 const FRONTEND_BASE = runtimeWindow.FRONTEND_BASE_URL ?? window.location.origin;
 
 type LegacyNeedRecord = {
@@ -420,6 +421,44 @@ export class RapidMatchService {
   ): Promise<RapidMatchBuyerWorkspace> {
     const engagement = requiredEngagement(workspace);
     return this.loadEngagement(workspace, engagement.id);
+  }
+
+  async updateDeploymentMilestone(
+    workspace: RapidMatchBuyerWorkspace,
+    milestoneId: string,
+    status: Extract<
+      DeploymentMilestoneStatus,
+      "in_progress" | "completed"
+    >,
+    latestUpdate: string
+  ): Promise<RapidMatchBuyerWorkspace> {
+    const needProfile = requiredNeedProfile(workspace);
+    const engagement = requiredEngagement(workspace);
+    const payload = await requestJson<unknown>(
+      routeFor(rapidMatchApiRoute.deploymentMilestone, {
+        engagementId: engagement.id,
+        milestoneId
+      }),
+      {
+        method: "PATCH",
+        body: { status, latestUpdate },
+        buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
+      }
+    );
+    const canonical = canonicalWorkspaceFrom(payload);
+    const deployment =
+      canonical?.deployment ??
+      parseDeployment(
+        isRecord(payload) ? payload.deployment : undefined
+      ) ??
+      parseDeployment(payload);
+    if (!deployment) {
+      throw new Error("The API did not return the updated deployment.");
+    }
+    return reconcileWorkspace({
+      ...(canonical ?? workspace),
+      deployment
+    });
   }
 
   async completeDemoPayment(
@@ -840,23 +879,23 @@ function fixtureResearch(
     ? [
         fixtureCitation(
           `${needProfileId}-citation-safety`,
-          "Guide to machinery and equipment safety",
-          "https://www.safeworkaustralia.gov.au/doc/guide-machinery-and-equipment-safety",
-          "Safe Work Australia guidance supports identifying machinery hazards and controlling risk across design, operation and maintenance.",
+          "Guide for safe design of plant",
+          "https://www.safeworkaustralia.gov.au/doc/guide-safe-design-plant",
+          "Safe Work Australia guidance supports integrating risk controls early in plant design and considering safety across the plant lifecycle.",
           generatedAt
         ),
         fixtureCitation(
           `${needProfileId}-citation-standard`,
-          "ISO 10218-2:2025 Robotics - Safety requirements",
+          "ISO 10218-2:2025 — Robotics — Safety requirements — Part 2: Industrial robot applications and robot cells",
           "https://www.iso.org/standard/73934.html",
           "The standard identifies safety requirements for industrial robot applications and robot cells.",
           generatedAt
         ),
         fixtureCitation(
           `${needProfileId}-citation-manufacturer`,
-          "ABB robotics application engineering",
-          "https://new.abb.com/products/robotics",
-          "Manufacturer material illustrates the tooling, software and service disciplines involved in robot integration.",
+          "ABB Robotics",
+          "https://www.abb.com/global/en/areas/robotics",
+          "ABB's official robotics portfolio covers industrial robots, controllers, software, application solutions, services and equipment relevant to integration.",
           generatedAt
         )
       ]
@@ -1189,15 +1228,6 @@ function companyNameFromEmail(email: string) {
     : "Buyer organisation";
 }
 
-function defaultApiBase() {
-  if (
-    ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
-    window.location.port !== "4000"
-  ) {
-    return "http://localhost:4000/api";
-  }
-  return `${window.location.origin}/api`;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object";

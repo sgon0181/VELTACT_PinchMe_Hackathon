@@ -1,3 +1,5 @@
+import { demoControlsEnabled } from "./apiBase.js";
+
 document.documentElement.classList.add("js");
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -29,9 +31,6 @@ if (year) {
 }
 
 type DemoScenario = "plc" | "robotics";
-type HealthResponse = {
-  environment?: string;
-};
 type DemoResetResponse = {
   buyerUrl?: string;
   supplierPaths?: Array<{
@@ -70,17 +69,7 @@ async function configureGuidedDemo() {
     return;
   }
 
-  try {
-    const response = await fetch("/api/health", {
-      headers: { Accept: "application/json" }
-    });
-    const health = (await response.json()) as HealthResponse;
-    if (!response.ok || health.environment === "production") {
-      return;
-    }
-  } catch {
-    return;
-  }
+  if (!(await demoControlsEnabled())) return;
 
   guidedDemo.hidden = false;
   guidedDemoLink.hidden = false;

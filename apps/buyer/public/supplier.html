@@ -5,9 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="referrer" content="same-origin" />
     <title>Veltact Supplier Opportunity</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./supplier.css?v=unified-1" />
+    <link rel="stylesheet" href="./alloy.css?v=alloy-1" />
   </head>
-  <body>
+  <body data-theme="supplier">
     <a class="skip-link" href="#supplier-content">Skip to supplier opportunity</a>
     <main id="supplier-content" class="supplier-shell">
       <header class="brand-header">
@@ -34,7 +41,12 @@
             <h1 id="need-title">Loading opportunity...</h1>
           </div>
           <div class="invitation-meta">
-            <span id="supplier-name">Supplier</span>
+            <div class="company-identity supplier-company-identity">
+              <span id="supplier-logo-shell" class="company-logo-shell" aria-hidden="true" hidden>
+                <img id="supplier-logo" class="company-logo" alt="" />
+              </span>
+              <strong id="supplier-name" class="company-name-text">Supplier</strong>
+            </div>
             <span id="invitation-expiry">Checking expiry</span>
           </div>
         </div>
@@ -158,8 +170,8 @@
                 <input
                   name="indicativePriceAud"
                   type="number"
-                  min="0"
-                  step="100"
+                  min="1"
+                  step="1"
                   inputmode="numeric"
                   data-help-required
                   required
@@ -222,7 +234,7 @@
           </label>
         </section>
 
-        <details id="demo-tools" class="demo-tools">
+        <details id="demo-tools" class="demo-tools" hidden>
           <summary>Fixture demo response</summary>
           <p>Development utility. Loaded values remain editable before submission.</p>
           <div class="demo-controls">
@@ -269,6 +281,6 @@
         <p id="receipt-reference" class="receipt-reference"></p>
       </section>
     </main>
-    <script src="./supplier.js?v=unified-1" type="module"></script>
+    <script src="./supplier.js?v=logos-1" type="module"></script>
   </body>
 </html>

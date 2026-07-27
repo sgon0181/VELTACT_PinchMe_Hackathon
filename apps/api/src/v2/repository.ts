@@ -141,7 +141,11 @@ function loadSnapshot(filePath: string | undefined): VeltactV2Snapshot {
   }
 
   try {
-    return veltactV2SnapshotSchema.parse(JSON.parse(readFileSync(filePath, "utf8")));
+    return veltactV2SnapshotSchema.parse(
+      normaliseLegacyPaymentEvidenceAuthority(
+        JSON.parse(readFileSync(filePath, "utf8")) as unknown
+      )
+    );
   } catch (error) {
     throw new V2RepositoryError(
       `Veltact V2 data is corrupt or incompatible: ${filePath}. ` +
@@ -149,6 +153,39 @@ function loadSnapshot(filePath: string | undefined): VeltactV2Snapshot {
       error
     );
   }
+}
+
+function normaliseLegacyPaymentEvidenceAuthority(snapshot: unknown): unknown {
+  if (
+    typeof snapshot !== "object" ||
+    snapshot === null ||
+    Array.isArray(snapshot)
+  ) {
+    return snapshot;
+  }
+  const record = snapshot as Record<string, unknown>;
+  if (
+    record.schemaVersion !== 2 ||
+    !Array.isArray(record.paymentEvidence)
+  ) {
+    return snapshot;
+  }
+  return {
+    ...record,
+    paymentEvidence: record.paymentEvidence.map((evidence) => {
+      if (
+        typeof evidence !== "object" ||
+        evidence === null ||
+        Array.isArray(evidence)
+      ) {
+        return evidence;
+      }
+      const item = evidence as Record<string, unknown>;
+      return item.provider === "local_demo" && item.authoritative === true
+        ? { ...item, authoritative: false }
+        : item;
+    })
+  };
 }
 
 async function persistSnapshot(

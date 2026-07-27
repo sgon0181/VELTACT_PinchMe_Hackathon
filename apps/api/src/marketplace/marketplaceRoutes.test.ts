@@ -22,6 +22,7 @@ import {
 import { io as createSocketClient, type Socket } from "socket.io-client";
 import { app } from "../app.js";
 import { env } from "../env.js";
+import { localDemoPaymentProvider } from "../payments/localDemoPaymentProvider.js";
 import {
   resetPaymentProviderForTest,
   setPaymentProviderForTest
@@ -30,18 +31,26 @@ import { attachRealtime } from "../realtime.js";
 import {
   approveSupplierOutreachForNeed,
   claimSupplierInvitation,
+  createEngagement,
   createNeed,
+  getEngagement,
   getInvitation,
+  listLocalDemoPaymentEvidence,
   listMarketplaceAuditEvents,
+  listPinchWebhookEvidence,
+  recordLocalDemoPayment,
   resetMarketplaceStore,
   submitSupplierResponse
 } from "./store.js";
 
 let server: Server;
 let baseUrl: string;
+let originalPaymentProviderMode: typeof env.PAYMENT_PROVIDER;
 
 beforeEach(async () => {
   resetMarketplaceStore();
+  originalPaymentProviderMode = env.PAYMENT_PROVIDER;
+  env.PAYMENT_PROVIDER = "pinch";
   process.env.PINCH_WEBHOOK_SECRET = "whsec_test_secret";
   setPaymentProviderForTest({
     async createHostedPaymentLink(input) {
@@ -74,6 +83,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  env.PAYMENT_PROVIDER = originalPaymentProviderMode;
   resetPaymentProviderForTest();
   await new Promise<void>((resolve, reject) => {
     server.close((error) => {
@@ -177,7 +187,7 @@ describe("marketplace core routes", () => {
     assert.equal(rejected.body.error, "low_signal_ai_intake_request");
   });
 
-  test("accepts industrial photo evidence with filename context", async () => {
+  test("does not fabricate local intake facts from a binary evidence filename", async () => {
     const structured = await postJson("/api/ai-intake/structure", {
       rawRequirement: "",
       evidence: [
@@ -190,9 +200,10 @@ describe("marketplace core routes", () => {
       ]
     }, { "x-veltact-ai-intake-source": "local_demo" });
 
-    assert.equal(structured.status, 200);
-    assert.equal(structured.body.source, "local_demo");
-    assert.doesNotThrow(() => aiIntakeResultSchema.parse(structured.body.aiIntakeResult));
+    assert.equal(structured.status, 422);
+    assert.equal(structured.body.error, "binary_evidence_requires_live_ai");
+    assert.match(structured.body.message, /cannot read binary-only/i);
+    assert.doesNotMatch(structured.body.message, /siemens-plc-fault/i);
   });
 
   test("rejects context-free photo evidence before a paid model call", async () => {
@@ -1039,6 +1050,19 @@ describe("marketplace core routes", () => {
     assert.equal(invitation.body.need.id, created.body.need.id);
     await claimInvitation(token);
 
+    const zeroPriced = await postJson(`/api/supplier-invitations/${token}/responses`, {
+      canHelp: true,
+      earliestAvailability: "2026-07-28",
+      indicativePriceAud: 0,
+      relevantExperience: "Completed urgent PLC and SCADA recovery for a packaging line.",
+      conditions: ["Remote diagnostics required before site attendance."]
+    });
+    assert.equal(zeroPriced.status, 400);
+    assert.match(
+      zeroPriced.body.issues.indicativePriceAud[0],
+      /greater than zero/
+    );
+
     const submitted = await postJson(`/api/supplier-invitations/${token}/responses`, {
       canHelp: true,
       earliestAvailability: "2026-07-28",
@@ -1113,6 +1137,25 @@ describe("marketplace core routes", () => {
     await sendOutreach(created.body.need.id);
     await claimInvitation(firstInvitation.token);
     await claimInvitation(secondInvitation.token);
+
+    const legacyZeroQuote = submitSupplierResponse(firstInvitation.token, {
+      canHelp: true,
+      earliestAvailability: "Same day",
+      indicativePriceAud: 0,
+      relevantExperience: "Legacy response created below the HTTP validation boundary.",
+      conditions: "Remote triage before dispatch."
+    });
+    assert.equal(legacyZeroQuote.status, "submitted");
+    if (legacyZeroQuote.status !== "submitted") {
+      assert.fail("Expected a direct store fixture response");
+    }
+    assert.equal(
+      createEngagement({
+        needId: created.body.need.id,
+        supplierResponseId: legacyZeroQuote.supplierResponse.id
+      }).status,
+      "not_selectable"
+    );
 
     const declined = await postJson(`/api/supplier-invitations/${firstInvitation.token}/responses`, {
       canHelp: false,
@@ -1491,6 +1534,10 @@ describe("marketplace core routes", () => {
     assert.equal(secured.body.engagement.status, "supplier_secured");
     assert.equal(secured.body.engagement.paymentStatus, "paid");
     assert.equal(secured.body.engagement.pinchPaymentId, "pmt_approved");
+    assert.equal(secured.body.engagement.localDemoPaymentId, undefined);
+    assert.equal(secured.body.engagement.paymentEvidenceProvider, "pinch");
+    assert.equal(secured.body.engagement.paymentEvidenceSource, "pinch_webhook");
+    assert.equal(secured.body.engagement.paymentEvidenceAuthoritative, true);
 
     const securedWorkspace = await getJson(
       `/api/need-profiles/${created.body.need.id}`
@@ -1544,6 +1591,8 @@ describe("marketplace core routes", () => {
   });
 
   test("completes the local demo through the secured state without an external payment", async () => {
+    env.PAYMENT_PROVIDER = "local_demo";
+    setPaymentProviderForTest(localDemoPaymentProvider);
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",
       profile: automationNeed()
@@ -1575,15 +1624,112 @@ describe("marketplace core routes", () => {
     assert.doesNotThrow(() => engagementSchema.parse(completed.body.engagement));
     assert.equal(completed.body.engagement.status, "supplier_secured");
     assert.equal(completed.body.engagement.paymentStatus, "paid");
-    assert.match(completed.body.engagement.pinchPaymentId, /^demo_/);
+    assert.equal(completed.body.engagement.pinchPaymentId, undefined);
+    assert.match(completed.body.engagement.localDemoPaymentId, /^demo_/);
+    assert.equal(
+      completed.body.engagement.paymentEvidenceProvider,
+      "local_demo"
+    );
+    assert.equal(completed.body.engagement.paymentEvidenceSource, "local_demo");
+    assert.equal(
+      completed.body.engagement.paymentEvidenceAuthoritative,
+      false
+    );
     assert.equal(completed.body.paymentEvidence.authoritative, false);
+    assert.equal(completed.body.paymentEvidence.provider, "local_demo");
+    assert.equal(completed.body.paymentEvidence.source, "local_demo");
     assert.match(completed.body.paymentEvidence.label, /Local demo only/);
+    assert.match(completed.body.paymentEvidence.eventId, /^demo-payment:/);
+    assert.match(completed.body.paymentEvidence.paymentId, /^demo_/);
+
+    const persistedDemoEvidence = listLocalDemoPaymentEvidence();
+    assert.equal(persistedDemoEvidence.length, 1);
+    assert.equal(persistedDemoEvidence[0]?.provider, "local_demo");
+    assert.equal(persistedDemoEvidence[0]?.source, "local_demo");
+    assert.equal(persistedDemoEvidence[0]?.authoritative, false);
+    assert.equal(listPinchWebhookEvidence().length, 0);
+    assert.ok(
+      listMarketplaceAuditEvents().some(
+        (event) =>
+          event.eventType === "payment.local_demo_secured" &&
+          event.actorType === "system" &&
+          event.actorId === "local_demo" &&
+          event.metadata.provider === "local_demo" &&
+          event.metadata.authoritative === false
+      )
+    );
+
+    const securedAt = completed.body.engagement.securedAt;
+    const repeatedStoreRecord = recordLocalDemoPayment({
+      eventId: completed.body.paymentEvidence.eventId,
+      eventType: "local-demo-payment",
+      engagementId: selected.body.engagement.id,
+      paymentId: completed.body.paymentEvidence.paymentId,
+      payload: {
+        source: "local_demo"
+      }
+    });
+    assert.equal(repeatedStoreRecord.duplicate, true);
+    assert.equal(repeatedStoreRecord.engagement?.securedAt, securedAt);
+    assert.equal(listLocalDemoPaymentEvidence().length, 1);
 
     const duplicate = await postJson(
       `/api/engagements/${selected.body.engagement.id}/demo-payment`,
       {}
     );
     assert.equal(duplicate.status, 409);
+    assert.equal(listLocalDemoPaymentEvidence().length, 1);
+  });
+
+  test("rejects demo evidence for a Pinch configuration and for a non-local link", async () => {
+    const created = await postJson("/api/needs", {
+      buyerEmail: "buyer@example.com",
+      profile: automationNeed()
+    });
+    const token = created.body.need.invitations[0].token;
+    await approveOutreachAndClaim(created.body.need.id, token);
+    const submitted = await postJson(
+      `/api/supplier-invitations/${token}/responses`,
+      {
+        canHelp: true,
+        earliestAvailability: "2026-07-28",
+        indicativePriceAud: 18500,
+        relevantExperience:
+          "Completed urgent PLC and SCADA recovery for a packaging line.",
+        conditions: "Remote diagnostics required before site attendance."
+      }
+    );
+    const selected = await postJson(
+      `/api/need-profiles/${created.body.need.id}/engagements`,
+      {
+        supplierResponseId: submitted.body.response.id
+      }
+    );
+    const paymentLink = await postJson(
+      `/api/engagements/${selected.body.engagement.id}/payment-link`,
+      {}
+    );
+    assert.equal(paymentLink.status, 201);
+    assert.match(paymentLink.body.hostedCheckoutUrl, /getpinch\.com\.au/);
+
+    const providerRejected = await postJson(
+      `/api/engagements/${selected.body.engagement.id}/demo-payment`,
+      {}
+    );
+    assert.equal(providerRejected.status, 404);
+
+    env.PAYMENT_PROVIDER = "local_demo";
+    const provenanceRejected = await postJson(
+      `/api/engagements/${selected.body.engagement.id}/demo-payment`,
+      {}
+    );
+    assert.equal(provenanceRejected.status, 409);
+    assert.match(provenanceRejected.body.message, /local demo payment link/i);
+
+    const engagement = getEngagement(selected.body.engagement.id);
+    assert.equal(engagement?.paymentStatus, "awaiting_payment");
+    assert.equal(engagement?.localDemoPaymentId, undefined);
+    assert.equal(listLocalDemoPaymentEvidence().length, 0);
   });
 });
 

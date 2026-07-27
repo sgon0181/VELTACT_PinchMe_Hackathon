@@ -4,6 +4,7 @@ import type {
   HostedPaymentLink,
   PaymentProvider
 } from "./paymentProvider.js";
+import { isLocalDemoHostedPaymentLink } from "./localDemoPaymentProvider.js";
 
 export type StoredHostedPaymentLink = HostedPaymentLink & {
   paymentStatus: PaymentStatus;
@@ -225,12 +226,13 @@ export function isUsableHostedPaymentLink(link: StoredHostedPaymentLink) {
   }
   try {
     const url = new URL(link.hostedCheckoutUrl);
-    return (
-      url.protocol === "https:" &&
-      link.provider === "pinch" &&
-      link.payerId.length > 0 &&
-      link.paymentLinkId.length > 0
-    );
+    if (link.payerId.length === 0 || link.paymentLinkId.length === 0) {
+      return false;
+    }
+    if (link.provider === "pinch") {
+      return url.protocol === "https:";
+    }
+    return isLocalDemoHostedPaymentLink(link);
   } catch {
     return false;
   }

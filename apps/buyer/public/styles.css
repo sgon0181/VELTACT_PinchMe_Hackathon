@@ -805,9 +805,11 @@ span {
 }
 
 .summary-status {
+  flex: 0 0 auto;
   color: var(--blue-dark);
   font-size: 0.78rem;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .manual-fields-body {
@@ -1760,6 +1762,50 @@ dl .is-missing dd,
   font-size: 0.78rem;
 }
 
+.milestone-update-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px 18px;
+  align-items: end;
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--blue);
+  border-radius: 5px;
+  padding: 16px 18px;
+  background: var(--surface-muted);
+}
+
+.milestone-update-heading {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.milestone-update-heading .eyebrow {
+  margin: 0 0 3px;
+}
+
+.milestone-update-heading h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1rem;
+}
+
+.milestone-update-form .field textarea {
+  min-height: 92px;
+}
+
+.milestone-update-form > .button {
+  margin-bottom: 26px;
+  white-space: nowrap;
+}
+
+.milestone-update-unavailable {
+  margin-top: 18px;
+}
+
 .inline-empty,
 .unavailable-panel {
   text-align: center;
@@ -2050,6 +2096,19 @@ dl .is-missing dd,
   .outcome-actions,
   .outcome-actions .button {
     width: 100%;
+  }
+
+  .milestone-update-form {
+    grid-template-columns: 1fr;
+  }
+
+  .milestone-update-form > .button {
+    width: 100%;
+    margin-bottom: 0;
+  }
+
+  .milestone-update-heading {
+    align-items: flex-start;
   }
 
   .outcome-actions {

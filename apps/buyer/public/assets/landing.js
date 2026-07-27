@@ -1,4 +1,4 @@
-"use strict";
+import { demoControlsEnabled } from "./apiBase.js";
 document.documentElement.classList.add("js");
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const revealElements = document.querySelectorAll("[data-reveal]");
@@ -42,18 +42,8 @@ async function configureGuidedDemo() {
         demoScenarioButtons.length === 0) {
         return;
     }
-    try {
-        const response = await fetch("/api/health", {
-            headers: { Accept: "application/json" }
-        });
-        const health = (await response.json());
-        if (!response.ok || health.environment === "production") {
-            return;
-        }
-    }
-    catch {
+    if (!(await demoControlsEnabled()))
         return;
-    }
     guidedDemo.hidden = false;
     guidedDemoLink.hidden = false;
     demoScenarioButtons.forEach((button) => {

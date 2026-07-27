@@ -14,7 +14,10 @@ export function createIndustrialProject(input: {
   profile: MarketplaceNeedProfile;
   supplierLeadId: string;
   supplierProfile: SupplierProfile;
-  supplierResponse: SupplierCommercialResponse;
+  supplierResponse: Extract<
+    SupplierCommercialResponse,
+    { decision: "can_help" }
+  >;
   buyerName: string;
   buyerEmail: string;
   currentTime?: Date;

@@ -1,7 +1,8 @@
 import { deploymentSummarySchema, rapidMatchApiRoute, rapidMatchBuyerWorkspaceSchema, solutionDecisionSchema, solutionResearchResultSchema, supplierResponseSchema } from "@veltact/contracts";
+import { apiBaseUrl } from "./apiBase.js";
 import { parseUrgencyDays } from "./urgency.js";
 const runtimeWindow = window;
-const API_BASE = runtimeWindow.API_BASE_URL ?? defaultApiBase();
+const API_BASE = apiBaseUrl();
 const FRONTEND_BASE = runtimeWindow.FRONTEND_BASE_URL ?? window.location.origin;
 export class RapidMatchService {
     buyerAccessTokens = new Map();
@@ -268,6 +269,29 @@ export class RapidMatchService {
     async refreshEngagement(workspace) {
         const engagement = requiredEngagement(workspace);
         return this.loadEngagement(workspace, engagement.id);
+    }
+    async updateDeploymentMilestone(workspace, milestoneId, status, latestUpdate) {
+        const needProfile = requiredNeedProfile(workspace);
+        const engagement = requiredEngagement(workspace);
+        const payload = await requestJson(routeFor(rapidMatchApiRoute.deploymentMilestone, {
+            engagementId: engagement.id,
+            milestoneId
+        }), {
+            method: "PATCH",
+            body: { status, latestUpdate },
+            buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
+        });
+        const canonical = canonicalWorkspaceFrom(payload);
+        const deployment = canonical?.deployment ??
+            parseDeployment(isRecord(payload) ? payload.deployment : undefined) ??
+            parseDeployment(payload);
+        if (!deployment) {
+            throw new Error("The API did not return the updated deployment.");
+        }
+        return reconcileWorkspace({
+            ...(canonical ?? workspace),
+            deployment
+        });
     }
     async completeDemoPayment(workspace) {
         const needProfile = requiredNeedProfile(workspace);
@@ -594,9 +618,9 @@ function fixtureResearch(needProfileId, profile) {
     const generatedAt = new Date().toISOString();
     const citations = robotics
         ? [
-            fixtureCitation(`${needProfileId}-citation-safety`, "Guide to machinery and equipment safety", "https://www.safeworkaustralia.gov.au/doc/guide-machinery-and-equipment-safety", "Safe Work Australia guidance supports identifying machinery hazards and controlling risk across design, operation and maintenance.", generatedAt),
-            fixtureCitation(`${needProfileId}-citation-standard`, "ISO 10218-2:2025 Robotics - Safety requirements", "https://www.iso.org/standard/73934.html", "The standard identifies safety requirements for industrial robot applications and robot cells.", generatedAt),
-            fixtureCitation(`${needProfileId}-citation-manufacturer`, "ABB robotics application engineering", "https://new.abb.com/products/robotics", "Manufacturer material illustrates the tooling, software and service disciplines involved in robot integration.", generatedAt)
+            fixtureCitation(`${needProfileId}-citation-safety`, "Guide for safe design of plant", "https://www.safeworkaustralia.gov.au/doc/guide-safe-design-plant", "Safe Work Australia guidance supports integrating risk controls early in plant design and considering safety across the plant lifecycle.", generatedAt),
+            fixtureCitation(`${needProfileId}-citation-standard`, "ISO 10218-2:2025 — Robotics — Safety requirements — Part 2: Industrial robot applications and robot cells", "https://www.iso.org/standard/73934.html", "The standard identifies safety requirements for industrial robot applications and robot cells.", generatedAt),
+            fixtureCitation(`${needProfileId}-citation-manufacturer`, "ABB Robotics", "https://www.abb.com/global/en/areas/robotics", "ABB's official robotics portfolio covers industrial robots, controllers, software, application solutions, services and equipment relevant to integration.", generatedAt)
         ]
         : [
             fixtureCitation(`${needProfileId}-citation-safety`, "Electrical work", "https://www.safework.nsw.gov.au/hazards-a-z/electrical-and-power/electrical-work", "SafeWork NSW guidance supports using competent, authorised workers and controlling electrical risks.", generatedAt),
@@ -875,13 +899,6 @@ function companyNameFromEmail(email) {
     return domain
         ? domain.replaceAll("-", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
         : "Buyer organisation";
-}
-function defaultApiBase() {
-    if (["localhost", "127.0.0.1"].includes(window.location.hostname) &&
-        window.location.port !== "4000") {
-        return "http://localhost:4000/api";
-    }
-    return `${window.location.origin}/api`;
 }
 function isRecord(value) {
     return Boolean(value) && typeof value === "object";

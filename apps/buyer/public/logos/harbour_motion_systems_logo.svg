@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1600" viewBox="0 0 1600 1600" role="img" aria-labelledby="title desc">
+  <title id="title">Harbour Motion Systems logo</title>
+  <desc id="desc">Fluid industrial motion logo combining an H monogram, servo nodes, a harbour wave and a forward motion arrow.</desc>
+
+  <!-- H-frame -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M470 275 V920" stroke="#10324A" stroke-width="118"/>
+    <path d="M1130 275 V920" stroke="#10324A" stroke-width="118"/>
+    <path d="M485 598 H1115" stroke="#10324A" stroke-width="104"/>
+
+    <!-- Motion wave through the H -->
+    <path d="M330 660
+             C470 490 575 490 710 660
+             C845 830 960 830 1270 520"
+          stroke="#00A6A6" stroke-width="82"/>
+    <path d="M1180 515 L1285 500 L1260 605"
+          stroke="#00A6A6" stroke-width="64"/>
+
+    <!-- Secondary harbour wave -->
+    <path d="M360 820
+             C505 690 630 690 770 820
+             C910 950 1035 950 1205 800"
+          stroke="#6FD3D3" stroke-width="42"/>
+  </g>
+
+  <!-- Servo / bearing nodes -->
+  <g>
+    <circle cx="470" cy="598" r="92" fill="#FFFFFF" stroke="#10324A" stroke-width="34"/>
+    <circle cx="470" cy="598" r="34" fill="#00A6A6"/>
+    <circle cx="1130" cy="598" r="92" fill="#FFFFFF" stroke="#10324A" stroke-width="34"/>
+    <circle cx="1130" cy="598" r="34" fill="#00A6A6"/>
+    <circle cx="770" cy="820" r="62" fill="#10324A"/>
+    <circle cx="770" cy="820" r="22" fill="#6FD3D3"/>
+  </g>
+
+  <!-- Foundation line -->
+  <path d="M405 1015 H1195" stroke="#10324A" stroke-width="28" stroke-linecap="round"/>
+
+  <!-- Wordmark -->
+  <text x="800" y="1280" text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif" font-size="130" font-weight="800"
+        letter-spacing="-2" fill="#10324A">Harbour Motion</text>
+  <text x="800" y="1390" text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif" font-size="52" font-weight="700"
+        letter-spacing="15" fill="#00A6A6">SYSTEMS</text>
+</svg>

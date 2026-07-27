@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import type { DeploymentSummary } from "@veltact/contracts";
 import type {
   Engagement,
+  LocalDemoPaymentEvidence,
   MarketplaceAuditEvent,
   NeedRecord,
   PinchWebhookEvidence,
@@ -36,6 +37,7 @@ export type MarketplaceSnapshot = {
   deployments: DeploymentSummary[];
   processedPinchEventIds: string[];
   pinchWebhookEvidence: PinchWebhookEvidence[];
+  localDemoPaymentEvidence: LocalDemoPaymentEvidence[];
   auditEvents: MarketplaceAuditEvent[];
 };
 
@@ -81,6 +83,7 @@ export function loadMarketplaceSnapshot(
     deployments: arrayOrEmpty(parsed.deployments),
     processedPinchEventIds: parsed.processedPinchEventIds,
     pinchWebhookEvidence: parsed.pinchWebhookEvidence,
+    localDemoPaymentEvidence: arrayOrEmpty(parsed.localDemoPaymentEvidence),
     auditEvents: parsed.auditEvents
   } as MarketplaceSnapshot;
 }

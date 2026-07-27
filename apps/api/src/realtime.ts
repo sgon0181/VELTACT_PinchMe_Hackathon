@@ -47,10 +47,10 @@ export function attachRealtime(httpServer: HttpServer) {
 
     socket.on(
       veltactV2SocketEvent.joinNeed,
-      (payload: unknown) => {
+      async (payload: unknown) => {
         if (!isNeedRoomPayload(payload)) return;
         try {
-          v2Service.getWorkspace(
+          await v2Service.getWorkspace(
             payload.needProfileId,
             payload.buyerAccessToken
           );

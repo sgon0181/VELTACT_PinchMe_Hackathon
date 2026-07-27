@@ -17,6 +17,10 @@ const optionalProviderEmail = z.preprocess(
   (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
   z.string().trim().email().optional()
 );
+const optionalProviderUrl = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+  z.string().trim().url().optional()
+);
 const optionalBoolean = z.preprocess((value) => {
   if (value === undefined || value === "") return undefined;
   if (value === true || value === "true") return true;
@@ -36,6 +40,7 @@ const envSchema = z.object({
   BUYER_CAPABILITY_AUTH_REQUIRED: optionalBoolean,
   API_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
   AI_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
+  PAYMENT_PROVIDER: z.enum(["pinch", "local_demo"]).default("pinch"),
   EMAIL_PROVIDER: z.enum(["local_demo", "resend", "sendgrid"]).default("local_demo"),
   EMAIL_FROM: optionalProviderString,
   RESEND_API_KEY: optionalProviderString,
@@ -54,13 +59,28 @@ const envSchema = z.object({
     .enum(["auto", "openai", "fixture"])
     .default("auto"),
   FIRECRAWL_API_KEY: optionalProviderString,
-  PINCH_CLIENT_ID: z.string().min(1, "PINCH_CLIENT_ID is required"),
-  PINCH_SECRET_KEY: z.string().min(1, "PINCH_SECRET_KEY is required"),
-  PINCH_AUTH_URL: z.string().url(),
-  PINCH_API_BASE_URL: z.string().url(),
-  PINCH_API_VERSION: z.string().min(1).default("2020.1"),
-  PINCH_RETURN_URL: z.string().url().optional(),
-  PINCH_WEBHOOK_SECRET: z.string().min(1).optional()
+  PINCH_CLIENT_ID: optionalProviderString,
+  PINCH_SECRET_KEY: optionalProviderString,
+  PINCH_AUTH_URL: optionalProviderUrl,
+  PINCH_API_BASE_URL: optionalProviderUrl,
+  PINCH_API_VERSION: optionalProviderString,
+  PINCH_RETURN_URL: optionalProviderUrl,
+  PINCH_WEBHOOK_SECRET: optionalProviderString
+}).superRefine((value, context) => {
+  if (value.PAYMENT_PROVIDER !== "pinch") return;
+  for (const field of [
+    "PINCH_CLIENT_ID",
+    "PINCH_SECRET_KEY",
+    "PINCH_AUTH_URL",
+    "PINCH_API_BASE_URL"
+  ] as const) {
+    if (value[field]) continue;
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [field],
+      message: `${field} is required when PAYMENT_PROVIDER=pinch`
+    });
+  }
 });
 
 const rawEnv = {
@@ -72,6 +92,11 @@ const parsedEnv = envSchema.parse(rawEnv);
 
 export const env = {
   ...parsedEnv,
+  PINCH_CLIENT_ID: parsedEnv.PINCH_CLIENT_ID ?? "",
+  PINCH_SECRET_KEY: parsedEnv.PINCH_SECRET_KEY ?? "",
+  PINCH_AUTH_URL: parsedEnv.PINCH_AUTH_URL ?? "",
+  PINCH_API_BASE_URL: parsedEnv.PINCH_API_BASE_URL ?? "",
+  PINCH_API_VERSION: parsedEnv.PINCH_API_VERSION ?? "2020.1",
   MARKETPLACE_DATA_FILE:
     parsedEnv.MARKETPLACE_DATA_FILE === undefined
       ? parsedEnv.NODE_ENV === "test"

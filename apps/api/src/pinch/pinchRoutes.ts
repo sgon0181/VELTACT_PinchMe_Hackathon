@@ -100,6 +100,21 @@ pinchRouter.post("/payment-link", async (request, response) => {
 });
 
 pinchRouter.get("/return/:engagementId?", (request, response) => {
+  const localDemoReturn =
+    request.query.payment_provider === "local_demo" &&
+    env.PAYMENT_PROVIDER === "local_demo" &&
+    env.NODE_ENV !== "production";
+  if (
+    request.query.payment_provider === "local_demo" &&
+    !localDemoReturn
+  ) {
+    response.status(404).json({
+      status: "error",
+      message: "Local demo payment return is unavailable"
+    });
+    return;
+  }
+
   response
     .status(200)
     .type("html")
@@ -108,13 +123,19 @@ pinchRouter.get("/return/:engagementId?", (request, response) => {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Payment awaiting confirmation</title>
+    <title>${localDemoReturn ? "Local demo commitment" : "Payment awaiting confirmation"}</title>
   </head>
   <body>
     <main>
-      <h1>Payment awaiting confirmation</h1>
+      ${
+        localDemoReturn
+          ? `<h1>Local demo commitment</h1>
+      <p>No Pinch transaction or external payment was created.</p>
+      <p>Return to Veltact and use the clearly labelled local demo action to record non-authoritative demo evidence.</p>`
+          : `<h1>Payment awaiting confirmation</h1>
       <p>Pinch redirected you back to Veltact. This page does not confirm payment success.</p>
-      <p>Return to Veltact and refresh the payment status. The engagement is secured only after the backend verifies payment with Pinch.</p>
+      <p>Return to Veltact and refresh the payment status. The engagement is secured only after the backend verifies payment with Pinch.</p>`
+      }
     </main>
   </body>
 </html>`);

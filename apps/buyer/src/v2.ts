@@ -12,6 +12,29 @@ import type {
   SupplierOutreachDelivery,
   SupplierProfile
 } from "@veltact/contracts";
+import {
+  apiBaseUrl,
+  demoControlsEnabled,
+  localDemoPaymentEnabled
+} from "./apiBase.js";
+import { companyLogoFor } from "./companyLogos.js";
+import {
+  applyAiIntakeToDraft,
+  emptyV2Intake,
+  optionalPositiveInteger,
+  type IntakeDraft
+} from "./v2Intake.js";
+import {
+  changeRequestDraftForProject,
+  isChangeRequestField,
+  requireSuccessfulWorkspaceRefresh,
+  restoredPhaseForWorkspace,
+  safeStorageGet,
+  safeStorageRemove,
+  safeStorageSet,
+  updateChangeRequestDraft,
+  type ChangeRequestDraft
+} from "./v2WorkspaceState.js";
 
 type Phase = "find" | "connect" | "deploy";
 type PublicInvitation = Omit<SupplierInvitation, "token">;
@@ -36,25 +59,7 @@ type Workspace = {
   revision: number;
 };
 
-type IntakeDraft = {
-  rawRequirement: string;
-  title: string;
-  location: string;
-  urgencyDays: number;
-  budgetAud: number;
-  category: string;
-  industry: string;
-  equipment: string;
-  capabilities: string;
-  constraints: string;
-  buyerPriority: MarketplaceNeedProfile["buyerPriority"];
-  buyerEmail: string;
-  buyerName: string;
-  companyName: string;
-};
-
 const runtimeWindow = window as Window & {
-  API_BASE_URL?: string;
   io?: (
     origin: string,
     options: { transports: string[]; reconnection: boolean }
@@ -63,17 +68,9 @@ const runtimeWindow = window as Window & {
     on: (eventName: string, handler: () => void) => void;
   };
 };
-const apiRoot =
-  runtimeWindow.API_BASE_URL ??
-  (["localhost", "127.0.0.1"].includes(window.location.hostname) &&
-  window.location.port !== "4000"
-    ? "http://localhost:4000/api"
-    : `${window.location.origin}/api`);
+const apiRoot = apiBaseUrl();
 const v2Api = `${apiRoot.replace(/\/$/, "")}/v2`;
 const app = document.querySelector<HTMLElement>("#v2-app");
-const localDemo = ["localhost", "127.0.0.1"].includes(
-  window.location.hostname
-);
 const socketEvents = [
   "veltact:v2:research.updated",
   "veltact:v2:discovery.updated",
@@ -83,7 +80,7 @@ const socketEvents = [
   "veltact:v2:milestone.payment_updated"
 ];
 
-let intake = emptyIntake();
+let intake = emptyV2Intake();
 let workspace: Workspace | undefined;
 let needId = new URLSearchParams(window.location.search).get("needId") ?? "";
 let buyerAccessToken = "";
@@ -95,28 +92,39 @@ let selectedApproachIds = new Set<string>();
 let decisionType: SolutionDecisionType = "hybrid";
 let pollHandle: number | undefined;
 let socketConnectedNeedId = "";
+let demoControlsAvailable = false;
+let localDemoPaymentAvailable = false;
+let changeRequestDraft: ChangeRequestDraft | undefined;
 
 bootstrap();
 
 async function bootstrap() {
+  const demoGate = demoControlsEnabled(apiRoot);
+  const localDemoPaymentGate = localDemoPaymentEnabled(apiRoot);
   const params = new URLSearchParams(window.location.search);
   const queryToken = params.get("accessToken");
   if (needId) {
     buyerAccessToken =
-      queryToken ?? localStorage.getItem(tokenKey(needId)) ?? "";
+      queryToken ??
+      storedBuyerAccessToken(needId) ??
+      "";
     if (queryToken) {
-      localStorage.setItem(tokenKey(needId), queryToken);
-      params.delete("accessToken");
-      history.replaceState(
-        {},
-        "",
-        `${window.location.pathname}?${params.toString()}`
-      );
+      if (persistBuyerAccessToken(needId, queryToken)) {
+        params.delete("accessToken");
+        history.replaceState(
+          {},
+          "",
+          `${window.location.pathname}?${params.toString()}`
+        );
+      }
     }
-    await loadWorkspace();
-  } else {
-    render();
+    await loadWorkspace(false);
   }
+  [demoControlsAvailable, localDemoPaymentAvailable] = await Promise.all([
+    demoGate,
+    localDemoPaymentGate
+  ]);
+  render();
   configurePolling();
 }
 
@@ -133,7 +141,11 @@ function render() {
       </a>
       <div class="topbar-meta">
         <span>Buyer workspace / Find / Connect / Deploy</span>
-        <button class="button tertiary small" data-action="reset-workspace" type="button">Reset</button>
+        ${
+          demoControlsAvailable
+            ? `<button class="button tertiary small" data-action="reset-workspace" type="button">Reset demo</button>`
+            : ""
+        }
       </div>
     </header>
     <section class="workspace-title">
@@ -195,8 +207,14 @@ function renderIntake() {
         </div>
       </div>
       <div class="template-row">
-        <button class="button secondary small" data-action="fill-template" data-template="plc" type="button">Demo: PLC</button>
-        <button class="button secondary small" data-action="fill-template" data-template="robotics" type="button">Demo: Robotic integration</button>
+        ${
+          demoControlsAvailable
+            ? `
+              <button class="button secondary small" data-action="fill-template" data-template="plc" type="button">Demo: PLC</button>
+              <button class="button secondary small" data-action="fill-template" data-template="robotics" type="button">Demo: Robotic integration</button>
+            `
+            : ""
+        }
         <button class="button tertiary small ${busyAction === "ai-intake" ? "is-loading" : ""}" data-action="structure-intake" type="button" ${busyAction ? "disabled" : ""}>Structure with AI</button>
       </div>
       <div class="intake-layout">
@@ -208,8 +226,8 @@ function renderIntake() {
           <div class="field-grid">
             ${inputField("Title", "title", intake.title, true, "is-wide")}
             ${inputField("Location", "location", intake.location, true)}
-            ${inputField("Urgency (days)", "urgencyDays", String(intake.urgencyDays || ""), true, "", "number", "1")}
-            ${inputField("Budget (AUD)", "budgetAud", String(intake.budgetAud || ""), true, "", "number", "100")}
+            ${inputField("Urgency (days, optional)", "urgencyDays", String(intake.urgencyDays ?? ""), false, "", "number", "1")}
+            ${inputField("Budget (AUD, optional)", "budgetAud", String(intake.budgetAud ?? ""), false, "", "number", "100")}
             ${selectPriority()}
             ${inputField("Category", "category", intake.category, true)}
             ${inputField("Industry", "industry", intake.industry, true)}
@@ -412,8 +430,8 @@ function renderSupplierLead(lead: SupplierLead) {
         <div style="width: 100%">
           <div class="record-topline">
             <div>
-              <h3>${escapeHtml(lead.companyName)}</h3>
-              <p>${escapeHtml(lead.location)} / <a href="${safeHref(lead.website)}" target="_blank" rel="noreferrer">Source website</a></p>
+              <h3>${renderCompanyIdentity(lead.companyName)}</h3>
+              <p>${escapeHtml(lead.location)} / ${renderSupplierSource(lead)}</p>
             </div>
             <div class="status-row">
               <span class="score">${Math.round(lead.matchScore)}</span>
@@ -427,7 +445,7 @@ function renderSupplierLead(lead: SupplierLead) {
           <div class="chip-row" style="margin-top: 12px">${lead.capabilities.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>
           ${invitation ? `<div class="handoff-action">
             <div><strong>Private supplier invitation created</strong><span>The supplier sees this requirement only. Buyer controls remain in this workspace.</span></div>
-            ${localDemo
+            ${demoControlsAvailable
               ? `<a class="button secondary small" href="${safeHref(invitation.responseUrl)}" target="_blank" rel="noreferrer">Open supplier demo view</a>`
               : `<span class="status-badge ${invitation.status}">${formatStatus(invitation.status)}</span>`}
           </div>` : ""}
@@ -511,7 +529,7 @@ function renderOutreach() {
               (item) => item.id === delivery.supplierId
             );
             return `<div class="outreach-item">
-              <strong>${escapeHtml(lead?.companyName ?? delivery.supplierId)}</strong>
+              <strong>${renderCompanyIdentity(lead?.companyName ?? delivery.supplierId, true)}</strong>
               ${escapeHtml(delivery.channel.toUpperCase())} / ${escapeHtml(maskDestination(delivery.destination))}
               <div style="margin-top: 7px"><span class="status-badge ${delivery.deliveryStatus}">${formatStatus(delivery.deliveryStatus)}</span></div>
               ${delivery.errorMessage ? `<p>${escapeHtml(delivery.errorMessage)}</p>` : ""}
@@ -535,7 +553,7 @@ function renderResponses() {
         </div>
       </div>
       ${workspace.supplierResponses.length === 0
-        ? `<div class="empty-state"><div><strong>Buyer workspace waiting for the invited supplier</strong><p>The supplier completes its private claim and response in a separate view. This page updates automatically without exposing buyer controls.</p>${localDemo ? `<p>For the guided demo, use <strong>Open supplier demo view</strong> on the invited candidate above.</p>` : ""}</div></div>`
+        ? `<div class="empty-state"><div><strong>Buyer workspace waiting for the invited supplier</strong><p>The supplier completes its private claim and response in a separate view. This page updates automatically without exposing buyer controls.</p>${demoControlsAvailable ? `<p>For the guided demo, use <strong>Open supplier demo view</strong> on the invited candidate above.</p>` : ""}</div></div>`
         : `<div class="record-list">${workspace.supplierResponses.map(renderResponse).join("")}</div>`}
     </section>
   `;
@@ -546,10 +564,28 @@ function renderResponse(response: SupplierCommercialResponse) {
   const profile = workspace.supplierProfiles.find(
     (item) => item.id === response.supplierProfileId
   );
+  const lead = workspace.supplierLeads.find(
+    (item) => item.id === response.supplierLeadId
+  );
+  const supplierName = profile?.companyName ?? lead?.companyName ?? "Supplier";
+  if (response.decision === "cannot_help") {
+    return `
+      <article class="record">
+        <div class="record-topline">
+          <div><h3>${renderCompanyIdentity(supplierName, true)}</h3><p>${escapeHtml(response.declineReason ?? "No reason provided.")}</p></div>
+          <span class="status-badge failed">${formatStatus(response.decision)}</span>
+        </div>
+        <div class="record-meta">
+          <div><span>Commercial detail</span>Not required</div>
+          <div><span>Submitted</span>${formatDateTime(response.submittedAt)}</div>
+        </div>
+      </article>
+    `;
+  }
   return `
     <article class="record">
       <div class="record-topline">
-        <div><h3>${escapeHtml(profile?.companyName ?? "Supplier")}</h3><p>${escapeHtml(response.proposedApproach)}</p></div>
+        <div><h3>${renderCompanyIdentity(supplierName, true)}</h3><p>${escapeHtml(response.proposedApproach)}</p></div>
         <span class="status-badge ${response.decision === "can_help" ? "active_supplier" : "failed"}">${formatStatus(response.decision)}</span>
       </div>
       <div class="record-meta">
@@ -573,6 +609,12 @@ function renderDeploy() {
     (sum, milestone) => sum + milestone.amount.amount,
     0
   );
+  changeRequestDraft = changeRequestDraftForProject(
+    changeRequestDraft,
+    project.id,
+    workspace.need.buyerName
+  );
+  const draft = changeRequestDraft;
   return `
     <section class="panel">
       <div class="project-head">
@@ -580,13 +622,13 @@ function renderDeploy() {
           <span class="micro-label">${formatStatus(project.templateType)}</span>
           <h2 style="font-family: var(--font-display); margin: 5px 0">${escapeHtml(project.title)}</h2>
           <p style="color: var(--muted); max-width: 760px">${escapeHtml(project.objective)}</p>
-          <div class="status-row"><span class="status-badge active_supplier">${formatStatus(project.status)}</span><span class="chip">${escapeHtml(project.supplierName)}</span><span class="chip">${escapeHtml(project.siteLocation)}</span></div>
+          <div class="status-row"><span class="status-badge active_supplier">${formatStatus(project.status)}</span><span class="chip">${renderCompanyIdentity(project.supplierName, true)}</span><span class="chip">${escapeHtml(project.siteLocation)}</span></div>
         </div>
         <div class="project-value"><span class="micro-label">Planned milestone value</span><strong>${money(total)}</strong><small>AUD, not escrow</small></div>
       </div>
     </section>
     <section class="panel">
-      <div class="panel-header"><div><span class="micro-label">Commercial control</span><h2>Billable milestones</h2><p>Each milestone is funded separately. A browser return never marks it paid; only backend Pinch evidence or an explicit local demo event does.</p></div></div>
+      <div class="panel-header"><div><span class="micro-label">Commercial control</span><h2>Billable milestones</h2><p>Live funding requires backend-verified Pinch evidence. A clearly labelled local demo event can advance the prototype state without representing a payment.</p></div></div>
       <ol class="milestone-list">${project.milestones.map((milestone) => renderMilestone(project, milestone)).join("")}</ol>
     </section>
     <section class="panel">
@@ -602,10 +644,10 @@ function renderDeploy() {
     <section class="panel">
       <div class="panel-header"><div><span class="micro-label">Change control</span><h2>Raise a scoped change</h2><p>Changes stay attached to the delivery project instead of becoming a general messaging product.</p></div></div>
       <form id="change-request-form" class="field-grid">
-        ${inputField("Title", "title", "", true)}
-        ${inputField("Requested by", "requestedBy", workspace.need.buyerName, true)}
-        <label class="field is-wide">Description<textarea name="description" rows="3" required></textarea></label>
-        <label class="field is-wide">Schedule / cost impact<textarea name="impact" rows="2" required></textarea></label>
+        ${inputField("Title", "title", draft.title, true)}
+        ${inputField("Requested by", "requestedBy", draft.requestedBy, true)}
+        <label class="field is-wide">Description<textarea name="description" rows="3" required>${escapeHtml(draft.description)}</textarea></label>
+        <label class="field is-wide">Schedule / cost impact<textarea name="impact" rows="2" required>${escapeHtml(draft.impact)}</textarea></label>
         <button class="button" type="submit" ${busyAction ? "disabled" : ""}>Submit change request</button>
       </form>
       ${project.changeRequests.length ? `<div class="record-list" style="margin-top: 16px">${project.changeRequests.map((change) => `<article class="record"><div class="record-topline"><h3>${escapeHtml(change.title)}</h3><span class="status-badge invited">${formatStatus(change.status)}</span></div><p>${escapeHtml(change.description)}</p><p><strong>Impact:</strong> ${escapeHtml(change.impact)}</p></article>`).join("")}</div>` : ""}
@@ -618,21 +660,32 @@ function renderMilestone(
   milestone: IndustrialProject["milestones"][number]
 ) {
   const actions: string[] = [];
+  const paymentLink = milestone.hostedCheckoutUrl
+    ? milestonePaymentPresentation(milestone.hostedCheckoutUrl)
+    : undefined;
   if (["awaiting_payment", "payment_failed"].includes(milestone.status)) {
     actions.push(
-      `<button class="button small" data-action="payment-link" data-project="${escapeHtml(project.id)}" data-milestone="${escapeHtml(milestone.id)}" type="button">Create Pinch link</button>`
+      `<button class="button small" data-action="payment-link" data-project="${escapeHtml(project.id)}" data-milestone="${escapeHtml(milestone.id)}" type="button">Create hosted payment link</button>`
     );
-    if (localDemo) {
+    if (
+      localDemoPaymentAvailable &&
+      paymentLink?.kind === "local_demo"
+    ) {
       actions.push(
-        `<button class="button secondary small" data-action="demo-payment" data-project="${escapeHtml(project.id)}" data-milestone="${escapeHtml(milestone.id)}" type="button">Record local demo payment</button>`
+        `<button class="button secondary small" data-action="demo-payment" data-project="${escapeHtml(project.id)}" data-milestone="${escapeHtml(milestone.id)}" type="button">Record non-authoritative demo evidence</button>`
       );
     }
   }
   if (milestone.hostedCheckoutUrl) {
     actions.push(
-      `<a class="button small" href="${safeHref(milestone.hostedCheckoutUrl)}" target="_blank" rel="noreferrer">Open Pinch checkout</a>`,
-      `<button class="button secondary small" data-action="reconcile-payment" data-project="${escapeHtml(project.id)}" data-milestone="${escapeHtml(milestone.id)}" type="button">Reconcile</button>`
+      `<a class="button small" href="${safeHref(milestone.hostedCheckoutUrl)}" target="_blank" rel="noreferrer">${paymentLink?.openLabel}</a>`,
+      `<button class="button secondary small" data-action="reconcile-payment" data-project="${escapeHtml(project.id)}" data-milestone="${escapeHtml(milestone.id)}" type="button">${paymentLink?.refreshLabel}</button>`
     );
+    if (paymentLink?.notice) {
+      actions.push(
+        `<span class="mode-badge fixture">${paymentLink.notice}</span>`
+      );
+    }
   }
   if (["funded", "in_progress", "awaiting_acceptance"].includes(milestone.status)) {
     actions.push(
@@ -651,7 +704,7 @@ function renderMilestone(
         <div class="status-row">
           <span class="status-badge ${milestone.status}">${formatStatus(milestone.status)}</span>
           <span class="status-badge ${milestone.paymentStatus}">${formatStatus(milestone.paymentStatus)}</span>
-          ${evidence ? `<span class="mode-badge ${evidence.provider === "pinch" ? "live" : "fixture"}">${escapeHtml(evidence.provider)} evidence</span>` : ""}
+          ${evidence ? `<span class="mode-badge ${evidence.authoritative ? "live" : "fixture"}">${evidence.authoritative ? "Authoritative Pinch evidence" : "Non-authoritative local demo evidence"}</span>` : ""}
         </div>
         <ul class="compact-list" style="margin-top: 9px">${milestone.acceptanceCriteria.map((criterion) => `<li>${criterion.accepted ? "Accepted: " : ""}${escapeHtml(criterion.description)}</li>`).join("")}</ul>
         ${actions.length ? `<div class="button-row" style="margin-top: 12px">${actions.join("")}</div>` : ""}
@@ -662,6 +715,22 @@ function renderMilestone(
 }
 
 if (app) {
+  app.addEventListener("input", (event) => {
+    const target = event.target as HTMLInputElement | HTMLTextAreaElement;
+    const form = target.closest<HTMLFormElement>("#change-request-form");
+    if (
+      form &&
+      changeRequestDraft &&
+      isChangeRequestField(target.name)
+    ) {
+      changeRequestDraft = updateChangeRequestDraft(
+        changeRequestDraft,
+        target.name,
+        target.value
+      );
+    }
+  });
+
   app.addEventListener("click", (event) => {
     const target = (event.target as HTMLElement).closest<HTMLElement>(
       "[data-action], [data-phase]"
@@ -714,7 +783,7 @@ if (app) {
             body: JSON.stringify({ status: target.value })
           }
         );
-        await loadWorkspace(false);
+        await refreshWorkspaceAfterMutation();
       });
     }
   });
@@ -732,6 +801,18 @@ if (app) {
 }
 
 async function handleAction(action: string, target: HTMLElement) {
+  if (
+    (!demoControlsAvailable &&
+      ["fill-template", "reset-workspace"].includes(action)) ||
+    (action === "demo-payment" && !localDemoPaymentAvailable)
+  ) {
+    notice = {
+      kind: "error",
+      message: "Demo controls are unavailable in this environment."
+    };
+    render();
+    return;
+  }
   if (action === "fill-template") {
     intake = templateIntake(target.dataset.template === "robotics" ? "robotics" : "plc");
     notice = undefined;
@@ -744,13 +825,16 @@ async function handleAction(action: string, target: HTMLElement) {
         method: "POST",
         body: JSON.stringify({ seeded: false })
       });
-      if (needId) localStorage.removeItem(tokenKey(needId));
+      if (needId) {
+        removeStoredBuyerAccessToken(needId);
+      }
       needId = "";
       buyerAccessToken = "";
       workspace = undefined;
       selectedLeadIds.clear();
       selectedApproachIds.clear();
-      intake = emptyIntake();
+      changeRequestDraft = undefined;
+      intake = emptyV2Intake();
       history.replaceState({}, "", window.location.pathname);
       notice = { kind: "success", message: "V2 workspace reset." };
     });
@@ -772,7 +856,7 @@ async function handleAction(action: string, target: HTMLElement) {
       if (!response.ok || !payload.aiIntakeResult) {
         throw new Error(payload.message ?? "AI intake did not return a profile.");
       }
-      applyAiIntake(payload.aiIntakeResult);
+      intake = applyAiIntakeToDraft(intake, payload.aiIntakeResult);
       notice = {
         kind: "success",
         message: `Requirement structured using ${payload.source === "openai" ? "OpenAI" : "the deterministic local adapter"}. Review every field before submission.`
@@ -783,7 +867,7 @@ async function handleAction(action: string, target: HTMLElement) {
   if (action === "research") {
     await runAction("research", async () => {
       await api(`/needs/${encodedNeedId()}/research`, { method: "POST" });
-      await loadWorkspace(false);
+      await refreshWorkspaceAfterMutation();
       notice = {
         kind: "success",
         message: "Solution research is ready with provenance and safety boundaries."
@@ -800,7 +884,7 @@ async function handleAction(action: string, target: HTMLElement) {
           selectedApproachIds: [...selectedApproachIds]
         })
       });
-      await loadWorkspace(false);
+      await refreshWorkspaceAfterMutation();
       notice = { kind: "success", message: "Buyer solution decision recorded." };
     });
     return;
@@ -810,7 +894,7 @@ async function handleAction(action: string, target: HTMLElement) {
       await api(`/needs/${encodedNeedId()}/suppliers/discover`, {
         method: "POST"
       });
-      await loadWorkspace(false);
+      await refreshWorkspaceAfterMutation();
       phase = "connect";
       notice = {
         kind: "warning",
@@ -827,7 +911,7 @@ async function handleAction(action: string, target: HTMLElement) {
           supplierLeadIds: selectedDiscoverableLeadIds()
         })
       });
-      await loadWorkspace(false);
+      await refreshWorkspaceAfterMutation();
       notice = {
         kind: "success",
         message: "Selected candidates approved for this requirement only."
@@ -841,10 +925,10 @@ async function handleAction(action: string, target: HTMLElement) {
         method: "POST",
         body: JSON.stringify({ supplierLeadIds: selectedApprovedLeadIds() })
       });
-      await loadWorkspace(false);
+      await refreshWorkspaceAfterMutation();
       notice = {
         kind: "success",
-        message: localDemo
+        message: demoControlsAvailable
           ? "Invitations processed. Keep this buyer workspace open and use Open supplier demo view on an invited candidate to continue in a second tab."
           : "Invitations processed. Keep this buyer workspace open while suppliers respond from their private invitation links."
       };
@@ -857,7 +941,7 @@ async function handleAction(action: string, target: HTMLElement) {
         `/needs/${encodedNeedId()}/suppliers/${encodeURIComponent(target.dataset.lead ?? "")}/buyer-approve`,
         { method: "POST" }
       );
-      await loadWorkspace(false);
+      await refreshWorkspaceAfterMutation();
       notice = { kind: "success", message: "Supplier profile approved by buyer." };
     });
     return;
@@ -868,7 +952,7 @@ async function handleAction(action: string, target: HTMLElement) {
         `/needs/${encodedNeedId()}/suppliers/${encodeURIComponent(target.dataset.lead ?? "")}/activate`,
         { method: "POST" }
       );
-      await loadWorkspace(false);
+      await refreshWorkspaceAfterMutation();
       notice = {
         kind: "success",
         message: "Supplier activated in RapidMatch. Its claim page can now submit the commercial response."
@@ -882,7 +966,7 @@ async function handleAction(action: string, target: HTMLElement) {
         `/needs/${encodedNeedId()}/responses/${encodeURIComponent(target.dataset.response ?? "")}/select`,
         { method: "POST" }
       );
-      await loadWorkspace(false);
+      await refreshWorkspaceAfterMutation();
       phase = "deploy";
       notice = {
         kind: "success",
@@ -908,7 +992,7 @@ async function handleAction(action: string, target: HTMLElement) {
       }>(`/projects/${project}/milestones/${milestone}/${suffix}`, {
         method: "POST"
       });
-      await loadWorkspace(false);
+      await refreshWorkspaceAfterMutation();
       if (result.hostedCheckoutUrl) {
         window.open(result.hostedCheckoutUrl, "_blank", "noopener,noreferrer");
       }
@@ -916,7 +1000,7 @@ async function handleAction(action: string, target: HTMLElement) {
         kind: action === "demo-payment" ? "warning" : "success",
         message:
           action === "demo-payment"
-            ? "Local demo payment evidence recorded. This is explicitly not a live Pinch transaction."
+            ? "Non-authoritative local demo evidence recorded. The prototype advanced without a live Pinch transaction or provider approval."
             : "Milestone state updated."
       };
     });
@@ -936,8 +1020,14 @@ async function submitNeed(form: HTMLFormElement) {
       equipmentOrTechnology: listValue(values, "equipment"),
       requiredCapabilities: listValue(values, "capabilities"),
       location: requiredValue(values, "location"),
-      urgencyDays: Number(requiredValue(values, "urgencyDays")),
-      budgetAud: Number(requiredValue(values, "budgetAud")),
+      urgencyDays: optionalPositiveInteger(
+        values.get("urgencyDays"),
+        "Urgency (days)"
+      ),
+      budgetAud: optionalPositiveInteger(
+        values.get("budgetAud"),
+        "Budget (AUD)"
+      ),
       constraints: listValue(values, "constraints"),
       buyerPriority: requiredValue(values, "buyerPriority") as MarketplaceNeedProfile["buyerPriority"]
     };
@@ -955,13 +1045,20 @@ async function submitNeed(form: HTMLFormElement) {
     });
     needId = created.need.id;
     buyerAccessToken = created.buyerAccessToken;
-    localStorage.setItem(tokenKey(needId), buyerAccessToken);
+    const tokenPersisted = persistBuyerAccessToken(
+      needId,
+      buyerAccessToken
+    );
+    const createdParams = new URLSearchParams({ needId });
+    if (!tokenPersisted) {
+      createdParams.set("accessToken", buyerAccessToken);
+    }
     history.replaceState(
       {},
       "",
-      `${window.location.pathname}?needId=${encodeURIComponent(needId)}`
+      `${window.location.pathname}?${createdParams.toString()}`
     );
-    await loadWorkspace(false);
+    await refreshWorkspaceAfterMutation();
     notice = {
       kind: "success",
       message: "Need Profile created. Research the solution space before supplier discovery."
@@ -970,9 +1067,24 @@ async function submitNeed(form: HTMLFormElement) {
 }
 
 async function submitChangeRequest(form: HTMLFormElement) {
-  const project = workspace?.projects[0];
+  const currentWorkspace = workspace;
+  const project = currentWorkspace?.projects[0];
   if (!project) return;
   const values = new FormData(form);
+  changeRequestDraft = changeRequestDraftForProject(
+    changeRequestDraft,
+    project.id,
+    currentWorkspace.need.buyerName
+  );
+  for (const field of ["title", "requestedBy", "description", "impact"]) {
+    if (isChangeRequestField(field)) {
+      changeRequestDraft = updateChangeRequestDraft(
+        changeRequestDraft,
+        field,
+        String(values.get(field) ?? "")
+      );
+    }
+  }
   await runAction("change-request", async () => {
     await api(`/projects/${encodeURIComponent(project.id)}/change-requests`, {
       method: "POST",
@@ -983,13 +1095,18 @@ async function submitChangeRequest(form: HTMLFormElement) {
         impact: requiredValue(values, "impact")
       })
     });
-    await loadWorkspace(false);
+    await refreshWorkspaceAfterMutation();
+    changeRequestDraft = undefined;
     notice = { kind: "success", message: "Change request attached to the project." };
   });
 }
 
-async function loadWorkspace(shouldRender = true, reportErrors = true) {
-  if (!needId) return;
+async function loadWorkspace(
+  shouldRender = true,
+  reportErrors = true
+): Promise<boolean> {
+  if (!needId) return false;
+  const restoringWorkspace = !workspace;
   try {
     workspace = await api<Workspace>(`/needs/${encodeURIComponent(needId)}`);
     const selectableLeadIds = new Set(
@@ -1008,9 +1125,14 @@ async function loadWorkspace(shouldRender = true, reportErrors = true) {
       decisionType = workspace.solutionDecision.decision;
       selectedApproachIds = new Set(workspace.solutionDecision.selectedApproachIds);
     }
-    if (workspace.projects.length > 0 && phase === "find") phase = "deploy";
+    if (restoringWorkspace) {
+      phase = restoredPhaseForWorkspace(workspace);
+    } else if (workspace.projects.length > 0 && phase === "find") {
+      phase = "deploy";
+    }
     configureSocket();
     if (shouldRender) render();
+    return true;
   } catch (error) {
     if (reportErrors) {
       notice = {
@@ -1019,7 +1141,14 @@ async function loadWorkspace(shouldRender = true, reportErrors = true) {
       };
       render();
     }
+    return false;
   }
+}
+
+async function refreshWorkspaceAfterMutation(): Promise<void> {
+  await requireSuccessfulWorkspaceRefresh(() =>
+    loadWorkspace(false, false)
+  );
 }
 
 async function runAction(action: string, operation: () => Promise<void>) {
@@ -1115,44 +1244,6 @@ function selectedDiscoverableLeadIds() {
   );
 }
 
-function applyAiIntake(result: AiIntakeResult) {
-  const generated = result.generatedProfile;
-  const budgetMatch = generated.budgetRange?.replaceAll(",", "").match(/(\d+)/);
-  intake = {
-    ...intake,
-    rawRequirement: result.rawRequirement,
-    title: generated.title,
-    location: generated.location ?? intake.location,
-    urgencyDays: /today|urgent|immediate/i.test(generated.urgency ?? "") ? 1 : intake.urgencyDays || 14,
-    budgetAud: budgetMatch ? Number(budgetMatch[1]) : intake.budgetAud,
-    category: generated.category,
-    industry: intake.industry || "Manufacturing",
-    equipment: generated.equipmentOrTechnology.join(", "),
-    capabilities: generated.requiredCapabilities.join(", "),
-    constraints: generated.certificationsOrConstraints.join(", "),
-    buyerPriority: generated.buyerPriority ?? intake.buyerPriority
-  };
-}
-
-function emptyIntake(): IntakeDraft {
-  return {
-    rawRequirement: "",
-    title: "",
-    location: "",
-    urgencyDays: 1,
-    budgetAud: 12000,
-    category: "",
-    industry: "Manufacturing",
-    equipment: "",
-    capabilities: "",
-    constraints: "",
-    buyerPriority: "technical_fit",
-    buyerEmail: "",
-    buyerName: "",
-    companyName: ""
-  };
-}
-
 function templateIntake(scenario: "plc" | "robotics"): IntakeDraft {
   if (scenario === "robotics") {
     return {
@@ -1246,6 +1337,28 @@ function tokenKey(id: string) {
   return `veltact:v2:buyer-token:${id}`;
 }
 
+function storedBuyerAccessToken(id: string) {
+  const key = tokenKey(id);
+  return (
+    safeStorageGet(() => window.localStorage, key) ??
+    safeStorageGet(() => window.sessionStorage, key)
+  );
+}
+
+function persistBuyerAccessToken(id: string, value: string) {
+  const key = tokenKey(id);
+  return (
+    safeStorageSet(() => window.localStorage, key, value) ||
+    safeStorageSet(() => window.sessionStorage, key, value)
+  );
+}
+
+function removeStoredBuyerAccessToken(id: string) {
+  const key = tokenKey(id);
+  safeStorageRemove(() => window.localStorage, key);
+  safeStorageRemove(() => window.sessionStorage, key);
+}
+
 function money(amountInCents: number) {
   return new Intl.NumberFormat("en-AU", {
     style: "currency",
@@ -1290,6 +1403,55 @@ function safeHref(value: string) {
   }
 }
 
+function milestonePaymentPresentation(value: string) {
+  try {
+    const url = new URL(value);
+    if (
+      url.searchParams.get("payment_provider") === "local_demo" &&
+      url.searchParams.get("payment_link_id")?.startsWith("local_demo_link_")
+    ) {
+      return {
+        kind: "local_demo" as const,
+        openLabel: "Open local demo return",
+        refreshLabel: "Check payment status",
+        notice: "Synthetic local return / no external payment"
+      };
+    }
+    if (
+      url.protocol === "https:" &&
+      (url.hostname === "getpinch.com.au" ||
+        url.hostname.endsWith(".getpinch.com.au"))
+    ) {
+      return {
+        kind: "pinch" as const,
+        openLabel: "Open Pinch checkout",
+        refreshLabel: "Reconcile Pinch",
+        notice: ""
+      };
+    }
+  } catch {
+    // Fall through to a provider-neutral hosted-link presentation.
+  }
+  return {
+    kind: "hosted" as const,
+    openLabel: "Open hosted payment",
+    refreshLabel: "Check payment status",
+    notice: ""
+  };
+}
+
+function renderSupplierSource(lead: SupplierLead) {
+  try {
+    const url = new URL(lead.website);
+    if (lead.sourceMode === "fixture" || url.hostname.endsWith(".example")) {
+      return "<span>Fixture source (no external website)</span>";
+    }
+  } catch {
+    return "<span>Source unavailable</span>";
+  }
+  return `<a href="${safeHref(lead.website)}" target="_blank" rel="noreferrer">Source website</a>`;
+}
+
 function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -1297,6 +1459,19 @@ function escapeHtml(value: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function renderCompanyIdentity(companyName: string, compact = false) {
+  const logo = companyLogoFor(companyName);
+  if (!logo) return escapeHtml(companyName);
+  return `
+    <span class="company-identity ${compact ? "is-compact" : ""}">
+      <span class="company-logo-shell" aria-hidden="true">
+        <img class="company-logo" src="${logo}" alt="" />
+      </span>
+      <span class="company-name-text">${escapeHtml(companyName)}</span>
+    </span>
+  `;
 }
 
 function errorMessage(error: unknown) {

@@ -54,6 +54,41 @@ describe("AtomicV2Repository", () => {
     assert.equal(second.revision, 2);
   });
 
+  test("normalises legacy local-demo evidence to non-authoritative", async () => {
+    const filePath = temporaryFile("state.json");
+    const snapshot = createEmptyV2Snapshot(
+      new Date("2026-07-26T00:00:00.000Z")
+    );
+    const legacySnapshot = {
+      ...snapshot,
+      paymentEvidence: [
+        {
+          id: "demo-evidence-1",
+          projectId: "project-1",
+          milestoneId: "milestone-1",
+          provider: "local_demo",
+          eventId: "local-demo:project-1:milestone-1",
+          eventType: "local-demo-payment",
+          paymentStatus: "paid",
+          authoritative: true,
+          receivedAt: "2026-07-26T00:00:00.000Z",
+          metadata: { sourceMode: "fixture" }
+        }
+      ]
+    };
+    writeFileSync(filePath, JSON.stringify(legacySnapshot), "utf8");
+
+    const repository = new AtomicV2Repository(filePath);
+    assert.equal(repository.snapshot().paymentEvidence[0]?.authoritative, false);
+    await repository.mutate((draft) => {
+      draft.lastResetAt = "2026-07-26T00:00:00.000Z";
+    });
+    const persisted = JSON.parse(readFileSync(filePath, "utf8")) as {
+      paymentEvidence: Array<{ authoritative: boolean }>;
+    };
+    assert.equal(persisted.paymentEvidence[0]?.authoritative, false);
+  });
+
   test("fails fast when persisted data is corrupt or incompatible", () => {
     const filePath = temporaryFile("state.json");
     writeFileSync(filePath, JSON.stringify({ schemaVersion: 99 }), "utf8");

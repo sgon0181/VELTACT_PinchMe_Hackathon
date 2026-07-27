@@ -1,4 +1,4 @@
-@import url("./v2.css");
+@import url("./v2.css?v=logos-1");
 
 .claim-app {
   width: min(980px, calc(100% - 28px));

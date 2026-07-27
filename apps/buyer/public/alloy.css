@@ -1,0 +1,653 @@
+/* ============================================================
+   ALLOY — Machined Velocity skin for Veltact
+   Load AFTER styles.css / landing.css / supplier.css on every page.
+   Activation: set data-theme on <body>:
+     landing  → landing.html
+     buyer    → index.html (unified buyer workspace)
+     supplier → supplier.html
+   Buyer Deploy view additionally sets data-phase="deploy" on <body>.
+   RULES: no new colors, shadows or radii anywhere else in the repo.
+   Every value comes from this file or the page's existing layout CSS.
+   ============================================================ */
+
+/* ---------- Shared physical recipes (all themes) ---------- */
+body[data-theme] {
+  color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
+}
+body[data-theme] ::selection { background: #2468a2; color: #f3f6f8; }
+body[data-theme] .company-identity {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 10px;
+  vertical-align: middle;
+}
+body[data-theme] .company-logo-shell {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(169, 181, 191, 0.5);
+  border-radius: 50%;
+  padding: 4px;
+  background: #f3f6f8;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 4px 1px rgba(0, 0, 0, 0.45);
+}
+body[data-theme] .company-logo-shell[hidden] { display: none; }
+body[data-theme] .company-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+body[data-theme] .company-name-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+body[data-theme] .company-identity.is-compact .company-logo-shell {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
+}
+
+@keyframes alloy-sweep { 0% { transform: translateX(-120%) skewX(-18deg); } 100% { transform: translateX(320%) skewX(-18deg); } }
+@keyframes alloy-shimmer { 0% { background-position: -420px 0; } 100% { background-position: 420px 0; } }
+
+/* ============================================================
+   BUYER — Mode A · Cold Steel (cobalt-dominant, dark midnight)
+   Flips the light theme in styles.css by redefining its vars.
+   ============================================================ */
+body[data-theme="buyer"] {
+  --canvas: #050b13;
+  --surface: #0e1c2b;
+  --surface-muted: #0a1522;
+  --ink: #f3f6f8;
+  --muted: #a9b5bf;
+  --faint: #7e8c99;
+  --line: rgba(169, 181, 191, 0.16);
+  --line-strong: rgba(169, 181, 191, 0.34);
+  --charcoal: #123a5a;          /* number plates, rank tabs — steel blue, white text */
+  --charcoal-soft: #c3cfd9;     /* secondary text */
+  --blue: #2e7fc6;
+  --blue-dark: #3a8ad0;
+  --blue-soft: rgba(46, 127, 198, 0.14);
+  --red: #d6283f;
+  --red-soft: rgba(214, 40, 63, 0.14);
+  --green: #2ab17e;
+  --green-soft: rgba(42, 177, 126, 0.12);
+  --amber: #e6a63f;
+  --amber-soft: rgba(230, 166, 63, 0.12);
+  --shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 18px 40px rgba(0, 0, 0, 0.5);
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(36, 104, 162, 0.10), transparent 60%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 5px),
+    var(--canvas);
+  color: var(--ink);
+}
+html:has(body[data-theme="buyer"]) { background: #050b13; }
+
+/* Readable accents that were hardcoded for light mode */
+body[data-theme="buyer"] a { color: #7db8e7; }
+body[data-theme="buyer"] a:hover { color: #a9cbe8; }
+body[data-theme="buyer"] .eyebrow,
+body[data-theme="buyer"] .text-button,
+body[data-theme="buyer"] .summary-status,
+body[data-theme="buyer"] .match-more summary { color: #7db8e7; }
+body[data-theme="buyer"] .banner.is-error { color: #ffc1ca; }
+body[data-theme="buyer"] .banner.is-success { color: #a9ebd3; }
+body[data-theme="buyer"] .missing-strip,
+body[data-theme="buyer"] .warning-strip { color: #f4d59a; }
+body[data-theme="buyer"] .complete-strip { color: #a9ebd3; }
+body[data-theme="buyer"] .safety-boundary,
+body[data-theme="buyer"] .payment-boundary { color: #f6dce0; }
+body[data-theme="buyer"] .payment-boundary { color: #f4d59a; }
+body[data-theme="buyer"] .intake-explainer strong,
+body[data-theme="buyer"] .separate-link-notice strong { color: #8fc8f5; }
+body[data-theme="buyer"] .boundary-label { background: var(--blue-soft); color: #8fc8f5; }
+body[data-theme="buyer"] .outcome-band .eyebrow { color: #88bce3; }
+body[data-theme="buyer"] .outcome-band p:not(.eyebrow) { color: #b8c2c9; }
+
+/* --- L2 machined shells: panels get gradient + top-edge light --- */
+body[data-theme="buyer"] .intake-form,
+body[data-theme="buyer"] .recommendation-panel,
+body[data-theme="buyer"] .terminal-panel,
+body[data-theme="buyer"] .selection-panel,
+body[data-theme="buyer"] .payment-panel,
+body[data-theme="buyer"] .deployment-summary,
+body[data-theme="buyer"] .unavailable-panel,
+body[data-theme="buyer"] .loading-skeleton,
+body[data-theme="buyer"] .action-band {
+  background: linear-gradient(180deg, #101e2e, #0a1421);
+  border-color: var(--line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 22px 46px rgba(0, 0, 0, 0.45);
+}
+body[data-theme="buyer"] .alternatives {
+  background: linear-gradient(180deg, #0d1a28, #091320);
+  border-color: var(--line);
+}
+
+/* --- L3 primary record header: Need Profile as raised metallic --- */
+body[data-theme="buyer"] .need-profile {
+  border: 1px solid var(--line-strong);
+  border-top: 4px solid var(--red);
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 5px),
+    linear-gradient(180deg, #16283c, #0b1725);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 24px 50px rgba(0, 0, 0, 0.55);
+}
+body[data-theme="buyer"] .recommendation-panel { border-top: 5px solid var(--blue); }
+
+/* --- L5 recessed controls: inputs sink into the panel --- */
+body[data-theme="buyer"] .field input,
+body[data-theme="buyer"] .field textarea,
+body[data-theme="buyer"] .task-row select {
+  background: #08131e;
+  border-color: var(--line-strong);
+  box-shadow: inset 0 6px 12px rgba(0, 0, 0, 0.55), inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+}
+body[data-theme="buyer"] .field input:hover,
+body[data-theme="buyer"] .field textarea:hover { border-color: rgba(169, 181, 191, 0.5); }
+body[data-theme="buyer"] .field input:focus,
+body[data-theme="buyer"] .field textarea:focus {
+  border-color: var(--blue);
+  box-shadow: inset 0 6px 12px rgba(0, 0, 0, 0.55), 0 0 0 3px rgba(46, 127, 198, 0.22);
+}
+body[data-theme="buyer"] button:focus-visible,
+body[data-theme="buyer"] a:focus-visible,
+body[data-theme="buyer"] input:focus-visible,
+body[data-theme="buyer"] textarea:focus-visible,
+body[data-theme="buyer"] summary:focus-visible {
+  outline: 3px solid rgba(46, 127, 198, 0.4);
+}
+
+/* --- Machined buttons: metal body, lit top edge, shadowed underside.
+       Press = recess (highlight flips to bottom edge). --- */
+body[data-theme="buyer"] .button,
+body[data-theme="buyer"] .primary {
+  border-radius: 4px;
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.82rem;
+  transition: filter 90ms linear, transform 90ms linear, box-shadow 90ms linear;
+}
+body[data-theme="buyer"] .button-primary,
+body[data-theme="buyer"] .primary {
+  border: 1px solid rgba(220, 230, 238, 0.35);
+  background: linear-gradient(180deg, #3a8ad0 0%, #2468a2 48%, #123a5a 100%);
+  color: #f3f6f8;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -6px 10px rgba(0, 0, 0, 0.42),
+    0 4px 0 #0b2438,
+    0 5px 1px rgba(0, 0, 0, 0.5),
+    0 12px 22px rgba(5, 11, 19, 0.6);
+}
+body[data-theme="buyer"] .button-primary:hover:not(:disabled),
+body[data-theme="buyer"] .primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #3a8ad0 0%, #2468a2 48%, #123a5a 100%);
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -6px 10px rgba(0, 0, 0, 0.4),
+    0 5px 0 #0b2438,
+    0 6px 2px rgba(0, 0, 0, 0.5),
+    0 18px 32px rgba(36, 104, 162, 0.4);
+}
+body[data-theme="buyer"] .button-primary:active:not(:disabled),
+body[data-theme="buyer"] .primary:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 7px 14px rgba(0, 0, 0, 0.6),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.16),
+    0 1px 0 #0b2438,
+    0 2px 4px rgba(0, 0, 0, 0.5);
+}
+body[data-theme="buyer"] .button-secondary {
+  border: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, #2a3b4c, #16222e);
+  color: #dce6ee;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -5px 9px rgba(0, 0, 0, 0.35),
+    0 3px 0 #0c141c,
+    0 4px 1px rgba(0, 0, 0, 0.45),
+    0 10px 20px rgba(5, 11, 19, 0.55);
+}
+body[data-theme="buyer"] .button-secondary:hover:not(:disabled) { filter: brightness(1.16); color: #f3f6f8; }
+body[data-theme="buyer"] .button-quiet {
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(169, 181, 191, 0.08), rgba(7, 17, 29, 0.3));
+  color: var(--muted);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 2px 0 rgba(0, 0, 0, 0.45);
+}
+body[data-theme="buyer"] .button-quiet:hover:not(:disabled) { color: #f3f6f8; border-color: var(--line-strong); }
+body[data-theme="buyer"] .primary::before { background: none; }
+
+/* Post-intake workflow header: preserve context without repeating the full intake hero. */
+body[data-theme="buyer"] .hero-compact {
+  align-items: center;
+  margin-bottom: 12px;
+}
+body[data-theme="buyer"] .hero-compact h1 { font-size: 24px; }
+body[data-theme="buyer"] .hero-compact .hero-copy { display: none; }
+body[data-theme="buyer"] .hero-compact .eyebrow { margin-bottom: 4px; }
+body[data-theme="buyer"] .hero-compact .status-panel {
+  grid-template-columns: auto auto;
+  padding: 14px 16px;
+}
+
+/* P1 action continuity: mirror the current action only while its source leaves view. */
+body[data-theme="buyer"] .sticky-action-footer {
+  position: fixed;
+  right: 16px;
+  bottom: 12px;
+  left: 16px;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+body[data-theme="buyer"] .sticky-action-footer[hidden] { display: none; }
+body[data-theme="buyer"] .sticky-action-footer p {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+}
+body[data-theme="buyer"] .sticky-action-footer .primary { flex: 0 0 auto; }
+
+/* --- Mono/plate identity pieces (chamfered opposing corners) --- */
+body[data-theme="buyer"] .section-number,
+body[data-theme="buyer"] .file-kind,
+body[data-theme="buyer"] .candidate-rank,
+body[data-theme="buyer"] .score,
+body[data-theme="buyer"] .score-badge,
+body[data-theme="buyer"] .match-score {
+  background: linear-gradient(180deg, #1e4a70, #0c2338);
+  color: #dce6ee;
+  border-radius: 0;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+body[data-theme="buyer"] .mode-switch { background: #08131e; box-shadow: inset 0 5px 10px rgba(0, 0, 0, 0.55); }
+body[data-theme="buyer"] .mode-switch button.is-active {
+  background: linear-gradient(180deg, #1e4a70, #0c2338);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 2px 5px rgba(0, 0, 0, 0.5);
+  color: #f3f6f8;
+}
+
+/* --- Status language: mono, uppercase, squared, never color-only --- */
+body[data-theme="buyer"] .status-chip,
+body[data-theme="buyer"] .source-badge,
+body[data-theme="buyer"] .confidence,
+body[data-theme="buyer"] .response-count,
+body[data-theme="buyer"] .payment-state,
+body[data-theme="buyer"] .secured-badge,
+body[data-theme="buyer"] .boundary-label,
+body[data-theme="buyer"] .optional-label {
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.66rem;
+}
+body[data-theme="buyer"] .status-chip.is-sent,
+body[data-theme="buyer"] .status-chip.is-viewed { border-color: rgba(46, 127, 198, 0.58); background: var(--blue-soft); color: #8fc8f5; }
+body[data-theme="buyer"] .status-chip.is-responded { border-color: rgba(42, 177, 126, 0.52); background: var(--green-soft); color: #7ce0bc; }
+body[data-theme="buyer"] .status-chip.is-failed { border-color: rgba(214, 40, 63, 0.55); background: var(--red-soft); color: #f0a3ad; }
+body[data-theme="buyer"] .status-chip.is-ready { background: var(--surface-muted); color: var(--muted); }
+body[data-theme="buyer"] .source-badge.is-live,
+body[data-theme="buyer"] .source-badge.is-api { border-color: rgba(42, 177, 126, 0.52); background: var(--green-soft); color: #7ce0bc; }
+body[data-theme="buyer"] .source-badge.is-fixture { border-color: rgba(230, 166, 63, 0.5); background: var(--amber-soft); color: #f1c777; }
+body[data-theme="buyer"] .response-count { border-color: rgba(230, 166, 63, 0.5); background: var(--amber-soft); color: #f1c777; }
+body[data-theme="buyer"] .response-count.is-ready { border-color: rgba(42, 177, 126, 0.52); background: var(--green-soft); color: #7ce0bc; }
+body[data-theme="buyer"] .payment-state { border-color: rgba(230, 166, 63, 0.5); background: var(--amber-soft); color: #f1c777; }
+body[data-theme="buyer"] .secured-badge { background: linear-gradient(180deg, #2ab17e, #147853); color: #fff; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 0 16px rgba(42, 177, 126, 0.25); }
+
+/* --- Journey rail: recessed track, current step raised + lit --- */
+body[data-theme="buyer"] .journey {
+  background: linear-gradient(180deg, #08131e, #0c1a29);
+  box-shadow: inset 0 6px 12px rgba(0, 0, 0, 0.5);
+}
+body[data-theme="buyer"] .journey-step.is-current {
+  background: linear-gradient(180deg, #16283c, #0b1725);
+  box-shadow: inset 0 -3px 0 var(--blue), inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 0 18px rgba(46, 127, 198, 0.18);
+}
+body[data-theme="buyer"] .journey-step.is-complete { background: var(--green-soft); }
+
+/* --- Cards / comparison rows --- */
+body[data-theme="buyer"] .candidate-card,
+body[data-theme="buyer"] .match-card,
+body[data-theme="buyer"] .response-card,
+body[data-theme="buyer"] .outreach-item {
+  background: linear-gradient(180deg, #101e2e, #0a1421);
+  border-color: var(--line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 12px 28px rgba(0, 0, 0, 0.4);
+}
+body[data-theme="buyer"] .match-card .company-logo-shell {
+  width: 50px;
+  height: 50px;
+  flex-basis: 50px;
+}
+body[data-theme="buyer"] .response-card.is-selected {
+  border-color: rgba(46, 127, 198, 0.62);
+  box-shadow: inset 3px 0 0 var(--blue), inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 0 2px rgba(46, 127, 198, 0.35), 0 16px 34px rgba(0, 0, 0, 0.45);
+}
+body[data-theme="buyer"] .response-select { background: #0a1522; }
+body[data-theme="buyer"] .priority-option { background: linear-gradient(180deg, #0f1d2c, #0a1421); }
+body[data-theme="buyer"] .priority-option.is-selected { border-color: var(--blue); background: var(--blue-soft); box-shadow: inset 0 0 0 1px var(--blue), 0 0 14px rgba(46, 127, 198, 0.18); }
+body[data-theme="buyer"] .priority-radio { background: #08131e; }
+body[data-theme="buyer"] .file-control { background: #0a1522; }
+body[data-theme="buyer"] .file-control:hover { background: var(--blue-soft); }
+body[data-theme="buyer"] .tag-list span { background: #0a1522; }
+
+/* --- Decision band (Find a specialist): dark steel + red notch rail --- */
+body[data-theme="buyer"] .outcome-band {
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 5px),
+    linear-gradient(180deg, #16283c, #0b1725);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 22px 46px rgba(0, 0, 0, 0.5);
+}
+
+/* --- Progress + skeleton --- */
+body[data-theme="buyer"] .progress-track { background: #08131e; box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.6); }
+body[data-theme="buyer"] .progress-track span { background: linear-gradient(90deg, #2ab17e, #147853); box-shadow: 0 0 12px rgba(42, 177, 126, 0.4); }
+body[data-theme="buyer"] .loading-skeleton span {
+  background: linear-gradient(90deg, #0e1c2b 0%, #16283c 40%, #0e1c2b 80%);
+  background-size: 420px 100%;
+  animation: alloy-shimmer 1.4s linear infinite;
+}
+body[data-theme="buyer"] .inline-empty { background: #08131e; border-color: var(--line-strong); }
+
+/* ============================================================
+   BUYER · DEPLOY PHASE — Mode B · Oxblood Graphite
+   main.ts sets document.body.dataset.phase = "deploy" when the
+   Deploy/payment view renders (remove it on other views).
+   ============================================================ */
+body[data-theme="buyer"][data-phase="deploy"] {
+  --canvas: #0d1116;
+  --surface: #1b222a;
+  --surface-muted: #14191f;
+  --charcoal: #4e0c18;
+  --line: rgba(169, 181, 191, 0.14);
+  background:
+    radial-gradient(90% 70% at 50% 0%, rgba(122, 20, 37, 0.16), transparent 60%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px 5px),
+    var(--canvas);
+}
+html:has(body[data-theme="buyer"][data-phase="deploy"]) { background: #0d1116; }
+body[data-theme="buyer"][data-phase="deploy"] .payment-panel,
+body[data-theme="buyer"][data-phase="deploy"] .deployment-summary,
+body[data-theme="buyer"][data-phase="deploy"] .selection-panel,
+body[data-theme="buyer"][data-phase="deploy"] .success-panel,
+body[data-theme="buyer"][data-phase="deploy"] .secured-panel,
+body[data-theme="buyer"][data-phase="deploy"] .terminal-panel {
+  background: linear-gradient(180deg, #262e37, #14191f);
+}
+/* Pinch commitment is the one machined-red action */
+body[data-theme="buyer"][data-phase="deploy"] .button-primary,
+body[data-theme="buyer"][data-phase="deploy"] .primary {
+  border-color: rgba(255, 242, 244, 0.3);
+  background: linear-gradient(180deg, #a5203a 0%, #7a1425 50%, #4e0c18 100%);
+  color: #fff4f6;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -6px 10px rgba(0, 0, 0, 0.45),
+    0 4px 0 #300810,
+    0 5px 1px rgba(0, 0, 0, 0.55),
+    0 12px 24px rgba(0, 0, 0, 0.6);
+}
+body[data-theme="buyer"][data-phase="deploy"] .button-primary:hover:not(:disabled),
+body[data-theme="buyer"][data-phase="deploy"] .primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #a5203a 0%, #7a1425 50%, #4e0c18 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -6px 10px rgba(0, 0, 0, 0.42),
+    0 5px 0 #300810,
+    0 6px 2px rgba(0, 0, 0, 0.55),
+    0 18px 32px rgba(122, 20, 37, 0.45);
+}
+body[data-theme="buyer"][data-phase="deploy"] .eyebrow { color: #e08894; }
+body[data-theme="buyer"][data-phase="deploy"] .section-number,
+body[data-theme="buyer"][data-phase="deploy"] .score-badge,
+body[data-theme="buyer"][data-phase="deploy"] .match-score {
+  background: linear-gradient(180deg, #8e1a2e, #4e0c18);
+}
+
+/* ============================================================
+   SUPPLIER — quiet oxblood. Red-dominant identity, cobalt kept
+   only as the technical accent. Brand fonts restored.
+   supplier.html must include the Archivo + IBM Plex Google Fonts link.
+   ============================================================ */
+body[data-theme="supplier"] {
+  --canvas: #150a0f;
+  --surface: #1f1218;
+  --surface-raised: #291823;
+  --ink: #f6eef1;
+  --muted: #c4adb5;
+  --faint: #937d85;
+  --line: rgba(224, 136, 148, 0.16);
+  --line-strong: rgba(224, 136, 148, 0.34);
+  --signal: #d6283f;
+  --signal-dark: #7a1425;
+  --technical: #6fa8dc;
+  --success: #2ab17e;
+  --warning: #e6a63f;
+  --font-display: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  background:
+    radial-gradient(90% 60% at 50% 0%, rgba(122, 20, 37, 0.20), transparent 60%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px 5px),
+    var(--canvas);
+  color: var(--ink);
+}
+html:has(body[data-theme="supplier"]) { background: #150a0f; }
+body[data-theme="supplier"] ::selection { background: #7a1425; color: #f6eef1; }
+
+body[data-theme="supplier"] .summary,
+body[data-theme="supplier"] .response-form,
+body[data-theme="supplier"] .receipt,
+body[data-theme="supplier"] .state-panel {
+  background: linear-gradient(180deg, #26141c, #180c12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 22px 50px rgba(0, 0, 0, 0.5);
+}
+body[data-theme="supplier"] .summary { border-top: 3px solid var(--signal); }
+
+body[data-theme="supplier"] input,
+body[data-theme="supplier"] textarea,
+body[data-theme="supplier"] select {
+  background: #120810;
+  box-shadow: inset 0 6px 12px rgba(0, 0, 0, 0.55), inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+}
+body[data-theme="supplier"] input:focus,
+body[data-theme="supplier"] textarea:focus,
+body[data-theme="supplier"] select:focus {
+  border-color: var(--technical);
+  outline: 2px solid rgba(111, 168, 220, 0.32);
+}
+
+/* Machined red primary; submit is the one lit action */
+body[data-theme="supplier"] button {
+  border-radius: 4px;
+  border: 1px solid rgba(255, 242, 244, 0.28);
+  background: linear-gradient(180deg, #a5203a 0%, #7a1425 50%, #4e0c18 100%);
+  letter-spacing: 0.06em;
+  transition: filter 90ms linear, transform 90ms linear, box-shadow 90ms linear;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -6px 10px rgba(0, 0, 0, 0.45),
+    0 4px 0 #300810,
+    0 5px 1px rgba(0, 0, 0, 0.55),
+    0 12px 24px rgba(0, 0, 0, 0.55);
+}
+body[data-theme="supplier"] button:hover:not(:disabled) {
+  background: linear-gradient(180deg, #a5203a 0%, #7a1425 50%, #4e0c18 100%);
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+}
+body[data-theme="supplier"] button:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: inset 0 7px 14px rgba(0, 0, 0, 0.6), 0 1px 0 #300810, 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+body[data-theme="supplier"] .secondary-button {
+  border-color: var(--line-strong);
+  background: linear-gradient(180deg, #33222b, #1d1016);
+  color: var(--ink);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -5px 9px rgba(0, 0, 0, 0.35),
+    0 3px 0 #10070b,
+    0 4px 1px rgba(0, 0, 0, 0.45);
+}
+body[data-theme="supplier"] .secondary-button:hover:not(:disabled) { background: linear-gradient(180deg, #33222b, #1d1016); filter: brightness(1.18); }
+
+body[data-theme="supplier"] .chip {
+  border-color: rgba(214, 40, 63, 0.4);
+  background: rgba(214, 40, 63, 0.09);
+  color: #f0a3ad;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+body[data-theme="supplier"] .step-number {
+  border-color: var(--signal);
+  color: #f0a3ad;
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+  background: linear-gradient(180deg, #3d0a14, #26060d);
+}
+body[data-theme="supplier"] .access-badge {
+  background: #120810;
+  border-color: var(--line-strong);
+  color: var(--technical);
+  box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.5);
+}
+body[data-theme="supplier"] .choice { background: linear-gradient(180deg, #2b1a23, #1b0e14); }
+body[data-theme="supplier"] .choice:has(input:checked) {
+  border-color: var(--technical);
+  box-shadow: inset 3px 0 0 var(--technical), 0 0 14px rgba(111, 168, 220, 0.15);
+}
+body[data-theme="supplier"] .confirmation { background: #1b0e14; border-left-color: var(--technical); }
+body[data-theme="supplier"] .demo-tools { background: #180c12; }
+body[data-theme="supplier"] .receipt { border-top-color: var(--success); }
+body[data-theme="supplier"] h1,
+body[data-theme="supplier"] h2 { letter-spacing: -0.02em; }
+body[data-theme="supplier"] .brand-mark { letter-spacing: 0.02em; }
+body[data-theme="supplier"] .supplier-company-identity {
+  justify-content: flex-end;
+}
+body[data-theme="supplier"] .supplier-company-identity .company-logo-shell {
+  width: 50px;
+  height: 50px;
+  flex-basis: 50px;
+}
+body[data-theme="supplier"] .supplier-company-identity .company-name-text {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+/* ============================================================
+   LANDING — full-intensity Mode A. landing.css already carries
+   Alloy tokens; this section only adds the machined finish.
+   ============================================================ */
+body[data-theme="landing"] {
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(36, 104, 162, 0.10), transparent 60%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 5px),
+    var(--midnight-deep, #040a11);
+}
+body[data-theme="landing"] .site-header { position: relative; }
+body[data-theme="landing"] .site-header::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(169, 181, 191, 0.5) 18%, rgba(214, 40, 63, 0.9) 50%, rgba(169, 181, 191, 0.5) 82%, transparent);
+  pointer-events: none;
+}
+body[data-theme="landing"] .button-primary,
+body[data-theme="landing"] .header-cta {
+  position: relative;
+  overflow: hidden;
+  border-radius: 4px;
+  border: 1px solid rgba(220, 230, 238, 0.35);
+  background: linear-gradient(180deg, #3a8ad0 0%, #2468a2 48%, #123a5a 100%);
+  color: #f3f6f8;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: var(--font-display);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -6px 10px rgba(0, 0, 0, 0.42),
+    0 4px 0 #0b2438,
+    0 5px 1px rgba(0, 0, 0, 0.5),
+    0 12px 22px rgba(5, 11, 19, 0.6);
+  transition: filter 90ms linear, transform 90ms linear;
+}
+body[data-theme="landing"] .button-primary::after,
+body[data-theme="landing"] .header-cta::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 34%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.26), transparent);
+  animation: alloy-sweep 4.2s ease-in-out infinite;
+  pointer-events: none;
+}
+body[data-theme="landing"] .button-primary:hover,
+body[data-theme="landing"] .header-cta:hover { filter: brightness(1.1); transform: translateY(-1px); }
+body[data-theme="landing"] .button-secondary {
+  border: 1px solid var(--line-strong, rgba(169, 181, 191, 0.32));
+  border-radius: 4px;
+  background: linear-gradient(180deg, #2a3b4c, #16222e);
+  color: #dce6ee;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -5px 9px rgba(0, 0, 0, 0.35),
+    0 3px 0 #0c141c,
+    0 4px 1px rgba(0, 0, 0, 0.45);
+}
+body[data-theme="landing"] .buyer-lane {
+  background: linear-gradient(180deg, #16283c, #0b1725);
+  box-shadow: inset 3px 0 0 #2468a2;
+}
+body[data-theme="landing"] .supplier-lane {
+  background: linear-gradient(180deg, #26141c, #180c12);
+  box-shadow: inset 3px 0 0 #d6283f;
+}
+
+@media (max-width: 420px) {
+  body[data-theme="supplier"] .supplier-company-identity {
+    justify-content: flex-start;
+  }
+  body[data-theme="buyer"] .sticky-action-footer {
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+  }
+  body[data-theme="buyer"] .sticky-action-footer .primary { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-theme] *,
+  body[data-theme] *::before,
+  body[data-theme] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

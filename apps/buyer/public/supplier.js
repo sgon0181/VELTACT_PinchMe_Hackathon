@@ -1,4 +1,5 @@
-import { demoResponsesForRequirement } from "./supplierDemoResponses.js";
+import { demoControlsEnabled } from "./assets/apiBase.js";
+import { companyLogoFor } from "./assets/companyLogos.js";
 
 const isFrontendDevServer =
   ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
@@ -15,11 +16,15 @@ const statusEl = document.querySelector("#form-status");
 const summary = document.querySelector("#opportunity-summary");
 const receipt = document.querySelector("#submitted-receipt");
 const submitButton = document.querySelector("#submit-button");
+const demoTools = document.querySelector("#demo-tools");
 const demoSelect = document.querySelector("#demo-response-select");
+const demoFillButton = document.querySelector("#demo-fill-button");
 const helpFields = document.querySelector("#help-response-fields");
 const declineReasonField = document.querySelector("#decline-reason-field");
 let claimComplete = false;
 let demoResponses = [];
+let demoResponsesForRequirement;
+let demoRequirementText = "";
 
 form.addEventListener("submit", (event) => submitResponse(event, token));
 form.addEventListener("change", (event) => {
@@ -27,7 +32,7 @@ form.addEventListener("change", (event) => {
     updateDecisionFields();
   }
 });
-document.querySelector("#demo-fill-button").addEventListener("click", fillDemoResponse);
+void configureDemoControls();
 
 if (!token) {
   showTerminalState(
@@ -134,7 +139,9 @@ function renderOpportunity(payload, need, invitation) {
 
   document.title = `${invitation.supplierName || "Supplier"} | Veltact opportunity`;
   text("#need-title", profile.title || "Supplier opportunity");
-  text("#supplier-name", invitation.supplierName || payload.supplierProfile?.companyName);
+  renderSupplierIdentity(
+    invitation.supplierName || payload.supplierProfile?.companyName || "Supplier"
+  );
   text("#invitation-expiry", `Respond by ${formatDateTime(invitation.expiresAt)}`);
   text("#need-location", profile.location || "Not specified");
   text(
@@ -181,7 +188,26 @@ function renderOpportunity(payload, need, invitation) {
   text("#source-disclosure", sourceDisclosure(payload));
   summary.setAttribute("aria-busy", "false");
 
-  demoResponses = demoResponsesForRequirement(requirementText);
+  demoRequirementText = requirementText;
+  populateDemoResponses();
+}
+
+async function configureDemoControls() {
+  if (!(await demoControlsEnabled(API_BASE))) return;
+  try {
+    const demoModule = await import("./supplierDemoResponses.js");
+    demoResponsesForRequirement = demoModule.demoResponsesForRequirement;
+  } catch {
+    return;
+  }
+  demoTools.hidden = false;
+  demoFillButton.addEventListener("click", fillDemoResponse);
+  populateDemoResponses();
+}
+
+function populateDemoResponses() {
+  if (!demoResponsesForRequirement || !demoRequirementText) return;
+  demoResponses = demoResponsesForRequirement(demoRequirementText);
   demoSelect.replaceChildren(
     ...demoResponses.map((preset) => {
       const option = document.createElement("option");
@@ -215,6 +241,22 @@ function renderIdentity(profile, claim, invitation) {
       "#claim-status",
       "This private token has already confirmed the supplier identity. You can review and submit the response."
     );
+  }
+}
+
+function renderSupplierIdentity(companyName) {
+  text("#supplier-name", companyName);
+  const logo = companyLogoFor(companyName);
+  const logoShell = document.querySelector("#supplier-logo-shell");
+  const logoImage = document.querySelector("#supplier-logo");
+  if (!(logoShell instanceof HTMLElement) || !(logoImage instanceof HTMLImageElement)) {
+    return;
+  }
+  logoShell.hidden = !logo;
+  if (logo) {
+    logoImage.src = logo;
+  } else {
+    logoImage.removeAttribute("src");
   }
 }
 

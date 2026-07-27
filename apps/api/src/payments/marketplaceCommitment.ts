@@ -13,6 +13,7 @@ import {
   CommitmentPaymentService,
   type CommitmentPaymentPersistenceAdapter
 } from "./commitmentPaymentService.js";
+import { isLocalDemoPaymentLinkId } from "./localDemoPaymentProvider.js";
 import type { PaymentProvider } from "./paymentProvider.js";
 import { getPaymentProvider } from "./providerRegistry.js";
 
@@ -55,7 +56,9 @@ const marketplaceCommitmentPersistence: CommitmentPaymentPersistenceAdapter = {
       engagement.hostedCheckoutUrl
         ? {
             existingPaymentLink: {
-              provider: "pinch" as const,
+              provider: isLocalDemoPaymentLinkId(engagement.paymentLinkId)
+                ? "local_demo" as const
+                : "pinch" as const,
               payerId: engagement.pinchPayerId,
               paymentLinkId: engagement.paymentLinkId,
               hostedCheckoutUrl: engagement.hostedCheckoutUrl,

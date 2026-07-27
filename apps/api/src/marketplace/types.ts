@@ -92,3 +92,15 @@ export type PinchWebhookEvidence = {
   receivedAt: string;
   payload: unknown;
 };
+
+export type LocalDemoPaymentEvidence = {
+  provider: "local_demo";
+  source: "local_demo";
+  authoritative: false;
+  eventId: string;
+  eventType: string;
+  engagementId: string;
+  paymentId: string;
+  receivedAt: string;
+  payload: unknown;
+};

@@ -30,6 +30,7 @@ import {
   markInvitationViewed,
   prepareSupplierLeadInvitationsForNeed,
   recordAuthoritativePinchPayment,
+  recordLocalDemoPayment,
   researchNeed,
   resetMarketplaceStore,
   seedMarketplaceDemoFindState,
@@ -52,6 +53,7 @@ import {
   createLocalDemoPaymentEvidence
 } from "../payments/commitmentPaymentService.js";
 import { marketplaceCommitmentPaymentService } from "../payments/marketplaceCommitment.js";
+import { isLocalDemoHostedPaymentLink } from "../payments/localDemoPaymentProvider.js";
 import { getPaymentProvider } from "../payments/providerRegistry.js";
 import {
   getSupplierDemoResponses,
@@ -88,6 +90,8 @@ const supplierResponseSchema = z.object({
     )
 })
   .superRefine((value, context) => {
+    const canHelp =
+      value.canHelp ?? (value.decision === "can_help" ? true : undefined);
     if (value.canHelp === undefined && value.decision === undefined) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -104,6 +108,13 @@ const supplierResponseSchema = z.object({
         code: z.ZodIssueCode.custom,
         path: ["decision"],
         message: "decision must agree with canHelp"
+      });
+    }
+    if (canHelp && value.indicativePriceAud <= 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["indicativePriceAud"],
+        message: "indicativePriceAud must be greater than zero when the supplier can help"
       });
     }
   })
@@ -583,7 +594,8 @@ marketplaceRouter.post("/need-profiles/:needProfileId/engagements", (request, re
   if (result.status === "not_selectable") {
     response.status(409).json({
       status: "error",
-      message: "Only a submitted response from a supplier who can help may be selected"
+      message:
+        "Only a submitted can-help response with a positive indicative price may be selected"
     });
     return;
   }
@@ -697,10 +709,13 @@ marketplaceRouter.post("/engagements/:engagementId/payment-link", async (request
 });
 
 marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, response) => {
-  if (env.NODE_ENV === "production") {
+  if (
+    env.NODE_ENV === "production" ||
+    env.PAYMENT_PROVIDER !== "local_demo"
+  ) {
     response.status(404).json({
       status: "error",
-      message: "Demo payment is unavailable in production"
+      message: "Demo payment is unavailable for this payment provider"
     });
     return;
   }
@@ -722,12 +737,29 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
     });
     return;
   }
+  if (
+    !engagement.pinchPayerId ||
+    !engagement.hostedCheckoutUrl ||
+    !isLocalDemoHostedPaymentLink({
+      payerId: engagement.pinchPayerId,
+      paymentLinkId: engagement.paymentLinkId,
+      hostedCheckoutUrl: engagement.hostedCheckoutUrl
+    })
+  ) {
+    response.status(409).json({
+      status: "error",
+      message: "Create a local demo payment link before recording demo evidence"
+    });
+    return;
+  }
 
-  const result = recordAuthoritativePinchPayment({
-    eventId: `demo-payment:${engagement.id}`,
-    eventType: "demo-sandbox-payment",
+  const eventId = `demo-payment:${engagement.id}`;
+  const paymentId = `demo_${engagement.paymentLinkId}`;
+  const result = recordLocalDemoPayment({
+    eventId,
+    eventType: "local-demo-payment",
     engagementId: engagement.id,
-    paymentId: `demo_${engagement.paymentLinkId}`,
+    paymentId,
     payload: {
       paymentLinkId: engagement.paymentLinkId,
       status: "approved",
@@ -750,7 +782,11 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
   }
   response.json({
     engagement: serialiseEngagement(result.engagement),
-    paymentEvidence: createLocalDemoPaymentEvidence(env.NODE_ENV)
+    paymentEvidence: {
+      ...createLocalDemoPaymentEvidence(env.NODE_ENV),
+      eventId,
+      paymentId
+    }
   });
 });
 

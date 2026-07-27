@@ -197,6 +197,12 @@ export const engagementSchema = z.object({
     hostedCheckoutUrl: z.string().url().optional(),
     pinchPayerId: z.string().min(1).optional(),
     pinchPaymentId: z.string().min(1).optional(),
+    localDemoPaymentId: z.string().min(1).optional(),
+    paymentEvidenceProvider: z.enum(["pinch", "local_demo"]).optional(),
+    paymentEvidenceSource: z
+        .enum(["pinch_webhook", "pinch_reconciliation", "local_demo"])
+        .optional(),
+    paymentEvidenceAuthoritative: z.boolean().optional(),
     securedAt: isoDateTimeSchema.optional(),
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema
@@ -385,20 +391,34 @@ export const supplierProfileSchema = z.object({
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema
 });
-export const supplierCommercialResponseSchema = z.object({
+const supplierCommercialResponseBaseSchema = z.object({
     id: z.string().min(1),
     needProfileId: z.string().min(1),
     supplierLeadId: z.string().min(1),
-    supplierProfileId: z.string().min(1),
-    decision: supplierResponseDecisionSchema,
-    availability: z.string().trim().min(1),
-    indicativePrice: moneySchema,
-    proposedApproach: z.string().trim().min(1),
-    relevantExperience: z.string().trim().min(1),
     assumptions: z.array(z.string().trim().min(1)).default([]),
     conditions: z.array(z.string().trim().min(1)).default([]),
     submittedAt: isoDateTimeSchema
 });
+const canHelpCommercialResponseSchema = supplierCommercialResponseBaseSchema.extend({
+    supplierProfileId: z.string().min(1),
+    decision: z.literal("can_help"),
+    availability: z.string().trim().min(1),
+    indicativePrice: moneySchema.extend({
+        amount: z.number().int().positive()
+    }),
+    proposedApproach: z.string().trim().min(1),
+    relevantExperience: z.string().trim().min(1)
+});
+const cannotHelpCommercialResponseSchema = supplierCommercialResponseBaseSchema.extend({
+    supplierProfileId: z.string().min(1).optional(),
+    decision: z.literal("cannot_help"),
+    availability: z.string().trim().min(1).optional(),
+    indicativePrice: moneySchema.optional(),
+    proposedApproach: z.string().trim().min(1).optional(),
+    relevantExperience: z.string().trim().min(1).optional(),
+    declineReason: z.string().trim().min(1).optional()
+});
+export const supplierCommercialResponseSchema = z.discriminatedUnion("decision", [canHelpCommercialResponseSchema, cannotHelpCommercialResponseSchema]);
 export const projectTemplateTypeSchema = z.enum([
     "urgent_plc_recovery",
     "planned_robotic_arm_integration"
@@ -532,18 +552,26 @@ export const projectContactSchema = z.object({
     email: z.string().trim().email(),
     phone: z.string().trim().min(1).optional()
 });
-export const paymentEvidenceSchema = z.object({
+const paymentEvidenceBaseSchema = z.object({
     id: z.string().min(1),
     projectId: z.string().min(1),
     milestoneId: z.string().min(1),
-    provider: z.enum(["pinch", "local_demo"]),
     eventId: z.string().min(1),
     eventType: z.string().trim().min(1),
     paymentStatus: paymentStatusSchema,
-    authoritative: z.boolean(),
     receivedAt: isoDateTimeSchema,
     metadata: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).default({})
 });
+export const paymentEvidenceSchema = z.discriminatedUnion("provider", [
+    paymentEvidenceBaseSchema.extend({
+        provider: z.literal("pinch"),
+        authoritative: z.literal(true)
+    }),
+    paymentEvidenceBaseSchema.extend({
+        provider: z.literal("local_demo"),
+        authoritative: z.literal(false)
+    })
+]);
 export const industrialProjectSchema = z.object({
     id: z.string().min(1),
     needProfileId: z.string().min(1),

@@ -20,6 +20,12 @@ import {
   type IntakeEvidence,
   type IntakeSourceMode
 } from "./aiIntakeService.js";
+import {
+  apiBaseUrl,
+  demoControlsEnabled,
+  localDemoPaymentEnabled
+} from "./apiBase.js";
+import { companyLogoFor } from "./companyLogos.js";
 import { RapidMatchService } from "./rapidMatchService.js";
 import type {
   BuyerRequirementInput,
@@ -59,13 +65,51 @@ type PersistedContext = {
   solutionDecision?: BuyerWorkspace["solutionDecision"];
 };
 
+type RealtimePayload = {
+  needProfileId?: string;
+  supplierInvitation?: {
+    status?: string;
+  };
+  supplierResponse?: {
+    decision?: string;
+  };
+  outreachDelivery?: {
+    channel?: "email" | "sms";
+    destination?: string;
+    deliveryStatus?: "not_sent" | "queued" | "sent" | "failed";
+  };
+};
+
+type RealtimeSocket = {
+  emit(
+    eventName: string,
+    payload: { needProfileId: string; buyerAccessToken?: string }
+  ): void;
+  on(eventName: string, handler: (payload: RealtimePayload) => void): void;
+};
+
+type SocketIoFactory = (
+  origin: string,
+  options: { transports: string[]; reconnection: boolean }
+) => RealtimeSocket;
+
 const service = new RapidMatchService();
 const aiIntakeService = new BackendAiIntakeService();
 const app = document.querySelector<HTMLDivElement>("#app");
-const localDemoMode = ["localhost", "127.0.0.1"].includes(
-  window.location.hostname
-);
+const socketWindow = window as Window & { io?: SocketIoFactory };
+const realtimeOrigin = new URL(apiBaseUrl(), window.location.origin).origin;
+const rapidMatchSocketEvent = {
+  joinNeedProfile: "rapidmatch:need.join",
+  leaveNeedProfile: "rapidmatch:need.leave",
+  invitationSent: "rapidmatch:invitation.sent",
+  outreachDeliveryUpdated: "rapidmatch:outreach.delivery_updated",
+  supplierResponseSubmitted: "rapidmatch:response.submitted",
+  paymentStatusUpdated: "rapidmatch:payment.status_updated",
+  engagementSecured: "rapidmatch:engagement.secured",
+  deploymentUpdated: "rapidmatch:deployment.updated"
+} as const;
 const LAST_NEED_KEY = "veltact:rapidmatch:last-need-id";
+const NEW_REQUIREMENT_KEY = "veltact:rapidmatch:new-requirement";
 const CONTEXT_PREFIX = "veltact:rapidmatch:buyer-context:";
 const TOKEN_PREFIX = "veltact:rapidmatch:buyer-token:";
 const buyerViews = new Set<BuyerView>([
@@ -100,9 +144,17 @@ let aiIntakeResult: AiIntakeResult | undefined;
 let intakeSourceMode: IntakeSourceMode = "fixture";
 let intakeEvidence: IntakeEvidence[] = [];
 let booting = true;
+let demoControlsAvailable = false;
+let localDemoPaymentAvailable = false;
+let milestoneUpdateDraft = "";
+let restoreFailed = false;
+let workspaceEpoch = 0;
 let pollHandle: number | undefined;
 let pollKey = "";
 let isPolling = false;
+let realtimeSocket: RealtimeSocket | undefined;
+let joinedNeedProfileId = "";
+let realtimeClientLoading: Promise<void> | undefined;
 
 const emptyInput: BuyerRequirementInput = {
   companyName: "",
@@ -181,8 +233,14 @@ render();
 void bootstrap();
 
 async function bootstrap() {
+  const demoGate = demoControlsEnabled();
+  const localDemoPaymentGate = localDemoPaymentEnabled();
   const identity = readWorkspaceIdentity();
   if (!identity.needProfileId) {
+    [demoControlsAvailable, localDemoPaymentAvailable] = await Promise.all([
+      demoGate,
+      localDemoPaymentGate
+    ]);
     booting = false;
     render();
     return;
@@ -221,12 +279,18 @@ async function bootstrap() {
     selectedResponseId =
       workspace.engagement?.supplierResponseId || selectedResponseId;
     view = resolveRestoredView(workspace, context.view);
+    restoreFailed = false;
     loadState = "idle";
   } catch (error) {
+    restoreFailed = true;
     loadState = "error";
     errorMessage = errorText(error);
     view = "intake";
   } finally {
+    [demoControlsAvailable, localDemoPaymentAvailable] = await Promise.all([
+      demoGate,
+      localDemoPaymentGate
+    ]);
     booting = false;
     render();
   }
@@ -235,6 +299,11 @@ async function bootstrap() {
 function render() {
   if (!app) return;
   const phase = currentPhase();
+  if (phase === "deploy") {
+    document.body.dataset.phase = "deploy";
+  } else {
+    delete document.body.dataset.phase;
+  }
   app.innerHTML = `
     <header class="product-header">
       <a class="product-wordmark" href="./index.html" aria-label="Veltact RapidMatch">
@@ -265,6 +334,7 @@ function render() {
   `;
   bindEvents();
   configurePolling();
+  configureRealtime();
 }
 
 function renderJourney(phase: "find" | "connect" | "deploy") {
@@ -317,7 +387,7 @@ function renderBanner() {
 }
 
 function renderCurrentView() {
-  if (loadState === "error" && !workspace && view === "intake") {
+  if (restoreFailed && !workspace && view === "intake") {
     return renderRestoreError();
   }
   if (view === "intake") return renderIntake();
@@ -397,15 +467,21 @@ function renderIntake() {
           <p class="eyebrow">Find / Requirement intake</p>
           <h2>Turn factory context into a supplier-ready Need Profile</h2>
         </div>
-        <div class="demo-utilities" aria-label="Demo utilities">
-          <button class="button button-quiet" type="button" data-demo="plc">Demo: PLC</button>
-          <button class="button button-quiet" type="button" data-demo="robotics">Demo: Robotic integration</button>
-        </div>
+        ${
+          demoControlsAvailable
+            ? `
+              <div class="demo-utilities" aria-label="Demo utilities">
+                <button class="button button-quiet" type="button" data-demo="plc">Demo: PLC</button>
+                <button class="button button-quiet" type="button" data-demo="robotics">Demo: Robotic integration</button>
+              </div>
+            `
+            : ""
+        }
       </div>
 
       <div class="mode-switch" role="group" aria-label="Intake mode">
-        <button type="button" class="${intakeMode === "ai" ? "is-active" : ""}" data-intake-mode="ai">AI assisted</button>
-        <button type="button" class="${intakeMode === "manual" ? "is-active" : ""}" data-intake-mode="manual">Manual</button>
+        <button type="button" class="${intakeMode === "ai" ? "is-active" : ""}" data-intake-mode="ai" aria-pressed="${intakeMode === "ai"}">AI assisted</button>
+        <button type="button" class="${intakeMode === "manual" ? "is-active" : ""}" data-intake-mode="manual" aria-pressed="${intakeMode === "manual"}">Manual</button>
       </div>
 
       <section class="intake-section intake-problem">
@@ -922,7 +998,7 @@ function renderCandidate(
       <div class="candidate-rank">0${index + 1}</div>
       <div class="candidate-heading">
         <div>
-          <h3>${escapeHtml(supplierName(supplier, match.supplierId))}</h3>
+          <h3>${renderCompanyIdentity(supplierName(supplier, match.supplierId))}</h3>
           <span>${escapeHtml(supplierRecordLabel(supplier))}</span>
         </div>
         <span class="match-score">${Math.round(match.score)}%</span>
@@ -1015,7 +1091,7 @@ function renderSupplierOutreach(
     <article class="outreach-item">
       <div class="outreach-heading">
         <div>
-          <h3>${escapeHtml(supplierName(supplier, invitation.supplierId))}</h3>
+          <h3>${renderCompanyIdentity(supplierName(supplier, invitation.supplierId))}</h3>
           <span>Secure response expires ${escapeHtml(formatTime(invitation.expiresAt))}</span>
         </div>
         <span class="status-chip is-${activity}">${activityLabel(activity)}</span>
@@ -1088,7 +1164,7 @@ function renderDelivery(
 
 function renderComparison(data: BuyerWorkspace) {
   const responses = submittedResponses(data);
-  const selectable = responses.filter((item) => item.decision === "can_help");
+  const selectable = responses.filter(isSelectableSupplierResponse);
   const hasMinimum = responses.length >= 2;
   const selected = selectable.find((item) => item.id === selectedResponseId);
   return `
@@ -1125,7 +1201,7 @@ function renderComparison(data: BuyerWorkspace) {
 
       <section class="primary-action-row action-band">
         <div>
-          <strong>${selected ? `${supplierName(supplierFor(data, selected.supplierId), selected.supplierId)} selected` : "Choose one supplier response"}</strong>
+          <strong>${selected ? `${renderCompanyIdentity(supplierName(supplierFor(data, selected.supplierId), selected.supplierId), true)} selected` : "Choose one supplier response"}</strong>
           <span>Selection creates the engagement. It does not mark payment complete or secure the supplier.</span>
         </div>
         ${
@@ -1144,21 +1220,23 @@ function renderResponseCard(
 ) {
   const supplier = supplierFor(data, response.supplierId);
   const match = matchForSupplier(data, response.supplierId);
-  const selected = response.id === selectedResponseId;
   const canHelp = response.decision === "can_help";
+  const validPrice = (response.indicativePrice?.amount ?? 0) > 0;
+  const selectable = canHelp && validPrice;
+  const selected = selectable && response.id === selectedResponseId;
   return `
-    <article class="response-card ${selected ? "is-selected" : ""} ${canHelp ? "" : "is-declined"}">
+    <article class="response-card ${selected ? "is-selected" : ""} ${selectable ? "" : canHelp ? "is-invalid" : "is-declined"}">
       <label class="response-select">
         <input
           type="radio"
           name="supplier-response"
           value="${escapeHtml(response.id)}"
           ${selected ? "checked" : ""}
-          ${canHelp ? "" : "disabled"}
+          ${selectable ? "" : "disabled"}
         />
         <span>
-          <strong>${escapeHtml(supplierName(supplier, response.supplierId))}</strong>
-          <small>${canHelp ? "Available for selection" : "Cannot help"}</small>
+          <strong>${renderCompanyIdentity(supplierName(supplier, response.supplierId), true)}</strong>
+          <small>${selectable ? "Available for selection" : canHelp ? "Invalid price — unavailable" : "Cannot help"}</small>
         </span>
         <span class="match-score">${match ? `${Math.round(match.score)}%` : "N/A"}</span>
       </label>
@@ -1172,7 +1250,7 @@ function renderResponseCard(
                 response.indicativePrice.currency
               )
             : "Not provided",
-          !response.indicativePrice
+          !validPrice
         )}
         ${comparisonFact(
           "Technical fit",
@@ -1221,7 +1299,7 @@ function renderSelected(data: BuyerWorkspace) {
     <section class="panel selection-panel">
       <div class="success-mark" aria-hidden="true">OK</div>
       <p class="eyebrow">Deploy / Supplier selected</p>
-      <h2>${escapeHtml(supplierName(selection.supplier, selection.response.supplierId))}</h2>
+      <h2>${renderCompanyIdentity(supplierName(selection.supplier, selection.response.supplierId), true)}</h2>
       <p class="terminal-copy">The engagement exists, but the supplier is not secured until payment evidence is confirmed by the backend.</p>
       <dl class="selection-summary">
         ${fact("Availability", selection.response.availability ?? "Not provided", !selection.response.availability)}
@@ -1240,13 +1318,111 @@ function renderSelected(data: BuyerWorkspace) {
       </dl>
       <div class="primary-action-row">
         <div>
-          <strong>Create a Pinch commitment</strong>
-          <span>The API creates the hosted payment link. This UI does not generate a demo checkout URL.</span>
+          <strong>Create a hosted commitment</strong>
+          <span>The API uses the configured payment provider and returns its hosted link. Payment remains pending until backend evidence is confirmed.</span>
         </div>
-        <button class="button button-primary button-large" type="button" data-create-payment>Create Pinch commitment</button>
+        <button class="button button-primary button-large" type="button" data-create-payment>Create payment link</button>
       </div>
     </section>
   `;
+}
+
+function hostedPaymentKind(value?: string) {
+  if (!value) return "uncreated" as const;
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return "hosted" as const;
+    }
+    const paymentLinkId = url.searchParams.get("payment_link_id");
+    if (
+      url.searchParams.get("payment_provider") === "local_demo" &&
+      paymentLinkId?.startsWith("local_demo_link_")
+    ) {
+      return "local_demo" as const;
+    }
+    if (
+      url.protocol === "https:" &&
+      (url.hostname === "getpinch.com.au" ||
+        url.hostname.endsWith(".getpinch.com.au"))
+    ) {
+      return "pinch" as const;
+    }
+    return "hosted" as const;
+  } catch {
+    return "hosted" as const;
+  }
+}
+
+function paymentLinkPresentation(hostedUrl?: string) {
+  const kind = hostedPaymentKind(hostedUrl);
+  if (kind === "local_demo") {
+    return {
+      kind,
+      eyebrow: "Deploy / Local demo commitment",
+      intro:
+        "This development-only link returns to Veltact without taking payment. The engagement remains pending until explicit local demo evidence is recorded.",
+      summaryLabel: "Demo return",
+      summaryValue: "Synthetic local link",
+      boundaryTitle: "Synthetic local return",
+      boundaryCopy:
+        "Opening this link does not contact Pinch or complete payment. It creates no provider approval or authoritative payment evidence.",
+      actionTitle: "Open the synthetic local return",
+      actionCopy:
+        "Development only. No money moves and the engagement remains awaiting payment.",
+      openLabel: "Open local demo return",
+      readyMessage: "Local demo return link is ready."
+    };
+  }
+  if (kind === "pinch") {
+    return {
+      kind,
+      eyebrow: "Deploy / Pinch commitment",
+      intro:
+        "Payment remains pending until Pinch returns authoritative evidence to the API.",
+      summaryLabel: "Pinch link",
+      summaryValue: "Created by API",
+      boundaryTitle: "Backend-confirmed payment only",
+      boundaryCopy:
+        "Opening checkout does not change payment status. The buyer workspace refreshes the engagement record to confirm Pinch evidence.",
+      actionTitle: "Complete the commitment in Pinch",
+      actionCopy: "Pinch checkout opens in a separate secure tab.",
+      openLabel: "Open Pinch payment",
+      readyMessage: "Pinch checkout is ready."
+    };
+  }
+  if (kind === "hosted") {
+    return {
+      kind,
+      eyebrow: "Deploy / Hosted commitment",
+      intro:
+        "Payment remains pending until the configured provider returns authoritative evidence to the API.",
+      summaryLabel: "Hosted link",
+      summaryValue: "Created by API",
+      boundaryTitle: "Provider confirmation required",
+      boundaryCopy:
+        "Opening the hosted link does not change payment status. The buyer workspace refreshes the engagement record for provider evidence.",
+      actionTitle: "Complete the hosted commitment",
+      actionCopy: "The configured provider opens in a separate secure tab.",
+      openLabel: "Open hosted payment",
+      readyMessage: "Hosted payment link is ready."
+    };
+  }
+  return {
+    kind,
+    eyebrow: "Deploy / Hosted commitment",
+    intro:
+      "Payment remains pending until the configured provider returns authoritative evidence to the API.",
+    summaryLabel: "Hosted link",
+    summaryValue: "Not created",
+    boundaryTitle: "Backend-confirmed payment only",
+    boundaryCopy:
+      "Creating or opening a hosted link does not change payment status. The buyer workspace waits for provider evidence.",
+    actionTitle: "Create a hosted payment link",
+    actionCopy: "The configured payment provider must return a hosted URL.",
+    openLabel: "Create payment link",
+    readyMessage: "The API did not return a hosted payment link."
+  };
 }
 
 function renderPayment(data: BuyerWorkspace): string {
@@ -1264,6 +1440,7 @@ function renderPayment(data: BuyerWorkspace): string {
     return renderDeployment(data);
   }
   const hostedUrl = engagement.hostedCheckoutUrl;
+  const paymentPresentation = paymentLinkPresentation(hostedUrl);
   const profile = requireNeedProfile(data);
   const commitmentAmount =
     data.deployment?.milestones[0]?.amount ??
@@ -1273,9 +1450,9 @@ function renderPayment(data: BuyerWorkspace): string {
     <section class="panel payment-panel">
       <div class="payment-heading">
         <div>
-          <p class="eyebrow">Deploy / Pinch commitment</p>
+          <p class="eyebrow">${escapeHtml(paymentPresentation.eyebrow)}</p>
           <h2>Awaiting payment</h2>
-          <p>Payment remains pending until Pinch or the local payment provider returns authoritative evidence to the API.</p>
+          <p>${escapeHtml(paymentPresentation.intro)}</p>
         </div>
         <span class="payment-state">${escapeHtml(statusLabel(engagement.paymentStatus))}</span>
       </div>
@@ -1289,30 +1466,35 @@ function renderPayment(data: BuyerWorkspace): string {
         )}
         ${fact("Supplier", supplierName(supplierFor(data, engagement.supplierId), engagement.supplierId))}
         ${fact("Engagement", shortId(engagement.id))}
-        ${fact("Pinch link", hostedUrl ? "Created by API" : "Not created", !hostedUrl)}
+        ${fact(
+          paymentPresentation.summaryLabel,
+          paymentPresentation.summaryValue,
+          !hostedUrl
+        )}
       </dl>
       <div class="payment-boundary">
-        <strong>No frontend simulation</strong>
-        <span>Opening checkout does not change this status. The buyer workspace refreshes the engagement record to confirm payment.</span>
+        <strong>${escapeHtml(paymentPresentation.boundaryTitle)}</strong>
+        <span>${escapeHtml(paymentPresentation.boundaryCopy)}</span>
       </div>
       <div class="primary-action-row">
         <div>
-          <strong>${hostedUrl ? "Complete the commitment in Pinch" : "Create the hosted Pinch link"}</strong>
-          <span>${hostedUrl ? "Checkout opens in a separate secure tab." : "The payment provider must return a hosted URL."}</span>
+          <strong>${escapeHtml(paymentPresentation.actionTitle)}</strong>
+          <span>${escapeHtml(paymentPresentation.actionCopy)}</span>
         </div>
         ${
           hostedUrl
-            ? `<a class="button button-primary button-large" href="${safeHttpUrl(hostedUrl)}" target="_blank" rel="noreferrer">Open Pinch payment</a>`
-            : `<button class="button button-primary button-large" type="button" data-create-payment>Create payment link</button>`
+            ? `<a class="button button-primary button-large" href="${safeHttpUrl(hostedUrl)}" target="_blank" rel="noreferrer">${escapeHtml(paymentPresentation.openLabel)}</a>`
+            : `<button class="button button-primary button-large" type="button" data-create-payment>${escapeHtml(paymentPresentation.openLabel)}</button>`
         }
       </div>
       <div class="secondary-actions">
         <button class="button button-secondary" type="button" data-refresh-payment>Check payment status</button>
       </div>
       ${
-        localDemoMode && hostedUrl
+        localDemoPaymentAvailable &&
+        hostedPaymentKind(hostedUrl) === "local_demo"
           ? `
-            <details class="developer-utility">
+            <details class="developer-utility" open>
               <summary>Local demo payment utility</summary>
               <p>This calls the backend demo-payment route. It is unavailable in production and remains distinct from live Pinch evidence.</p>
               <button class="button button-quiet" type="button" data-demo-payment>Record local demo payment</button>
@@ -1322,6 +1504,117 @@ function renderPayment(data: BuyerWorkspace): string {
       }
     </section>
   `;
+}
+
+function eligibleDeploymentTransition(
+  deployment: NonNullable<BuyerWorkspace["deployment"]>
+) {
+  const milestones = [...deployment.milestones].sort(
+    (left, right) => left.sequence - right.sequence
+  );
+  const index = milestones.findIndex(
+    (milestone) => milestone.status !== "completed"
+  );
+  if (index < 0) return undefined;
+  const milestone = milestones[index];
+  if (!milestone) return undefined;
+  if (milestone.status === "in_progress") {
+    return { milestone, nextStatus: "completed" as const };
+  }
+  const previous = index > 0 ? milestones[index - 1] : undefined;
+  if (
+    milestone.status === "funded" ||
+    (milestone.status === "not_started" &&
+      previous?.status === "completed")
+  ) {
+    return { milestone, nextStatus: "in_progress" as const };
+  }
+  return undefined;
+}
+
+function renderMilestoneUpdate(
+  deployment: NonNullable<BuyerWorkspace["deployment"]>
+) {
+  if (deployment.status === "completed") return "";
+  const transition = eligibleDeploymentTransition(deployment);
+  if (!transition) {
+    return `
+      <div class="warning-strip milestone-update-unavailable">
+        <strong>No delivery transition is currently eligible</strong>
+        <span>Refresh the deployment record. Payment evidence and the previous milestone determine when work can start.</span>
+      </div>
+    `;
+  }
+  const completing = transition.nextStatus === "completed";
+  return `
+    <form
+      id="deployment-milestone-form"
+      class="milestone-update-form"
+      data-milestone-id="${escapeHtml(transition.milestone.id)}"
+      data-next-status="${transition.nextStatus}"
+    >
+      <div class="milestone-update-heading">
+        <div>
+          <p class="eyebrow">Buyer delivery update</p>
+          <h3>${completing ? "Complete" : "Start"} ${escapeHtml(transition.milestone.title)}</h3>
+        </div>
+        <span class="status-chip is-${transition.milestone.status}">${escapeHtml(statusLabel(transition.milestone.status))}</span>
+      </div>
+      <label class="field">
+        <span>Latest delivery update <b class="required-mark">Required</b></span>
+        <textarea
+          name="latestUpdate"
+          rows="3"
+          maxlength="500"
+          required
+          placeholder="${completing ? "Summarise the evidence or outcome accepted for this milestone." : "Describe the authorised work now starting and its immediate next step."}"
+        >${escapeHtml(milestoneUpdateDraft)}</textarea>
+        <small>Delivery updates do not fund milestones, alter payment evidence or secure suppliers.</small>
+      </label>
+      <button class="button button-primary" type="submit" ${loadState === "loading" ? "disabled" : ""}>
+        ${completing ? "Complete milestone" : "Start milestone"}
+      </button>
+    </form>
+  `;
+}
+
+function deploymentPaymentEvidence(
+  engagement: NonNullable<BuyerWorkspace["engagement"]>
+) {
+  const explicitKind =
+    engagement.paymentEvidenceProvider === "local_demo" ||
+    engagement.paymentEvidenceSource === "local_demo"
+      ? "local_demo"
+      : engagement.paymentEvidenceProvider === "pinch" ||
+          engagement.paymentEvidenceSource === "pinch_webhook" ||
+          engagement.paymentEvidenceSource === "pinch_reconciliation"
+        ? "pinch"
+        : engagement.localDemoPaymentId ||
+            engagement.paymentEvidenceAuthoritative === false
+          ? "local_demo"
+          : engagement.paymentEvidenceAuthoritative === true
+            ? "pinch"
+            : undefined;
+  const legacyLocalDemoPaymentId =
+    !explicitKind && engagement.pinchPaymentId?.startsWith("demo_")
+      ? engagement.pinchPaymentId
+      : undefined;
+  const kind =
+    explicitKind ?? (legacyLocalDemoPaymentId ? "local_demo" : undefined);
+  const localDemo = kind === "local_demo";
+
+  return {
+    localDemo,
+    evidenceId: localDemo
+      ? engagement.localDemoPaymentId ?? legacyLocalDemoPaymentId
+      : engagement.pinchPaymentId,
+    provider: kind ?? engagement.paymentEvidenceProvider,
+    source: localDemo ? "local_demo" : engagement.paymentEvidenceSource,
+    authoritative: localDemo
+      ? false
+      : engagement.paymentEvidenceAuthoritative,
+    legacyFallback: Boolean(legacyLocalDemoPaymentId)
+  };
 }
 
 function renderDeployment(data: BuyerWorkspace): string {
@@ -1338,7 +1631,18 @@ function renderDeployment(data: BuyerWorkspace): string {
   }
   const deployment = data.deployment;
   const supplier = supplierFor(data, engagement.supplierId);
-  const localDemoPayment = engagement.pinchPaymentId?.startsWith("demo_");
+  const paymentEvidence = deploymentPaymentEvidence(engagement);
+  const paymentEvidenceValue = paymentEvidence.evidenceId
+    ? shortId(paymentEvidence.evidenceId)
+    : paymentEvidence.authoritative
+      ? paymentEvidence.source === "pinch_webhook"
+        ? "Pinch webhook confirmed"
+        : paymentEvidence.source === "pinch_reconciliation"
+          ? "Pinch reconciliation confirmed"
+          : "Provider confirmation recorded"
+      : paymentEvidence.localDemo
+        ? "Local demo record"
+        : "Provider confirmation recorded";
   const projection = Boolean(
     deployment?.milestones.some((item) => item.id.includes("fixture"))
   );
@@ -1359,14 +1663,14 @@ function renderDeployment(data: BuyerWorkspace): string {
         ${fact("Supplier", supplierName(supplier, engagement.supplierId))}
         ${fact("Payment", statusLabel(engagement.paymentStatus))}
         ${fact("Secured", formatTime(engagement.securedAt), !engagement.securedAt)}
-        ${fact("Payment evidence", engagement.pinchPaymentId ? shortId(engagement.pinchPaymentId) : "Confirmed by provider", false)}
+        ${fact(paymentEvidence.localDemo ? "Development evidence" : "Payment evidence", paymentEvidenceValue, false)}
       </dl>
       ${
-        localDemoPayment
+        paymentEvidence.localDemo
           ? `
             <div class="payment-boundary">
               <strong>Development evidence</strong>
-              <span>This secured state was created by the local demo route. It is non-authoritative and is not a Pinch webhook confirmation.</span>
+              <span>This secured state was created by the local demo route${paymentEvidence.evidenceId ? ` using evidence ${escapeHtml(paymentEvidence.evidenceId)}` : ""}. It is non-authoritative and is not a Pinch webhook confirmation.${paymentEvidence.legacyFallback ? " This record uses the legacy demo-ID fallback." : ""}</span>
             </div>
           `
           : ""
@@ -1399,6 +1703,16 @@ function renderDeployment(data: BuyerWorkspace): string {
                 )
                 .join("")}
             </ol>
+            ${
+              projection
+                ? `
+                  <div class="warning-strip milestone-update-unavailable">
+                    <strong>Projected milestones are read-only</strong>
+                    <span>The deployment API must return an authoritative milestone record before the buyer can post delivery updates.</span>
+                  </div>
+                `
+                : renderMilestoneUpdate(deployment)
+            }
           `
           : `
             <div class="warning-strip">
@@ -1415,7 +1729,7 @@ function renderDeployment(data: BuyerWorkspace): string {
         ${
           deployment?.status === "completed"
             ? `<button class="button button-primary" type="button" data-start-new>Start new requirement</button>`
-            : `<button class="button button-primary" type="button" data-refresh-deployment>Refresh deployment</button>`
+            : `<button class="button button-secondary" type="button" data-refresh-deployment>Refresh deployment</button>`
         }
       </div>
     </section>
@@ -1475,11 +1789,27 @@ function bindEvents() {
     void analyseRequirement();
   });
 
+  const milestoneForm = document.querySelector<HTMLFormElement>(
+    "#deployment-milestone-form"
+  );
+  milestoneForm
+    ?.querySelector<HTMLTextAreaElement>("textarea[name='latestUpdate']")
+    ?.addEventListener("input", (event) => {
+      milestoneUpdateDraft = (event.currentTarget as HTMLTextAreaElement).value;
+    });
+  milestoneForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!milestoneForm.reportValidity()) return;
+    void updateDeploymentMilestone(milestoneForm);
+  });
+
   document.querySelectorAll<HTMLButtonElement>("[data-intake-mode]").forEach(
     (button) => {
       button.addEventListener("click", () => {
         if (requirementForm) syncIntakeDraft(requirementForm);
         intakeMode = button.dataset.intakeMode === "manual" ? "manual" : "ai";
+        loadState = "idle";
+        errorMessage = "";
         render();
       });
     }
@@ -1487,6 +1817,7 @@ function bindEvents() {
 
   document.querySelectorAll<HTMLButtonElement>("[data-demo]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (!demoControlsAvailable) return;
       const robotics = button.dataset.demo === "robotics";
       loadDemo(robotics ? roboticsDemoInput : plcDemoInput, robotics);
     });
@@ -1695,6 +2026,18 @@ async function refreshWorkspace() {
 
 async function selectSupplier() {
   if (!workspace || !selectedResponseId) return;
+  const response = submittedResponses(workspace).find(
+    (item) => item.id === selectedResponseId
+  );
+  if (!response || !isSelectableSupplierResponse(response)) {
+    selectedResponseId = "";
+    loadState = "error";
+    errorMessage =
+      "Select a supplier response with a positive indicative price.";
+    persistContext();
+    render();
+    return;
+  }
   await runAction("Creating selected supplier engagement", async () => {
     workspace = await service.selectSupplier(
       workspace as BuyerWorkspace,
@@ -1709,13 +2052,13 @@ async function selectSupplier() {
 
 async function createPayment() {
   if (!workspace) return;
-  await runAction("Creating Pinch payment link", async () => {
+  await runAction("Creating hosted payment link", async () => {
     workspace = await service.createPaymentLink(workspace as BuyerWorkspace);
     view = "payment";
     persistContext();
-    liveMessage = workspace.engagement?.hostedCheckoutUrl
-      ? "Pinch checkout is ready."
-      : "The API did not return a hosted checkout link.";
+    liveMessage = paymentLinkPresentation(
+      workspace.engagement?.hostedCheckoutUrl
+    ).readyMessage;
   });
 }
 
@@ -1736,7 +2079,7 @@ async function refreshPayment() {
 }
 
 async function completeDemoPayment() {
-  if (!workspace?.engagement || !localDemoMode) return;
+  if (!workspace?.engagement || !localDemoPaymentAvailable) return;
   await runAction("Recording local demo payment evidence", async () => {
     workspace = await service.completeDemoPayment(workspace as BuyerWorkspace);
     view = "deployment";
@@ -1756,6 +2099,45 @@ async function refreshDeployment() {
         : "payment";
     persistContext();
   });
+}
+
+async function updateDeploymentMilestone(form: HTMLFormElement) {
+  if (!workspace?.engagement || !workspace.deployment) return;
+  const milestoneId = form.dataset.milestoneId;
+  const nextStatus = form.dataset.nextStatus;
+  const latestUpdate = formValue(new FormData(form), "latestUpdate");
+  if (
+    !milestoneId ||
+    !["in_progress", "completed"].includes(nextStatus ?? "") ||
+    !latestUpdate
+  ) {
+    loadState = "error";
+    errorMessage = "A milestone and latest delivery update are required.";
+    render();
+    return;
+  }
+  const status =
+    nextStatus as "in_progress" | "completed";
+  await runAction(
+    status === "completed"
+      ? "Completing delivery milestone"
+      : "Starting delivery milestone",
+    async () => {
+      workspace = await service.updateDeploymentMilestone(
+        workspace as BuyerWorkspace,
+        milestoneId,
+        status,
+        latestUpdate
+      );
+      milestoneUpdateDraft = "";
+      view = "deployment";
+      persistContext();
+      liveMessage =
+        status === "completed"
+          ? "Delivery milestone completed. Payment evidence was not changed."
+          : "Delivery milestone started. Payment evidence was not changed.";
+    }
+  );
 }
 
 async function runAction(label: string, action: () => Promise<void>) {
@@ -1792,15 +2174,191 @@ function configurePolling() {
   }, 4500);
 }
 
-async function pollWorkspace() {
+function configureRealtime() {
+  const needProfileId = workspace?.needProfile?.id;
+  if (!needProfileId) {
+    leaveRealtimeNeed();
+    return;
+  }
+  if (!realtimeSocket) {
+    void initialiseRealtimeSocket(needProfileId);
+    return;
+  }
+  if (joinedNeedProfileId === needProfileId) return;
+  if (joinedNeedProfileId) {
+    realtimeSocket.emit(rapidMatchSocketEvent.leaveNeedProfile, {
+      needProfileId: joinedNeedProfileId
+    });
+  }
+  realtimeSocket.emit(rapidMatchSocketEvent.joinNeedProfile, {
+    needProfileId,
+    buyerAccessToken: service.buyerAccessTokenForNeed(needProfileId)
+  });
+  joinedNeedProfileId = needProfileId;
+}
+
+async function initialiseRealtimeSocket(needProfileId: string) {
+  if (realtimeClientLoading) {
+    await realtimeClientLoading;
+  } else if (!socketWindow.io) {
+    realtimeClientLoading = loadRealtimeClient();
+    await realtimeClientLoading;
+  }
+  if (!socketWindow.io) return;
+  if (realtimeSocket) {
+    configureRealtime();
+    return;
+  }
+
+  realtimeSocket = socketWindow.io(realtimeOrigin, {
+    transports: ["websocket"],
+    reconnection: true
+  });
+  realtimeSocket.on(rapidMatchSocketEvent.invitationSent, (payload) => {
+    if (payload.needProfileId !== workspace?.needProfile?.id) return;
+    const message =
+      payload.supplierInvitation?.status === "opened"
+        ? "Live update: supplier opened the opportunity link."
+        : "Live supplier invitation status updated.";
+    void refreshRealtimeState(message);
+  });
+  realtimeSocket.on(
+    rapidMatchSocketEvent.outreachDeliveryUpdated,
+    (payload) => {
+      if (payload.needProfileId !== workspace?.needProfile?.id) return;
+      const channel =
+        payload.outreachDelivery?.channel?.toUpperCase() ?? "Outreach";
+      const status =
+        payload.outreachDelivery?.deliveryStatus?.replaceAll("_", " ") ??
+        "updated";
+      void refreshRealtimeState(
+        `Live update: ${channel} delivery ${status}.`
+      );
+    }
+  );
+  realtimeSocket.on(
+    rapidMatchSocketEvent.supplierResponseSubmitted,
+    (payload) => {
+      if (payload.needProfileId !== workspace?.needProfile?.id) return;
+      void refreshRealtimeState(
+        payload.supplierResponse?.decision === "cannot_help"
+          ? "Live update: supplier declined this opportunity."
+          : "Live update: supplier submitted a response."
+      );
+    }
+  );
+  realtimeSocket.on(rapidMatchSocketEvent.paymentStatusUpdated, (payload) => {
+    if (payload.needProfileId === workspace?.needProfile?.id) {
+      void refreshRealtimeState("Live payment status update received.");
+    }
+  });
+  realtimeSocket.on(rapidMatchSocketEvent.engagementSecured, (payload) => {
+    if (payload.needProfileId === workspace?.needProfile?.id) {
+      void refreshRealtimeState("Live update: supplier secured.");
+    }
+  });
+  realtimeSocket.on(rapidMatchSocketEvent.deploymentUpdated, (payload) => {
+    if (payload.needProfileId === workspace?.needProfile?.id) {
+      void refreshRealtimeState("Live delivery milestone update received.");
+    }
+  });
+
+  if (workspace?.needProfile?.id === needProfileId) {
+    configureRealtime();
+  }
+}
+
+async function loadRealtimeClient() {
+  await new Promise<void>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `${realtimeOrigin}/socket.io/socket.io.js`;
+    script.async = true;
+    script.addEventListener("load", () => resolve(), { once: true });
+    script.addEventListener(
+      "error",
+      () => reject(new Error("Unable to load realtime client.")),
+      { once: true }
+    );
+    document.head.append(script);
+  }).catch(() => {
+    realtimeClientLoading = undefined;
+  });
+}
+
+function leaveRealtimeNeed() {
+  if (!realtimeSocket || !joinedNeedProfileId) return;
+  realtimeSocket.emit(rapidMatchSocketEvent.leaveNeedProfile, {
+    needProfileId: joinedNeedProfileId
+  });
+  joinedNeedProfileId = "";
+}
+
+function milestoneUpdateFormHasFocus() {
+  return (
+    document.activeElement instanceof HTMLElement &&
+    Boolean(
+      document.activeElement.closest("#deployment-milestone-form")
+    )
+  );
+}
+
+async function refreshRealtimeState(message: string) {
   if (!workspace || isPolling || loadState === "loading") return;
+  const activeWorkspace = workspace;
+  const activeEpoch = workspaceEpoch;
   isPolling = true;
   try {
-    const previousResponses = submittedResponses(workspace).length;
-    const previousStatus = workspace.engagement?.status;
-    workspace = workspace.engagement
-      ? await service.refreshEngagement(workspace)
-      : await service.refreshWorkspace(workspace);
+    const refreshedWorkspace = activeWorkspace.engagement
+      ? await service.refreshEngagement(activeWorkspace)
+      : await service.refreshWorkspace(activeWorkspace);
+    if (
+      !isCurrentWorkspaceRefresh(
+        activeWorkspace,
+        activeEpoch,
+        workspace,
+        workspaceEpoch
+      )
+    ) {
+      return;
+    }
+    workspace = refreshedWorkspace;
+    selectedResponseId =
+      workspace.engagement?.supplierResponseId || selectedResponseId;
+    if (workspace.engagement?.status === "supplier_secured") {
+      view = "deployment";
+    }
+    liveMessage = message;
+    persistContext();
+    if (!milestoneUpdateFormHasFocus()) render();
+  } catch {
+    // Scheduled polling and explicit refresh remain available if realtime fails.
+  } finally {
+    isPolling = false;
+  }
+}
+
+async function pollWorkspace() {
+  if (!workspace || isPolling || loadState === "loading") return;
+  const activeWorkspace = workspace;
+  const activeEpoch = workspaceEpoch;
+  isPolling = true;
+  try {
+    const previousResponses = submittedResponses(activeWorkspace).length;
+    const previousStatus = activeWorkspace.engagement?.status;
+    const refreshedWorkspace = activeWorkspace.engagement
+      ? await service.refreshEngagement(activeWorkspace)
+      : await service.refreshWorkspace(activeWorkspace);
+    if (
+      !isCurrentWorkspaceRefresh(
+        activeWorkspace,
+        activeEpoch,
+        workspace,
+        workspaceEpoch
+      )
+    ) {
+      return;
+    }
+    workspace = refreshedWorkspace;
     const nextResponses = submittedResponses(workspace).length;
     if (workspace.engagement?.status === "supplier_secured") {
       view = "deployment";
@@ -1816,13 +2374,25 @@ async function pollWorkspace() {
       showLiveMessage("Payment confirmed. Supplier secured.");
     } else {
       persistContext();
-      render();
+      if (!milestoneUpdateFormHasFocus()) render();
     }
   } catch {
     // Polling stays silent. Explicit refresh surfaces actionable API errors.
   } finally {
     isPolling = false;
   }
+}
+
+function isCurrentWorkspaceRefresh(
+  activeWorkspace: BuyerWorkspace,
+  activeEpoch: number,
+  currentWorkspace: BuyerWorkspace | undefined,
+  currentEpoch: number
+) {
+  return (
+    activeEpoch === currentEpoch &&
+    activeWorkspace === currentWorkspace
+  );
 }
 
 function loadDemo(input: BuyerRequirementInput, robotics: boolean) {
@@ -2099,11 +2669,18 @@ function renderIntakeProvenance() {
 
 function readWorkspaceIdentity() {
   const url = new URL(window.location.href);
-  const needProfileId =
+  const explicitNeedProfileId =
     url.searchParams.get("needId") ??
     url.searchParams.get("needProfileId") ??
-    safeStorageGet(LAST_NEED_KEY) ??
     undefined;
+  const needProfileId = resolveRestoredNeedProfileId(
+    explicitNeedProfileId,
+    safeStorageGet(LAST_NEED_KEY) ?? undefined,
+    safeSessionStorageGet(NEW_REQUIREMENT_KEY) === "1"
+  );
+  if (explicitNeedProfileId) {
+    safeSessionStorageRemove(NEW_REQUIREMENT_KEY);
+  }
   const incomingToken =
     url.searchParams.get("buyerToken") ??
     url.searchParams.get("buyerAccessToken") ??
@@ -2139,11 +2716,23 @@ function readWorkspaceIdentity() {
   };
 }
 
+function resolveRestoredNeedProfileId(
+  explicitNeedProfileId: string | undefined,
+  lastNeedProfileId: string | undefined,
+  newRequirementRequested: boolean
+) {
+  return (
+    explicitNeedProfileId ??
+    (newRequirementRequested ? undefined : lastNeedProfileId)
+  );
+}
+
 function setNeedProfileUrl(needProfileId: string) {
   const url = new URL(window.location.href);
   url.search = "";
   url.searchParams.set("needId", needProfileId);
   window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  safeSessionStorageRemove(NEW_REQUIREMENT_KEY);
   safeStorageSet(LAST_NEED_KEY, needProfileId);
 }
 
@@ -2300,14 +2889,18 @@ function startNewRequirement() {
     safeStorageRemove(`${TOKEN_PREFIX}${needProfileId}`);
   }
   safeStorageRemove(LAST_NEED_KEY);
+  safeSessionStorageSet(NEW_REQUIREMENT_KEY, "1");
+  workspaceEpoch += 1;
   workspace = undefined;
   aiIntakeResult = undefined;
   intakeEvidence = [];
+  milestoneUpdateDraft = "";
   intakeDraft = cloneInput(emptyInput);
   priority = "speed";
   selectedResponseId = "";
   intakeMode = "ai";
   view = "intake";
+  restoreFailed = false;
   loadState = "idle";
   errorMessage = "";
   liveMessage = "";
@@ -2346,6 +2939,13 @@ function selectedSupplier(data: BuyerWorkspace) {
 
 function submittedResponses(data: BuyerWorkspace) {
   return data.responses.filter((item) => item.status === "submitted");
+}
+
+function isSelectableSupplierResponse(response: SupplierResponse) {
+  return (
+    response.decision === "can_help" &&
+    (response.indicativePrice?.amount ?? 0) > 0
+  );
 }
 
 function supplierFor(data: BuyerWorkspace, supplierId: string) {
@@ -2472,7 +3072,7 @@ function priorityButton(
   description: string
 ) {
   return `
-    <button class="priority-option ${priority === value ? "is-selected" : ""}" type="button" data-priority="${value}">
+    <button class="priority-option ${priority === value ? "is-selected" : ""}" type="button" data-priority="${value}" aria-pressed="${priority === value}">
       <span class="priority-radio" aria-hidden="true"></span>
       <strong>${escapeHtml(label)}</strong>
       <small>${escapeHtml(description)}</small>
@@ -2769,10 +3369,47 @@ function safeStorageRemove(key: string) {
   }
 }
 
+function safeSessionStorageGet(key: string) {
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSessionStorageSet(key: string, value: string) {
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // Session storage may be unavailable; the current in-memory reset still works.
+  }
+}
+
+function safeSessionStorageRemove(key: string) {
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch {
+    // Session storage may be unavailable in a hardened browser.
+  }
+}
+
 function errorText(error: unknown) {
   return error instanceof Error
     ? error.message
     : "Unexpected RapidMatch error.";
+}
+
+function renderCompanyIdentity(companyName: string, compact = false) {
+  const logo = companyLogoFor(companyName);
+  if (!logo) return escapeHtml(companyName);
+  return `
+    <span class="company-identity ${compact ? "is-compact" : ""}">
+      <span class="company-logo-shell" aria-hidden="true">
+        <img class="company-logo" src="${logo}" alt="" />
+      </span>
+      <span class="company-name-text">${escapeHtml(companyName)}</span>
+    </span>
+  `;
 }
 
 function escapeHtml(value: string) {

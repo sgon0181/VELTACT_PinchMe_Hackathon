@@ -11,7 +11,7 @@ export type CreateHostedPaymentLinkInput = {
 };
 
 export type HostedPaymentLink = {
-  provider: "pinch";
+  provider: "pinch" | "local_demo";
   payerId: string;
   paymentLinkId: string;
   hostedCheckoutUrl: string;

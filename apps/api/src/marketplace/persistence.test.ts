@@ -70,6 +70,21 @@ describe("marketplace persistence", () => {
       ],
       processedPinchEventIds: ["evt_123"],
       pinchWebhookEvidence: [],
+      localDemoPaymentEvidence: [
+        {
+          provider: "local_demo",
+          source: "local_demo",
+          authoritative: false,
+          eventId: "demo-payment:eng_123",
+          eventType: "local-demo-payment",
+          engagementId: "eng_123",
+          paymentId: "demo_local_demo_link_eng_123",
+          receivedAt: "2026-07-26T00:00:00.000Z",
+          payload: {
+            source: "local_demo"
+          }
+        }
+      ],
       auditEvents: [
         {
           id: "audit_123",
@@ -118,5 +133,6 @@ describe("marketplace persistence", () => {
     assert.deepEqual(loaded?.supplierLeads, []);
     assert.deepEqual(loaded?.supplierClaims, []);
     assert.deepEqual(loaded?.deployments, []);
+    assert.deepEqual(loaded?.localDemoPaymentEvidence, []);
   });
 });

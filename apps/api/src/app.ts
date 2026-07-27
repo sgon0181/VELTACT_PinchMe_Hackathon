@@ -57,11 +57,14 @@ app.get("/api/health", (_request, response) => {
     application: "veltact-api",
     status: "ok",
     environment: env.NODE_ENV,
+    paymentProvider: env.PAYMENT_PROVIDER,
     readiness: {
       persistence: Boolean(env.MARKETPLACE_DATA_FILE),
       v2Persistence: Boolean(env.VELTACT_V2_DATA_FILE),
       buyerCapabilityAuth: env.BUYER_CAPABILITY_AUTH_REQUIRED,
-      pinch: true,
+      pinch: env.PAYMENT_PROVIDER === "pinch",
+      localDemoPayment:
+        env.PAYMENT_PROVIDER === "local_demo" && env.NODE_ENV !== "production",
       openAi: Boolean(env.OPENAI_API_KEY),
       v2Research:
         env.VELTACT_RESEARCH_PROVIDER === "fixture" || Boolean(env.OPENAI_API_KEY),
