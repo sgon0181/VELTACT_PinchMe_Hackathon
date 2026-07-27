@@ -38,6 +38,36 @@ describe("marketplace persistence", () => {
       outreachDeliveries: [],
       responses: [],
       engagements: [],
+      deployments: [
+        {
+          engagementId: "eng_123",
+          title: "PLC recovery deployment",
+          status: "active",
+          progressPercentage: 0,
+          currentMilestoneId: "eng_123-m1-diagnosis",
+          milestones: [
+            {
+              id: "eng_123-m1-diagnosis",
+              engagementId: "eng_123",
+              sequence: 1,
+              title: "Diagnosis",
+              amount: {
+                amount: 1850000,
+                currency: "AUD"
+              },
+              status: "funded",
+              paymentStatus: "paid",
+              progressPercentage: 0,
+              latestUpdate:
+                "Diagnosis commitment is funded. Engineering work is not yet complete.",
+              updatedAt: "2026-07-26T00:00:00.000Z"
+            }
+          ],
+          latestUpdate:
+            "Diagnosis commitment is funded. Engineering work is not yet complete.",
+          updatedAt: "2026-07-26T00:00:00.000Z"
+        }
+      ],
       processedPinchEventIds: ["evt_123"],
       pinchWebhookEvidence: [],
       auditEvents: [
@@ -87,5 +117,6 @@ describe("marketplace persistence", () => {
     assert.deepEqual(loaded?.solutionDecisions, []);
     assert.deepEqual(loaded?.supplierLeads, []);
     assert.deepEqual(loaded?.supplierClaims, []);
+    assert.deepEqual(loaded?.deployments, []);
   });
 });

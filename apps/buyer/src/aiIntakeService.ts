@@ -1,34 +1,40 @@
-import type { AiIntakeResult } from "@veltact/contracts";
+import {
+  aiIntakeResultSchema,
+  rapidMatchApiRoute,
+  type AiIntakeEvidence,
+  type AiIntakeResult
+} from "@veltact/contracts";
 
 const runtimeWindow = window as Window & {
   API_BASE_URL?: string;
 };
 
-const API_BASE = runtimeWindow.API_BASE_URL ?? "http://localhost:4000/api";
+const API_BASE = runtimeWindow.API_BASE_URL ?? defaultApiBase();
 
 export type StructureRequirementInput = {
   rawRequirement: string;
   evidence?: IntakeEvidence[];
 };
 
-export type IntakeEvidence = {
-  kind: "written" | "pdf" | "photo";
-  name: string;
-  mimeType?: string;
-  extractedText?: string;
-  dataUrl?: string;
-};
+export type IntakeEvidence = AiIntakeEvidence;
+export type IntakeSourceMode = "live" | "fixture";
 
 export interface AiIntakeAdapter {
   structureRequirement(input: StructureRequirementInput): Promise<AiIntakeResult>;
+  sourceMode(): IntakeSourceMode;
 }
 
 export class BackendAiIntakeService implements AiIntakeAdapter {
   private readonly fallback = new DemoAiIntakeService();
+  private lastSourceMode: IntakeSourceMode = "fixture";
+
+  sourceMode() {
+    return this.lastSourceMode;
+  }
 
   async structureRequirement(input: StructureRequirementInput): Promise<AiIntakeResult> {
     try {
-      const response = await fetch(`${API_BASE}/ai-intake/structure`, {
+      const response = await fetch(canonicalApiUrl(rapidMatchApiRoute.structureRequirement), {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -39,19 +45,27 @@ export class BackendAiIntakeService implements AiIntakeAdapter {
         aiIntakeResult?: AiIntakeResult;
         result?: AiIntakeResult;
         message?: string;
+        source?: string;
       };
 
       if (!response.ok) {
         throw new Error(payload.message ?? "Unable to structure the requirement.");
       }
 
-      const result = payload.aiIntakeResult ?? payload.result;
-      if (!result) {
+      const parsedResult = aiIntakeResultSchema.safeParse(
+        payload.aiIntakeResult ?? payload.result
+      );
+      if (!parsedResult.success) {
         throw new Error("AI intake service returned an empty result.");
       }
-      return result;
+      this.lastSourceMode =
+        payload.source === "openai" || payload.source === "live"
+          ? "live"
+          : "fixture";
+      return parsedResult.data;
     } catch (error) {
       if (error instanceof TypeError) {
+        this.lastSourceMode = "fixture";
         return this.fallback.structureRequirement(input);
       }
       throw error;
@@ -60,6 +74,10 @@ export class BackendAiIntakeService implements AiIntakeAdapter {
 }
 
 export class DemoAiIntakeService implements AiIntakeAdapter {
+  sourceMode(): IntakeSourceMode {
+    return "fixture";
+  }
+
   async structureRequirement(input: StructureRequirementInput): Promise<AiIntakeResult> {
     // Local-only fallback for demo environments where the API server is not running.
     await delay(320);
@@ -80,7 +98,7 @@ export class DemoAiIntakeService implements AiIntakeAdapter {
     const budgetRange = detectBudget(rawRequirement);
     const constraints = detectConstraints(normalised, isUrgent, input.evidence ?? []);
 
-    return {
+    return aiIntakeResultSchema.parse({
       rawRequirement,
       generatedProfile: {
         title: titleFromRequirement(rawRequirement, equipmentOrTechnology),
@@ -105,8 +123,23 @@ export class DemoAiIntakeService implements AiIntakeAdapter {
         isUrgent,
         evidence: input.evidence ?? []
       })
-    };
+    });
   }
+}
+
+function canonicalApiUrl(route: string) {
+  const base = API_BASE.replace(/\/$/, "");
+  return base.endsWith("/api") ? `${base}${route.slice(4)}` : `${base}${route}`;
+}
+
+function defaultApiBase() {
+  if (
+    ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+    window.location.port !== "4000"
+  ) {
+    return "http://localhost:4000/api";
+  }
+  return `${window.location.origin}/api`;
 }
 
 function delay(ms: number) {

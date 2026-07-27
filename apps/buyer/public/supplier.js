@@ -99,9 +99,12 @@ async function loadOpportunity(invitationToken) {
     }
 
     const claim = payload.claim || payload.supplierClaim;
-    const identity = payload.supplierProfile || payload.supplierLead;
-    claimComplete = claim?.status === "claimed";
-    renderIdentity(identity, claim, invitation);
+    const profile = payload.supplierProfile || payload.supplierLead;
+    claimComplete = Boolean(
+      claim?.status === "claimed" ||
+        claim?.status === "supplier_profile_approved"
+    );
+    renderIdentity(profile, claim, invitation);
     form.hidden = false;
     setFormStatus(
       claimComplete

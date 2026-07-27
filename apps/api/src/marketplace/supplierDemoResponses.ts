@@ -70,7 +70,7 @@ const supplierDemoResponses: Record<
       response: {
         canHelp: true,
         earliestAvailability: "Next business day",
-        indicativePriceAud: 2850,
+        indicativePriceAud: 2900,
         relevantExperience:
           "Siemens PLC and conveyor controls support across Western Sydney, with packaging-line diagnostics and preventive fault reviews.",
         proposedApproach:

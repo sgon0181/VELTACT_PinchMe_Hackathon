@@ -26,7 +26,9 @@ Minimum fields:
 
 Rules:
 
-- Do not show `sent` unless a backend provider call or local demo adapter confirms it.
+- Show `sent` only after a configured external provider accepts the request.
+- Keep `local_demo` and missing provider configuration at `not_sent`, with a
+  clear explanation. Neither is a failed attempt.
 - Do not fake SMS or email delivery in the production path.
 - Secure supplier links remain the fallback if provider setup fails.
 - Outreach UI must preserve viewed/responded supplier states separately from delivery states.

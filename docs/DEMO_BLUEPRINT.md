@@ -203,7 +203,7 @@ Narration:
 
 Show:
 
-`Supplier secured` and `25% - Site assessment`
+`Supplier secured`, `Site assessment funded` and `0% engineering progress`
 
 Final line:
 

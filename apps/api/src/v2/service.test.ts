@@ -100,6 +100,20 @@ describe("VeltactV2Service", { concurrency: false }, () => {
     );
 
     await service.openSupplierClaim(invitation.token);
+    await assert.rejects(
+      () =>
+        service.submitSupplierResponse(invitation.token, {
+          decision: "can_help",
+          availability: "Within four hours",
+          indicativePrice: { amount: 650_000, currency: "AUD" },
+          proposedApproach: "Evidence review followed by controlled recovery.",
+          relevantExperience: "Comparable packaging line recovery work.",
+          assumptions: [],
+          conditions: []
+        }),
+      (error: unknown) =>
+        error instanceof V2ServiceError && error.statusCode === 409
+    );
     await service.submitSupplierProfile(invitation.token, {
       companyName: lead.companyName,
       website: lead.website,
@@ -115,32 +129,6 @@ describe("VeltactV2Service", { concurrency: false }, () => {
       profileSummary:
         "Supplier-approved demonstration profile for urgent industrial controls recovery."
     });
-
-    await assert.rejects(
-      () =>
-        service.submitSupplierResponse(invitation.token, {
-          decision: "can_help",
-          availability: "Within four hours",
-          indicativePrice: { amount: 650_000, currency: "AUD" },
-          proposedApproach: "Evidence review followed by controlled recovery.",
-          relevantExperience: "Comparable packaging line recovery work.",
-          assumptions: [],
-          conditions: []
-        }),
-      (error: unknown) =>
-        error instanceof V2ServiceError && error.statusCode === 409
-    );
-
-    await service.buyerApproveSupplierProfile(
-      created.need.id,
-      created.buyerAccessToken,
-      lead.id
-    );
-    await service.activateSupplier(
-      created.need.id,
-      created.buyerAccessToken,
-      lead.id
-    );
     const response = await service.submitSupplierResponse(invitation.token, {
       decision: "can_help",
       availability: "Within four hours",
@@ -159,6 +147,27 @@ describe("VeltactV2Service", { concurrency: false }, () => {
     );
     assert.equal(project.templateType, "urgent_plc_recovery");
     assert.equal(project.milestones[0].status, "awaiting_payment");
+    assert.equal(
+      repository
+        .snapshot()
+        .supplierLeads.find((candidate) => candidate.id === lead.id)
+        ?.lifecycleStatus,
+      "active_supplier"
+    );
+    assert.ok(
+      repository
+        .snapshot()
+        .supplierProfiles.find(
+          (candidate) => candidate.supplierLeadId === lead.id
+        )?.buyerApprovedAt
+    );
+
+    const repeatedApproval = await service.approveSupplierLeads(
+      created.need.id,
+      created.buyerAccessToken,
+      [lead.id]
+    );
+    assert.equal(repeatedApproval[0]?.lifecycleStatus, "active_supplier");
 
     const payment = await service.recordDemoMilestonePayment(
       project.id,

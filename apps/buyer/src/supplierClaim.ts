@@ -92,7 +92,17 @@ function render() {
       ${renderOpportunity()}
       ${renderLifecycle()}
       ${!supplierProfile ? renderProfileForm() : renderApprovedProfile(supplierProfile)}
-      ${supplierProfile && lead.lifecycleStatus === "active_supplier" && !supplierResponse ? renderResponseForm() : ""}
+      ${
+        supplierProfile &&
+        [
+          "supplier_profile_approved",
+          "buyer_approved",
+          "active_supplier"
+        ].includes(lead.lifecycleStatus) &&
+        !supplierResponse
+          ? renderResponseForm()
+          : ""
+      }
       ${supplierResponse ? renderReceipt(supplierResponse) : ""}
     </div>
     <p class="footer-note">Secure capability link / No general Veltact account created / Independent verification not implied</p>
@@ -161,14 +171,14 @@ function renderLifecycle() {
       ].includes(status)
     },
     {
-      title: "Buyer activates supplier",
-      detail: "The buyer reviews your confirmed profile before RapidMatch activation.",
-      complete: status === "active_supplier"
-    },
-    {
       title: "Commercial response",
       detail: "Submit comparable availability, price, approach and experience.",
       complete: Boolean(claimState.supplierResponse)
+    },
+    {
+      title: "Buyer selects supplier",
+      detail: "Selection activates the supplier and creates the deployment record.",
+      complete: status === "active_supplier"
     }
   ];
   return `
@@ -222,7 +232,7 @@ function renderProfileForm() {
 
 function renderApprovedProfile(profile: SupplierProfile) {
   if (!claimState) return "";
-  const waiting = claimState.lead.lifecycleStatus !== "active_supplier";
+  const active = claimState.lead.lifecycleStatus === "active_supplier";
   return `
     <section class="panel">
       <div class="panel-header">
@@ -230,9 +240,11 @@ function renderApprovedProfile(profile: SupplierProfile) {
         <span class="status-badge ${claimState.lead.lifecycleStatus}">${formatStatus(claimState.lead.lifecycleStatus)}</span>
       </div>
       <div class="chip-row">${profile.capabilities.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>
-      ${waiting
-        ? `<div class="banner warning" style="margin-top: 16px">Your profile has returned to the separate buyer workspace for review. Keep this invitation open; status refreshes automatically.</div>`
-        : `<div class="banner success" style="margin-top: 16px">The buyer activated this supplier for the requirement. Submit the standard commercial response below and it will return to the buyer workspace.</div>`}
+      ${
+        active
+          ? `<div class="banner success" style="margin-top: 16px">The buyer selected and activated this supplier for the requirement.</div>`
+          : `<div class="banner success" style="margin-top: 16px">Profile confirmed. Submit the commercial response below; buyer selection activates the supplier.</div>`
+      }
       <button class="button secondary small" data-action="refresh" type="button" style="margin-top: 12px">Refresh status</button>
     </section>
   `;
@@ -357,7 +369,7 @@ async function submitProfile(form: HTMLFormElement) {
     });
     await loadClaim(false);
     successText =
-      "Profile claimed and supplier-approved. The buyer can now review it in the Veltact workspace.";
+      "Profile confirmed. Submit the commercial response below.";
   });
 }
 

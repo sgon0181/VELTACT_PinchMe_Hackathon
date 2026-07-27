@@ -68,4 +68,12 @@ describe("deterministic supplier response fixtures", () => {
       "plc"
     );
   });
+
+  test("keeps every fixture price valid for the supplier form", () => {
+    for (const scenario of ["plc", "robotics"] as const) {
+      for (const entry of getSupplierDemoResponses(scenario)) {
+        assert.equal(entry.response.indicativePriceAud % 100, 0);
+      }
+    }
+  });
 });

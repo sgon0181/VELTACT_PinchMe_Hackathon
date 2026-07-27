@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { env } from "./env.js";
 import { aiIntakeRouter } from "./aiIntake/aiIntakeRoutes.js";
+import { marketplaceDeploymentIntegration } from "./deployment/marketplaceIntegration.js";
 import { marketplaceRouter } from "./marketplace/marketplaceRoutes.js";
 import { pinchRouter } from "./pinch/pinchRoutes.js";
 import { createRateLimiter } from "./rateLimit.js";
@@ -95,6 +96,7 @@ app.get("/api/health", (_request, response) => {
 app.use("/api/pinch", pinchRouter);
 app.use("/api/ai-intake", aiIntakeRouter);
 app.use("/api/v2", v2Router);
+app.use("/api", marketplaceDeploymentIntegration.router);
 app.use("/api", marketplaceRouter);
 
 app.get("/", (_request, response) => {

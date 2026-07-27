@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 describe("supplier outreach provider adapters", { concurrency: false }, () => {
-  test("confirms local demo email only outside production", async () => {
+  test("keeps local demo email explicitly unsent outside production", async () => {
     Object.assign(env, {
       NODE_ENV: "test",
       EMAIL_PROVIDER: "local_demo"
@@ -41,10 +41,12 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
     assert.deepEqual(
       await sendSupplierOpportunity(emailDelivery(), invitation(), need()),
       {
-        ok: true,
-        outcome: "sent",
-        attempted: true,
-        provider: "local_demo"
+        ok: false,
+        outcome: "local_demo",
+        attempted: false,
+        provider: "local_demo",
+        errorMessage:
+          "Local demo only: secure invitation generated; no external email was sent."
       }
     );
 

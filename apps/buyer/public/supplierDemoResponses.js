@@ -26,7 +26,7 @@ const presets = {
       label: "PLC / lower price (Fixture)",
       canHelp: true,
       earliestAvailability: today,
-      indicativePriceAud: 2850,
+      indicativePriceAud: 2900,
       relevantExperience:
         "Our automation team supports Siemens PLC and conveyor controls across Western Sydney, with recent packaging-line diagnostics and preventive fault reviews.",
       proposedApproach:

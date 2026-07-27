@@ -20,7 +20,9 @@ Development without external delivery:
 EMAIL_PROVIDER=local_demo
 ```
 
-`local_demo` records `sent` only in development or test. It logs the accepted message locally and does not send an external email. It fails in production.
+`local_demo` prepares the secure invitation in development or test but keeps
+delivery at `not_sent` with a visible `Local demo only` explanation. It does
+not call an external email provider and is unavailable in production.
 
 Resend:
 
@@ -79,10 +81,12 @@ The shared outreach contract currently permits only `channel: email | sms`. Unti
 
 ## Truthful Statuses
 
-- `not_sent`: destination exists but no delivery attempt has started.
-- `queued`: the backend is making the provider/local adapter request.
-- `sent`: the configured provider accepted the request, or `local_demo` confirmed it outside production.
-- `failed`: configuration, provider rejection, timeout, or network failure prevented provider acceptance.
+- `not_sent`: no external attempt occurred. This includes `local_demo` and an
+  unconfigured provider, with the reason shown separately.
+- `queued`: the backend is making an external provider request.
+- `sent`: the configured external provider accepted the request.
+- `failed`: an attempted external provider request was rejected, timed out or
+  failed on the network.
 
 Provider secrets belong in `apps/api/.env` or the deployment secret store and must not be committed. Never embed them in browser code.
 

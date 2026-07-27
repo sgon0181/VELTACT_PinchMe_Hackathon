@@ -1,14 +1,9 @@
 import type {
-  Engagement,
-  NeedProfile,
-  Supplier,
-  SupplierInvitation,
-  SupplierMatch,
-  SupplierOutreachDelivery,
-  SupplierResponse
+  BuyerPriority,
+  RapidMatchBuyerWorkspace
 } from "@veltact/contracts";
 
-export type PrioritySignal = "speed" | "technical_fit" | "quality" | "trust" | "price";
+export type PrioritySignal = BuyerPriority;
 
 export type BuyerRequirementInput = {
   companyName: string;
@@ -26,19 +21,4 @@ export type BuyerRequirementInput = {
   constraints: string[];
 };
 
-export type SupplierMatchView = SupplierMatch & {
-  supplier: Supplier;
-  weightedScore: number;
-  priorityReason: string;
-};
-
-export type BuyerWorkspace = {
-  needProfile: NeedProfile;
-  suppliers: Supplier[];
-  matches: SupplierMatchView[];
-  invitations: SupplierInvitation[];
-  outreachDeliveries: SupplierOutreachDelivery[];
-  responses: SupplierResponse[];
-  engagement?: Engagement;
-  hostedCheckoutUrl?: string;
-};
+export type BuyerWorkspace = RapidMatchBuyerWorkspace;

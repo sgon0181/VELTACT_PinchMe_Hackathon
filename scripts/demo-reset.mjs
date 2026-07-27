@@ -5,7 +5,7 @@ const baseUrl = (process.env.VELTACT_BASE_URL ?? "http://localhost:4000").replac
 const scenario = process.argv.includes("--robotics") ? "robotics" : "plc";
 
 try {
-  const response = await fetch(`${baseUrl}/api/v2/demo/reset`, {
+  const response = await fetch(`${baseUrl}/api/demo/reset`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -20,12 +20,16 @@ try {
     throw new Error(payload.message ?? `Reset failed (${response.status})`);
   }
 
-  console.log("Veltact 2.0 demo reset complete");
+  console.log("Veltact canonical demo reset complete");
   console.log(`Scenario: ${payload.scenario}`);
   console.log(`Buyer: ${payload.buyerUrl}`);
-  console.log(`Supplier claim: ${payload.supplierClaimUrl}`);
+  for (const [index, supplier] of (payload.supplierPaths ?? []).entries()) {
+    console.log(
+      `Supplier ${index + 1} (${supplier.supplierName}): ${supplier.responseUrl}`
+    );
+  }
   console.log(
-    "The buyer URL contains a demo capability token. Do not publish it outside the controlled demo."
+    "The buyer and supplier URLs contain scoped capability tokens. Do not publish them outside the controlled demo."
   );
 } catch (error) {
   console.error(
