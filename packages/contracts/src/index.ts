@@ -137,6 +137,7 @@ export type NeedProfile = z.infer<typeof needProfileSchema>;
 export const supplierSchema = z.object({
   id: z.string().min(1),
   companyName: z.string().trim().min(1),
+  logoUrl: z.string().url().optional(),
   contactName: z.string().trim().min(1).optional(),
   contactEmail: z.string().trim().email(),
   categories: z.array(z.string().trim().min(1)).default([]),
@@ -209,6 +210,27 @@ export const supplierOutreachDeliverySchema = z.object({
 });
 export type SupplierOutreachDelivery = z.infer<typeof supplierOutreachDeliverySchema>;
 
+export const sendSupplierInvitationsRequestSchema = z.object({
+  supplierLeadIds: z
+    .array(z.string().trim().min(1))
+    .min(1)
+    .max(10)
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: "supplierLeadIds must be unique"
+    })
+    .optional(),
+  deliveryChannels: z
+    .array(outreachChannelSchema)
+    .max(2)
+    .refine((channels) => new Set(channels).size === channels.length, {
+      message: "deliveryChannels must be unique"
+    })
+    .optional()
+});
+export type SendSupplierInvitationsRequest = z.infer<
+  typeof sendSupplierInvitationsRequestSchema
+>;
+
 export const supplierResponseSchema = z.object({
   id: z.string().min(1),
   needProfileId: z.string().min(1),
@@ -252,6 +274,23 @@ export const engagementSchema = z.object({
   updatedAt: isoDateTimeSchema
 });
 export type Engagement = z.infer<typeof engagementSchema>;
+
+export const supplierCommitmentNotificationSchema = z.object({
+  id: z.string().min(1),
+  engagementId: z.string().min(1),
+  supplierId: z.string().min(1),
+  notificationType: z.literal("commitment_confirmed"),
+  channel: z.literal("email"),
+  destination: z.string().trim().email(),
+  deliveryStatus: outreachDeliveryStatusSchema,
+  sentAt: isoDateTimeSchema.optional(),
+  errorMessage: z.string().trim().min(1).optional(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema
+});
+export type SupplierCommitmentNotification = z.infer<
+  typeof supplierCommitmentNotificationSchema
+>;
 
 export const aiIntakeProfileSchema = z.object({
   title: z.string().trim().min(1),
@@ -301,6 +340,8 @@ export const rapidMatchSocketEvent = {
   supplierSelected: "rapidmatch:supplier.selected",
   paymentStatusUpdated: "rapidmatch:payment.status_updated",
   engagementSecured: "rapidmatch:engagement.secured",
+  commitmentNotificationUpdated:
+    "rapidmatch:commitment.notification_updated",
   deploymentUpdated: "rapidmatch:deployment.updated"
 } as const;
 
@@ -403,6 +444,7 @@ export const supplierLeadSchema = z.object({
   needProfileId: z.string().min(1),
   companyName: z.string().trim().min(1),
   website: z.string().url(),
+  logoUrl: z.string().url().optional(),
   contactName: z.string().trim().min(1).optional(),
   contactEmail: z.string().trim().email().optional(),
   contactPhone: z.string().trim().min(1).optional(),
@@ -794,6 +836,8 @@ export type RapidMatchJourneyStatus = z.infer<
 export const rapidMatchNextActionSchema = z.enum([
   "analyse_requirement",
   "confirm_need_profile",
+  "download_report",
+  "find_suppliers",
   "use_plan_internally",
   "find_specialist",
   "approve_outreach",
@@ -865,6 +909,7 @@ export const rapidMatchBuyerWorkspaceSchema = z.object({
   outreachDeliveries: z.array(supplierOutreachDeliverySchema).default([]),
   responses: z.array(supplierResponseSchema).default([]),
   engagement: engagementSchema.optional(),
+  commitmentNotification: supplierCommitmentNotificationSchema.optional(),
   deployment: deploymentSummarySchema.optional()
 });
 export type RapidMatchBuyerWorkspace = z.infer<
@@ -877,18 +922,23 @@ export const rapidMatchApiRoute = {
   needWorkspace: "/api/need-profiles/:needProfileId",
   research: "/api/need-profiles/:needProfileId/research",
   solutionDecision: "/api/need-profiles/:needProfileId/solution-decision",
+  needReportPdf: "/api/need-profiles/:needProfileId/report.pdf",
   discoverSuppliers: "/api/need-profiles/:needProfileId/suppliers/discover",
   sendInvitations: "/api/need-profiles/:needProfileId/invitations/send",
   responses: "/api/need-profiles/:needProfileId/responses",
   createEngagement: "/api/need-profiles/:needProfileId/engagements",
   engagement: "/api/engagements/:engagementId",
   paymentLink: "/api/engagements/:engagementId/payment-link",
+  commitmentNotification:
+    "/api/engagements/:engagementId/commitment-notification",
   deployment: "/api/engagements/:engagementId/deployment",
   deploymentMilestone:
     "/api/engagements/:engagementId/deployment/milestones/:milestoneId",
   supplierInvitation: "/api/supplier-invitations/:token",
   supplierClaim: "/api/supplier-invitations/:token/claim",
   supplierResponse: "/api/supplier-invitations/:token/responses",
+  supplierRfqPdf: "/api/supplier-invitations/:token/rfq.pdf",
+  supplierQuotePdf: "/api/supplier-invitations/:token/quote.pdf",
   demoReset: "/api/demo/reset"
 } as const;
 

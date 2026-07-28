@@ -26,7 +26,7 @@ The buyer provides a written requirement with optional report and photo
 evidence. Veltact structures the need, researches cited solution pathways and
 shows when specialist integration is required.
 
-The buyer chooses `Find a specialist`. RapidMatch identifies relevant robotics
+The buyer chooses `Find suppliers`. RapidMatch identifies relevant robotics
 integrators, sends approved invitations, receives two contrasting responses and
 supports a clear selection. The buyer funds a site-assessment commitment through
 Pinch and sees the supplier become secured.
@@ -45,6 +45,17 @@ Both controls must populate the same canonical RapidMatch buyer workspace.
 They must not launch different products.
 
 ## Canonical Screens
+
+### 0. Public Entry
+
+Show a short metallic-red loading treatment, then a simple landing page with a
+sticky header:
+
+- `Sign in`
+- `Create account`
+- `Try demo`
+
+The demo remains accessible without an account.
 
 ### 1. Find - Describe The Need
 
@@ -67,8 +78,7 @@ not the primary action.
 Show:
 
 - Structured Need Profile.
-- One recommended solution pathway.
-- Up to two alternative pathways.
+- Exactly three selectable solution pathways.
 - Cited evidence.
 - Missing information.
 - Safe factory preparation.
@@ -76,10 +86,11 @@ Show:
 
 Primary outcomes:
 
-- `Use this plan internally`
-- `Find a specialist`
+- `Download report`
+- `Find suppliers`
 
-Research must not claim a conclusive machinery diagnosis.
+The selected pathway is visibly reflected in the white report. Research must
+not claim a conclusive machinery diagnosis.
 
 ### 3. Connect - RapidMatch
 
@@ -87,7 +98,8 @@ Show:
 
 - Three explainable supplier candidates.
 - Public-evidence provenance and risk labels.
-- One buyer approval action.
+- Buyer selection for one or more candidates.
+- Distinct `Send email`, `Send SMS` and `Copy link` actions.
 - Email and SMS delivery state.
 - Private supplier invitation links in development only.
 
@@ -108,9 +120,11 @@ The supplier opens one token-scoped link and sees:
 - Relevant experience.
 - Proposed approach.
 - Assumptions and conditions.
+- Downloadable RFQ.
 
 The supplier confirms profile information and submits the quote from one concise
-screen. No general Veltact account is created.
+screen. The submitted quote summary is downloadable. No general Veltact account
+is created.
 
 ### 5. Connect - Compare And Select
 
@@ -140,13 +154,24 @@ Show:
 - Real Pinch hosted checkout.
 - Payment evidence status.
 - `Supplier secured` only after authoritative backend evidence.
+- Commitment-confirmed supplier email.
 - Simple milestone progress.
 
 Do not show the full V2 project-management surface in the core demo.
+Do not claim that the supplier has been paid.
 
 ## Locked 60-Second Story
 
-### 0-8 seconds - Industrial problem
+### 0-6 seconds - Product entry
+
+Show the short loading treatment and select `Try demo`.
+
+Narration:
+
+> Veltact takes an industrial problem from evidence to an actionable,
+> commercially committed response.
+
+### 6-17 seconds - Industrial problem
 
 Select `Demo: Robotic integration` and show the requirement plus PDF/photo
 evidence.
@@ -156,7 +181,7 @@ Narration:
 > Industrial teams often know the outcome they need but not the safest,
 > best-supported path to deliver it.
 
-### 8-20 seconds - Find
+### 17-29 seconds - Find
 
 Run `Analyse requirement`. Show the Need Profile and cited solution pathways.
 
@@ -165,19 +190,18 @@ Narration:
 > Veltact structures the evidence and returns current, cited solution pathways,
 > including what the factory can prepare and when specialist help is required.
 
-Choose `Find a specialist`.
+Select one pathway and choose `Find suppliers`.
 
-### 20-36 seconds - Connect
+### 29-41 seconds - Connect
 
-Show three explainable matches and send approved invitations.
-Show email and SMS states.
+Select three explainable matches and send approved email/SMS invitations.
 
 Narration:
 
 > RapidMatch turns the chosen scope into one standard request and contacts the
 > most relevant suppliers in parallel.
 
-### 36-46 seconds - Supplier response
+### 41-49 seconds - Supplier response
 
 Submit one response through the private supplier link. A second labelled demo
 response is already available.
@@ -186,24 +210,25 @@ Narration:
 
 > Suppliers return comparable commercial intent, not search results.
 
-### 46-53 seconds - Compare
+### 49-54 seconds - Compare
 
 Compare availability, price, fit and approach. Select the preferred supplier.
 
-### 53-59 seconds - Deploy
+### 54-59 seconds - Commit
 
 Open the real Pinch hosted checkout for the site-assessment commitment.
 Return to backend-verified payment evidence.
 
 Narration:
 
-> Pinch turns the selected response into a commercial commitment.
+> Pinch turns the selected response into a commitment for the site assessment.
 
 ### 59-60 seconds - Outcome
 
-Show:
+Show the supplier secured and the first project milestone:
 
-`Supplier secured`, `Site assessment funded` and `0% engineering progress`
+`Supplier secured`, `Site Assessment / Scoping Visit` and
+`0% engineering progress`
 
 Final line:
 
@@ -227,15 +252,17 @@ Final line:
 - One RapidMatch-based buyer workspace.
 - Text, PDF and photo intake.
 - Need Profile.
-- Cited solution pathways.
-- Internal-plan or specialist decision.
+- Three cited, selectable solution pathways.
+- Downloadable report or specialist decision.
 - Explainable supplier matching.
-- Buyer-approved outreach.
+- Selectable suppliers and buyer-controlled email/SMS/link outreach.
 - Private supplier response.
+- Downloadable RFQ and quote summary.
 - Two comparable responses.
 - Selection.
 - Real Pinch authentication, payer and hosted Payment Link.
 - Backend-verified secured state.
+- Commitment-confirmed supplier notification.
 - Repeatable PLC and robotics scenarios.
 - No exposed credentials.
 
@@ -255,7 +282,7 @@ Final line:
 
 - Additional evidence formats.
 - More live supplier-discovery providers.
-- Production account system.
+- Account administration beyond minimal staging access.
 - Additional deployment collaboration.
 - Automated voice escalation.
 

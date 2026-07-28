@@ -1,0 +1,71 @@
+services:
+  - type: web
+    name: veltact-staging
+    runtime: node
+    plan: starter
+    region: singapore
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    disk:
+      name: veltact-staging-data
+      mountPath: /var/data/veltact
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: WEB_ORIGIN
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: API_PUBLIC_URL
+        sync: false
+      - key: MARKETPLACE_DATA_FILE
+        value: /var/data/veltact/marketplace.json
+      - key: VELTACT_V2_DATA_FILE
+        value: /var/data/veltact/veltact-v2.json
+      - key: BUYER_CAPABILITY_AUTH_REQUIRED
+        value: "true"
+      - key: PAYMENT_PROVIDER
+        value: pinch
+      - key: PINCH_CLIENT_ID
+        sync: false
+      - key: PINCH_SECRET_KEY
+        sync: false
+      - key: PINCH_AUTH_URL
+        sync: false
+      - key: PINCH_API_BASE_URL
+        sync: false
+      - key: PINCH_API_VERSION
+        value: "2020.1"
+      - key: PINCH_RETURN_URL
+        sync: false
+      - key: PINCH_WEBHOOK_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.6
+      - key: VELTACT_RESEARCH_PROVIDER
+        value: auto
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: EMAIL_FROM
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: SUPPLIER_OUTREACH_EMAIL_TO
+        sync: false
+      - key: SMS_PROVIDER
+        value: twilio
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: SUPPLIER_OUTREACH_SMS_TO
+        sync: false
