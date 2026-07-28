@@ -36,6 +36,7 @@ const envSchema = z.object({
   API_PUBLIC_URL: z.string().url().optional(),
   MARKETPLACE_DATA_FILE: optionalProviderString,
   VELTACT_V2_DATA_FILE: optionalProviderString,
+  ACCOUNT_DATA_FILE: optionalProviderString,
   SUPPLIER_CATALOG_FILE: optionalProviderString,
   BUYER_CAPABILITY_AUTH_REQUIRED: optionalBoolean,
   API_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
@@ -113,6 +114,12 @@ export const env = {
         ? undefined
         : path.join(apiRoot, ".data", "veltact-v2.json")
       : resolveApiPath(parsedEnv.VELTACT_V2_DATA_FILE),
+  ACCOUNT_DATA_FILE:
+    parsedEnv.ACCOUNT_DATA_FILE === undefined
+      ? parsedEnv.NODE_ENV === "test"
+        ? undefined
+        : path.join(apiRoot, ".data", "accounts.json")
+      : resolveApiPath(parsedEnv.ACCOUNT_DATA_FILE),
   BUYER_CAPABILITY_AUTH_REQUIRED:
     parsedEnv.BUYER_CAPABILITY_AUTH_REQUIRED ?? (parsedEnv.NODE_ENV === "production"),
   API_PUBLIC_URL: parsedEnv.API_PUBLIC_URL ?? `http://localhost:${parsedEnv.PORT}`,

@@ -1,10 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { Router } from "express";
 import { z, ZodError } from "zod";
-import {
-  AccountRepository,
-  defaultAccountDataFile
-} from "./accountRepository.js";
+import { AccountRepository } from "./accountRepository.js";
 import {
   AccountService,
   DuplicateAccountError,
@@ -128,11 +125,17 @@ export function createAccountRouter({
   return router;
 }
 
-export function createDefaultAccountRouter() {
-  const repository = new AccountRepository(defaultAccountDataFile());
+export function createDefaultAccountRouter({
+  dataFile,
+  secureCookies = false
+}: {
+  dataFile?: string;
+  secureCookies?: boolean;
+}) {
+  const repository = new AccountRepository(dataFile);
   return createAccountRouter({
     service: new AccountService(repository),
-    secureCookies: process.env.NODE_ENV === "production"
+    secureCookies
   });
 }
 
