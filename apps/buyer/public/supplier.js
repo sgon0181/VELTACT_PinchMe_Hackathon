@@ -1,5 +1,9 @@
 import { demoControlsEnabled } from "./assets/apiBase.js";
 import { companyLogoFor } from "./assets/companyLogos.js";
+import {
+  supplierClaimComplete,
+  supplierDocumentUrl
+} from "./supplierFlow.js";
 
 const isFrontendDevServer =
   ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
@@ -21,6 +25,8 @@ const demoSelect = document.querySelector("#demo-response-select");
 const demoFillButton = document.querySelector("#demo-fill-button");
 const helpFields = document.querySelector("#help-response-fields");
 const declineReasonField = document.querySelector("#decline-reason-field");
+const rfqDownload = document.querySelector("#download-rfq");
+const quoteDownload = document.querySelector("#download-quote");
 let claimComplete = false;
 let demoResponses = [];
 let demoResponsesForRequirement;
@@ -67,6 +73,7 @@ async function loadOpportunity(invitationToken) {
     }
 
     renderOpportunity(payload, need, invitation);
+    configureDocumentLinks(invitationToken);
     const existingResponse = payload.response || payload.supplierResponse;
     if (existingResponse) {
       showSubmittedReceipt(existingResponse, true);
@@ -105,10 +112,7 @@ async function loadOpportunity(invitationToken) {
 
     const claim = payload.claim || payload.supplierClaim;
     const profile = payload.supplierProfile || payload.supplierLead;
-    claimComplete = Boolean(
-      claim?.status === "claimed" ||
-        claim?.status === "supplier_profile_approved"
-    );
+    claimComplete = supplierClaimComplete(claim);
     renderIdentity(profile, claim, invitation);
     form.hidden = false;
     setFormStatus(
@@ -190,6 +194,20 @@ function renderOpportunity(payload, need, invitation) {
 
   demoRequirementText = requirementText;
   populateDemoResponses();
+}
+
+function configureDocumentLinks(invitationToken) {
+  rfqDownload.href = supplierDocumentUrl(
+    API_BASE,
+    invitationToken,
+    "rfq"
+  );
+  rfqDownload.hidden = false;
+  quoteDownload.href = supplierDocumentUrl(
+    API_BASE,
+    invitationToken,
+    "quote"
+  );
 }
 
 async function configureDemoControls() {
@@ -526,6 +544,7 @@ function showSubmittedReceipt(supplierResponse, alreadySubmitted) {
       : ""
   );
   receipt.hidden = false;
+  quoteDownload.hidden = false;
   setFormStatus("");
 }
 

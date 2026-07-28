@@ -11,7 +11,7 @@
       href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./supplier.css?v=unified-1" />
+    <link rel="stylesheet" href="./supplier.css?v=staging-a3-1" />
     <link rel="stylesheet" href="./alloy.css?v=alloy-1" />
   </head>
   <body data-theme="supplier">
@@ -81,6 +81,15 @@
             <h2>Source disclosure</h2>
             <p id="source-disclosure"></p>
           </div>
+        </div>
+        <div class="document-actions">
+          <div>
+            <strong>Request for quote</strong>
+            <span>Keep a PDF copy of the requirement and response fields.</span>
+          </div>
+          <a id="download-rfq" class="document-button" href="#" download hidden>
+            Download RFQ PDF
+          </a>
         </div>
       </section>
 
@@ -278,9 +287,20 @@
             <dd id="receipt-submitted">-</dd>
           </div>
         </dl>
-        <p id="receipt-reference" class="receipt-reference"></p>
+        <div class="receipt-footer">
+          <p id="receipt-reference" class="receipt-reference"></p>
+          <a
+            id="download-quote"
+            class="document-button"
+            href="#"
+            download
+            hidden
+          >
+            Download quote summary
+          </a>
+        </div>
       </section>
     </main>
-    <script src="./supplier.js?v=logos-1" type="module"></script>
+    <script src="./supplier.js?v=staging-a3-1" type="module"></script>
   </body>
 </html>
