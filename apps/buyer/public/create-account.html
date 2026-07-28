@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="same-origin" />
+    <title>Create account | Veltact</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./account.css?v=account-1" />
+  </head>
+  <body class="account-page" data-account-page="create">
+    <div class="account-shell">
+      <header class="account-header">
+        <a class="account-wordmark" href="./landing.html" aria-label="Veltact home">
+          <span class="account-wordmark-mark" aria-hidden="true"></span>
+          <span>Veltact</span>
+        </a>
+        <nav class="account-nav" aria-label="Account navigation">
+          <a href="./signin.html">Sign in</a>
+          <a href="./create-account.html" aria-current="page">Create account</a>
+          <a class="try-demo" href="./index.html">Try demo</a>
+        </nav>
+      </header>
+
+      <main class="account-main">
+        <section class="account-context" aria-labelledby="account-context-title">
+          <span class="account-eyebrow">Staging account</span>
+          <h1 id="account-context-title">Create a secure account entry.</h1>
+          <p>
+            Register an email and password for this staging environment. Account
+            access remains separate from buyer requirement capabilities and
+            supplier invitation tokens.
+          </p>
+          <p class="account-boundary">
+            Email verification, password recovery and organisation
+            administration are not included in this minimal account release.
+          </p>
+        </section>
+
+        <section class="account-access" aria-live="polite">
+          <div id="account-form-panel" class="account-form-panel">
+            <span class="account-label">Account registration</span>
+            <h2>Create account</h2>
+            <p class="account-intro">
+              This creates a staging login without restricting access to Try demo.
+            </p>
+            <form id="account-form" class="account-form">
+              <label class="account-field">
+                Email
+                <input
+                  name="email"
+                  type="email"
+                  autocomplete="email"
+                  inputmode="email"
+                  required
+                />
+              </label>
+              <label class="account-field">
+                Password
+                <input
+                  name="password"
+                  type="password"
+                  autocomplete="new-password"
+                  minlength="12"
+                  maxlength="128"
+                  data-password-field="true"
+                  required
+                />
+              </label>
+              <p class="password-rule">Use at least 12 characters.</p>
+              <label class="account-field">
+                Confirm password
+                <input
+                  name="confirmPassword"
+                  type="password"
+                  autocomplete="new-password"
+                  minlength="12"
+                  maxlength="128"
+                  data-password-field="true"
+                  required
+                />
+              </label>
+              <label class="password-visibility">
+                <input id="show-passwords" type="checkbox" />
+                Show passwords
+              </label>
+              <button class="account-primary" type="submit">Create account</button>
+            </form>
+            <p class="account-switch">
+              Already registered? <a href="./signin.html">Sign in</a>
+            </p>
+          </div>
+
+          <div id="account-session" class="account-session" hidden>
+            <span class="account-label">Account ready</span>
+            <h2>Account created</h2>
+            <p>
+              You are signed in as
+              <strong id="session-email" class="session-email"></strong>.
+            </p>
+            <div class="session-actions">
+              <a class="account-primary" href="./index.html">Continue to buyer workspace</a>
+              <button id="sign-out-button" class="account-secondary" type="button">Sign out</button>
+            </div>
+          </div>
+          <p id="account-status" class="account-status" role="status"></p>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="./assets/accountAccess.js?v=account-1"></script>
+  </body>
+</html>

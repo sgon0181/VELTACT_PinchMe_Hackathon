@@ -4,6 +4,7 @@ import type { Request } from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { env } from "./env.js";
+import { createDefaultAccountRouter } from "./accounts/accountRoutes.js";
 import { aiIntakeRouter } from "./aiIntake/aiIntakeRoutes.js";
 import { marketplaceDeploymentIntegration } from "./deployment/marketplaceIntegration.js";
 import { marketplaceRouter } from "./marketplace/marketplaceRoutes.js";
@@ -50,6 +51,15 @@ app.use(
       (request as Request).rawBody = buffer;
     }
   })
+);
+app.use(
+  "/api/accounts",
+  createRateLimiter({
+    limit: 10,
+    windowMs: 15 * 60_000,
+    scope: "accounts"
+  }),
+  createDefaultAccountRouter()
 );
 
 app.get("/api/health", (_request, response) => {
