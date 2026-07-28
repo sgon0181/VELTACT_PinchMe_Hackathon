@@ -126,13 +126,16 @@ export class RapidMatchService {
             };
         }
     }
-    async recordSolutionDecision(workspace, decision) {
+    async recordSolutionDecision(workspace, decision, selectedApproachId) {
         const needProfile = requiredNeedProfile(workspace);
         const research = workspace.researchResult;
         if (!research) {
             throw new Error("Analyse the requirement before choosing an outcome.");
         }
-        const selectedApproachIds = [recommendedApproach(research).id];
+        if (!research.approaches.some((approach) => approach.id === selectedApproachId)) {
+            throw new Error("Select one pathway from the current research result.");
+        }
+        const selectedApproachIds = [selectedApproachId];
         try {
             const payload = await requestJson(routeFor(rapidMatchApiRoute.solutionDecision, {
                 needProfileId: needProfile.id
@@ -156,8 +159,23 @@ export class RapidMatchService {
         catch (error) {
             if (!isUnavailableRoute(error))
                 throw error;
-            return decisionWorkspace(workspace, fixtureDecision(workspace, decision));
+            return decisionWorkspace(workspace, fixtureDecision(workspace, decision, selectedApproachId));
         }
+    }
+    async downloadNeedReport(workspace) {
+        const needProfile = requiredNeedProfile(workspace);
+        const response = await requestFile(routeFor(rapidMatchApiRoute.needReportPdf, {
+            needProfileId: needProfile.id
+        }), this.buyerAccessTokens.get(needProfile.id));
+        const contentType = response.headers.get("content-type")?.toLowerCase();
+        if (!contentType?.includes("application/pdf")) {
+            throw new Error("The report API did not return a PDF.");
+        }
+        return {
+            blob: await response.blob(),
+            fileName: fileNameFromDisposition(response.headers.get("content-disposition")) ??
+                `veltact-need-profile-${needProfile.id}.pdf`
+        };
     }
     async discoverSuppliers(workspace) {
         const needProfile = requiredNeedProfile(workspace);
@@ -197,13 +215,17 @@ export class RapidMatchService {
             };
         }
     }
-    async sendSupplierOutreach(workspace) {
+    async sendSupplierOutreach(workspace, supplierLeadIds, deliveryChannels) {
         const needProfile = requiredNeedProfile(workspace);
+        const body = {
+            supplierLeadIds,
+            deliveryChannels
+        };
         await requestJson(routeFor(rapidMatchApiRoute.sendInvitations, {
             needProfileId: needProfile.id
         }), {
             method: "POST",
-            body: {},
+            body,
             buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
         });
         const restored = await this.restoreWorkspace(needProfile.id, workspace);
@@ -409,12 +431,48 @@ async function requestJson(route, options) {
     }
     return payload;
 }
+async function requestFile(route, buyerAccessToken) {
+    let response;
+    try {
+        const headers = new Headers();
+        if (buyerAccessToken) {
+            headers.set("x-veltact-buyer-token", buyerAccessToken);
+        }
+        response = await fetch(canonicalApiUrl(route), {
+            method: "GET",
+            headers
+        });
+    }
+    catch {
+        throw new Error("Cannot reach the Veltact API. Start the API and retry this buyer action.");
+    }
+    if (!response.ok) {
+        const payload = (await response.json().catch(() => ({})));
+        throw new ApiRequestError(response.status, payload.message ?? `Veltact report request failed (${response.status}).`);
+    }
+    return response;
+}
 class ApiRequestError extends Error {
     status;
     constructor(status, message) {
         super(message);
         this.status = status;
     }
+}
+function fileNameFromDisposition(value) {
+    if (!value)
+        return undefined;
+    const encoded = value.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    if (encoded) {
+        try {
+            return decodeURIComponent(encoded).replaceAll(/[/\\]/g, "-");
+        }
+        catch {
+            return encoded.replaceAll(/[/\\]/g, "-");
+        }
+    }
+    const plain = value.match(/filename="?([^";]+)"?/i)?.[1];
+    return plain?.replaceAll(/[/\\]/g, "-");
 }
 function isUnavailableRoute(error) {
     return (error instanceof ApiRequestError &&
@@ -676,6 +734,30 @@ function fixtureResearch(needProfileId, profile) {
                 risks: ["Trial samples may not represent production variability."],
                 confidence: 0.83,
                 citationIds
+            },
+            {
+                id: `${needProfileId}-approach-alternative-2`,
+                needProfileId,
+                title: "Phased cell delivery with gated acceptance",
+                summary: "Separate design, fabrication, installation and commissioning into evidence-backed acceptance gates tied to production outcomes.",
+                rationale: "Commercial and technical gates keep scope, safety evidence and factory disruption visible throughout delivery.",
+                localActions: [
+                    "Define target throughput, availability and handover evidence.",
+                    "Reserve production windows for installation and validation."
+                ],
+                outsourceTriggers: [
+                    "Controls, guarding and production cutover require coordinated specialist ownership."
+                ],
+                requiredCapabilities: [
+                    "controls integration",
+                    "site installation",
+                    "commissioning"
+                ],
+                risks: [
+                    "Unclear acceptance criteria shift technical risk into commissioning."
+                ],
+                confidence: 0.78,
+                citationIds
             }
         ]
         : [
@@ -725,6 +807,30 @@ function fixtureResearch(needProfileId, profile) {
                 risks: ["A temporary recovery may become an undocumented baseline."],
                 confidence: 0.84,
                 citationIds
+            },
+            {
+                id: `${needProfileId}-approach-alternative-2`,
+                needProfileId,
+                title: "Controls lifecycle and resilience review",
+                summary: "Use the incident evidence to assess obsolescence, backup integrity, spares and recurring network or power risks.",
+                rationale: "A bounded resilience review can reduce future downtime once immediate production recovery is under control.",
+                localActions: [
+                    "Catalogue controller, I/O, drive and network hardware.",
+                    "Confirm ownership and storage of approved backups."
+                ],
+                outsourceTriggers: [
+                    "Unsupported hardware or repeated communications faults are identified."
+                ],
+                requiredCapabilities: [
+                    "controls lifecycle planning",
+                    "industrial network assessment",
+                    "backup governance"
+                ],
+                risks: [
+                    "A broader review may distract from the immediate recovery window."
+                ],
+                confidence: 0.77,
+                citationIds
             }
         ];
     return solutionResearchResultSchema.parse({
@@ -764,7 +870,7 @@ function fixtureCitation(id, title, url, evidenceNote, accessedAt) {
         accessedAt
     };
 }
-function fixtureDecision(workspace, decision) {
+function fixtureDecision(workspace, decision, selectedApproachId) {
     const needProfile = requiredNeedProfile(workspace);
     const research = workspace.researchResult;
     if (!research)
@@ -774,7 +880,7 @@ function fixtureDecision(workspace, decision) {
         needProfileId: needProfile.id,
         researchResultId: research.id,
         decision,
-        selectedApproachIds: [recommendedApproach(research).id],
+        selectedApproachIds: [selectedApproachId],
         approvedBy: needProfile.contactName ?? "Buyer",
         approvedAt: new Date().toISOString()
     });
@@ -784,7 +890,12 @@ function fixtureDeployment(workspace) {
     const needProfile = requiredNeedProfile(workspace);
     const robotics = /robot|palletis/i.test(`${needProfile.title} ${needProfile.description} ${needProfile.category}`);
     const titles = robotics
-        ? ["Site assessment", "Design", "Installation", "Commissioning"]
+        ? [
+            "Site Assessment / Scoping Visit",
+            "Design",
+            "Installation",
+            "Commissioning"
+        ]
         : ["Diagnosis", "Recovery", "Validation", "Handover"];
     const secured = engagement.status === "supplier_secured";
     const paymentPending = engagement.paymentStatus !== "not_started";
@@ -822,9 +933,6 @@ function fixtureDeployment(workspace) {
             : "Deployment projection is waiting for authoritative payment evidence.",
         updatedAt
     });
-}
-function recommendedApproach(research) {
-    return [...research.approaches].sort((left, right) => right.confidence - left.confidence)[0];
 }
 function isRobotics(profile) {
     return /robot|palletis|cobot|manipulator/i.test([
