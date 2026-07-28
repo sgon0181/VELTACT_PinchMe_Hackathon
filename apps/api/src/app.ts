@@ -10,6 +10,7 @@ import { marketplaceDeploymentIntegration } from "./deployment/marketplaceIntegr
 import { marketplaceRouter } from "./marketplace/marketplaceRoutes.js";
 import { pinchRouter } from "./pinch/pinchRoutes.js";
 import { createRateLimiter } from "./rateLimit.js";
+import { supplierExperienceRouter } from "./supplierExperience/router.js";
 import { v2Router } from "./v2/routes.js";
 
 export const app = express();
@@ -110,6 +111,7 @@ app.use("/api/pinch", pinchRouter);
 app.use("/api/ai-intake", aiIntakeRouter);
 app.use("/api/v2", v2Router);
 app.use("/api", marketplaceDeploymentIntegration.router);
+app.use("/api", supplierExperienceRouter);
 app.use("/api", marketplaceRouter);
 
 app.get("/", (_request, response) => {

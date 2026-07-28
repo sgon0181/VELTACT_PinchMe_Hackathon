@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   marketplaceNeedProfileSchema,
   rapidMatchBuyerWorkspaceSchema,
+  sendSupplierInvitationsRequestSchema,
   solutionDecisionTypeSchema
 } from "@veltact/contracts";
 import {
@@ -150,10 +151,6 @@ const demoResetSchema = z.object({
 
 const createEngagementSchema = z.object({
   supplierResponseId: z.string().trim().min(1)
-});
-
-const sendInvitationsSchema = z.object({
-  supplierLeadIds: z.array(z.string().trim().min(1)).min(1).optional()
 });
 
 marketplaceRouter.post("/needs", (request, response) => {
@@ -579,7 +576,9 @@ marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", async (
     });
     return;
   }
-  const parsed = sendInvitationsSchema.safeParse(request.body ?? {});
+  const parsed = sendSupplierInvitationsRequestSchema.safeParse(
+    request.body ?? {}
+  );
   if (!parsed.success) {
     response.status(400).json({
       status: "error",
@@ -624,7 +623,8 @@ marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", async (
     },
     prepared.supplierLeadIds.length > 0
       ? new Set(prepared.supplierLeadIds)
-      : undefined
+      : undefined,
+    parsed.data.deliveryChannels
   );
   if (!updatedDeliveries) {
     response.status(404).json({

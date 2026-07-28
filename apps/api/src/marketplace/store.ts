@@ -29,7 +29,12 @@ import {
   createNeedReportRecord,
   readNeedReportPdf
 } from "./needReport.js";
-import type { DeploymentSummary } from "@veltact/contracts";
+import {
+  supplierCommitmentNotificationSchema,
+  type DeploymentSummary,
+  type SupplierCommitmentNotification,
+  type OutreachChannel
+} from "@veltact/contracts";
 import { syncCommitmentPayment } from "../deployment/templates.js";
 import type {
   Engagement,
@@ -93,6 +98,15 @@ const responses = new Map<string, SupplierResponse>(
 );
 const engagements = new Map<string, Engagement>(
   initialSnapshot?.engagements.map((engagement) => [engagement.id, engagement]) ?? []
+);
+const commitmentNotifications = new Map<
+  string,
+  SupplierCommitmentNotification
+>(
+  initialSnapshot?.commitmentNotifications.map((notification) => [
+    notification.engagementId,
+    notification
+  ]) ?? []
 );
 const deployments = new Map<string, DeploymentSummary>(
   initialSnapshot?.deployments.map((deployment) => [
@@ -883,7 +897,8 @@ export function approveSupplierOutreachForNeed(
 export async function sendSupplierOutreachForNeed(
   needId: string,
   onDeliveryUpdated?: (delivery: SupplierOutreachDelivery) => void,
-  supplierIds?: Set<string>
+  supplierIds?: Set<string>,
+  deliveryChannels?: readonly OutreachChannel[]
 ): Promise<SupplierOutreachDelivery[] | undefined> {
   const need = needs.get(needId);
   if (!need) {
@@ -894,11 +909,12 @@ export async function sendSupplierOutreachForNeed(
   }
 
   const updatedDeliveries: SupplierOutreachDelivery[] = [];
+  const selectedChannels = deliveryChannels ?? ["email", "sms"];
   for (const invitation of need.invitations) {
     if (supplierIds && !supplierIds.has(invitation.supplierId)) {
       continue;
     }
-    for (const channel of ["email", "sms"] as const) {
+    for (const channel of selectedChannels) {
       const delivery = outreachDeliveries.get(deliveryKey(invitation.id, channel));
       if (!delivery) {
         continue;
@@ -1446,6 +1462,33 @@ export function getEngagementForNeed(needId: string): Engagement | undefined {
   );
 }
 
+export function getSupplierCommitmentNotification(
+  engagementId: string
+): SupplierCommitmentNotification | undefined {
+  const notification = commitmentNotifications.get(engagementId);
+  return notification ? structuredClone(notification) : undefined;
+}
+
+export function saveSupplierCommitmentNotification(
+  notification: SupplierCommitmentNotification
+): SupplierCommitmentNotification {
+  const saved = supplierCommitmentNotificationSchema.parse(
+    structuredClone(notification)
+  );
+  commitmentNotifications.set(saved.engagementId, saved);
+  commitMarketplaceMutation({
+    eventType: "commitment.notification_updated",
+    actorType: "system",
+    entityType: "engagement",
+    entityId: saved.engagementId,
+    metadata: {
+      channel: saved.channel,
+      status: saved.deliveryStatus
+    }
+  });
+  return structuredClone(saved);
+}
+
 export function getDeployment(
   engagementId: string
 ): DeploymentSummary | undefined {
@@ -1682,6 +1725,7 @@ export function resetMarketplaceStore(options: { preserveAudit?: boolean } = {})
   outreachDeliveries.clear();
   responses.clear();
   engagements.clear();
+  commitmentNotifications.clear();
   deployments.clear();
   processedPinchEventIds.clear();
   pinchWebhookEvidence.clear();
@@ -1767,6 +1811,13 @@ export function reloadMarketplaceStore(
     ])
   );
   replaceMap(
+    commitmentNotifications,
+    snapshot.commitmentNotifications.map((notification) => [
+      notification.engagementId,
+      notification
+    ])
+  );
+  replaceMap(
     deployments,
     snapshot.deployments.map((deployment) => [
       deployment.engagementId,
@@ -1831,6 +1882,7 @@ function persistMarketplaceState() {
     outreachDeliveries: [...outreachDeliveries.values()],
     responses: [...responses.values()],
     engagements: [...engagements.values()],
+    commitmentNotifications: [...commitmentNotifications.values()],
     deployments: [...deployments.values()],
     processedPinchEventIds: [...processedPinchEventIds],
     pinchWebhookEvidence: [...pinchWebhookEvidence.values()],

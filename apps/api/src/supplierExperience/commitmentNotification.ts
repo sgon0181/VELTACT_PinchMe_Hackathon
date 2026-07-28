@@ -1,7 +1,4 @@
-import {
-  supplierCommitmentNotificationSchema,
-  type SupplierCommitmentNotification
-} from "@veltact/contracts";
+import type { SupplierCommitmentNotification } from "@veltact/contracts";
 import {
   getOutreachDeliveryReadiness,
   sendCommitmentConfirmedEmail
@@ -9,8 +6,10 @@ import {
 import {
   getEngagement,
   getNeed,
+  getSupplierCommitmentNotification,
   getSupplierClaim,
-  listResponsesForNeed
+  listResponsesForNeed,
+  saveSupplierCommitmentNotification
 } from "../marketplace/store.js";
 import type { SupplierOutreachDelivery } from "../marketplace/types.js";
 
@@ -18,15 +17,13 @@ type NotificationUpdated = (
   notification: SupplierCommitmentNotification
 ) => void;
 
-const notifications = new Map<string, SupplierCommitmentNotification>();
 const inFlight = new Map<
   string,
   Promise<SupplierCommitmentNotification | undefined>
 >();
 
 export function getCommitmentNotification(engagementId: string) {
-  const notification = notifications.get(engagementId);
-  return notification ? structuredClone(notification) : undefined;
+  return getSupplierCommitmentNotification(engagementId);
 }
 
 export function notifyCommitmentConfirmed(
@@ -46,7 +43,6 @@ export function notifyCommitmentConfirmed(
 }
 
 export function resetCommitmentNotificationsForTests() {
-  notifications.clear();
   inFlight.clear();
 }
 
@@ -54,8 +50,11 @@ async function deliverCommitmentNotification(
   engagementId: string,
   onUpdated?: NotificationUpdated
 ) {
-  const existing = notifications.get(engagementId);
-  if (existing?.deliveryStatus === "sent") {
+  const existing = getSupplierCommitmentNotification(engagementId);
+  if (
+    existing?.deliveryStatus === "sent" ||
+    existing?.deliveryStatus === "queued"
+  ) {
     return structuredClone(existing);
   }
 
@@ -175,9 +174,7 @@ function saveAndEmit(
 function saveNotification(
   notification: SupplierCommitmentNotification
 ) {
-  const saved = supplierCommitmentNotificationSchema.parse(notification);
-  notifications.set(notification.engagementId, saved);
-  return saved;
+  return saveSupplierCommitmentNotification(notification);
 }
 
 function commitmentIdempotencyKey(

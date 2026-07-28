@@ -1377,6 +1377,142 @@ describe("marketplace core routes", () => {
     assert.equal(update.supplierInvitation.supplierId, "supplier-automation-nsw");
   });
 
+  test("honours shared deliveryChannels through the production invitation route", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalOutreachEnv = {
+      EMAIL_PROVIDER: env.EMAIL_PROVIDER,
+      EMAIL_FROM: env.EMAIL_FROM,
+      RESEND_API_KEY: env.RESEND_API_KEY,
+      SMS_PROVIDER: env.SMS_PROVIDER,
+      TWILIO_ACCOUNT_SID: env.TWILIO_ACCOUNT_SID,
+      TWILIO_AUTH_TOKEN: env.TWILIO_AUTH_TOKEN,
+      TWILIO_FROM_NUMBER: env.TWILIO_FROM_NUMBER,
+      SUPPLIER_OUTREACH_EMAIL_TO: env.SUPPLIER_OUTREACH_EMAIL_TO,
+      SUPPLIER_OUTREACH_SMS_TO: env.SUPPLIER_OUTREACH_SMS_TO,
+      SUPPLIER_OUTREACH_WHATSAPP_TO:
+        env.SUPPLIER_OUTREACH_WHATSAPP_TO
+    };
+    Object.assign(env, {
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key",
+      SMS_PROVIDER: "twilio",
+      TWILIO_ACCOUNT_SID: "AC123",
+      TWILIO_AUTH_TOKEN: "twilio_test_token",
+      TWILIO_FROM_NUMBER: "+61400000000",
+      SUPPLIER_OUTREACH_EMAIL_TO: "supplier@example.com",
+      SUPPLIER_OUTREACH_SMS_TO: "+61411111111",
+      SUPPLIER_OUTREACH_WHATSAPP_TO: undefined
+    });
+    const providerCalls: string[] = [];
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      if (url.startsWith(baseUrl)) {
+        return originalFetch(input, init);
+      }
+      providerCalls.push(url);
+      if (url === "https://api.resend.com/emails") {
+        return new Response(JSON.stringify({ id: "email-123" }), {
+          status: 200
+        });
+      }
+      if (
+        url ===
+        "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json"
+      ) {
+        return new Response(
+          JSON.stringify({ sid: "SM123", status: "queued" }),
+          { status: 201 }
+        );
+      }
+      throw new Error(`Unexpected provider URL: ${url}`);
+    };
+
+    const sendWithChannels = async (
+      deliveryChannels: Array<"email" | "sms">
+    ) => {
+      resetMarketplaceStore();
+      providerCalls.splice(0);
+      const created = await postJson("/api/needs", {
+        buyerEmail: "buyer@example.com",
+        profile: automationNeed()
+      });
+      const sent = await postJson(
+        `/api/need-profiles/${created.body.need.id}/invitations/send`,
+        {
+          deliveryChannels
+        }
+      );
+      assert.equal(sent.status, 200);
+      assert.ok(
+        sent.body.supplierInvitations.every(
+          (candidate: { responseUrl: string }) =>
+            /supplier\.html\?token=/.test(candidate.responseUrl)
+        )
+      );
+      return sent.body.supplierOutreachDeliveries as Array<{
+        channel: "email" | "sms";
+        deliveryStatus: string;
+      }>;
+    };
+
+    try {
+      const emailDeliveries = await sendWithChannels(["email"]);
+      const sentEmailCount = emailDeliveries.filter(
+        (delivery) =>
+          delivery.channel === "email" &&
+          delivery.deliveryStatus === "sent"
+      ).length;
+      assert.ok(sentEmailCount > 0);
+      assert.equal(providerCalls.length, sentEmailCount);
+      assert.deepEqual(
+        [...new Set(providerCalls)],
+        ["https://api.resend.com/emails"]
+      );
+      assert.equal(
+        emailDeliveries.some(
+          (delivery) =>
+            delivery.channel === "sms" &&
+            delivery.deliveryStatus === "sent"
+        ),
+        false
+      );
+
+      const smsDeliveries = await sendWithChannels(["sms"]);
+      const sentSmsCount = smsDeliveries.filter(
+        (delivery) =>
+          delivery.channel === "sms" &&
+          delivery.deliveryStatus === "sent"
+      ).length;
+      assert.ok(sentSmsCount > 0);
+      assert.equal(providerCalls.length, sentSmsCount);
+      assert.deepEqual(
+        [...new Set(providerCalls)],
+        [
+          "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json"
+        ]
+      );
+      assert.equal(
+        smsDeliveries.some(
+          (delivery) =>
+            delivery.channel === "email" &&
+            delivery.deliveryStatus === "sent"
+        ),
+        false
+      );
+      const linkDeliveries = await sendWithChannels([]);
+      assert.deepEqual(providerCalls, []);
+      assert.ok(
+        linkDeliveries.every(
+          (delivery) => delivery.deliveryStatus === "not_sent"
+        )
+      );
+    } finally {
+      Object.assign(env, originalOutreachEnv);
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("keeps local demo and unavailable outreach unsent without reporting failures", async () => {
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",
