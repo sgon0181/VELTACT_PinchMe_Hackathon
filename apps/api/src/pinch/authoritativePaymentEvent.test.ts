@@ -75,6 +75,16 @@ describe("authoritative Pinch webhook payments", () => {
     );
   });
 
+  test("does not treat an observed Payment Link attempt as payment authority", () => {
+    assert.equal(
+      extractApprovedPinchPaymentEvent({
+        ...approvedWebhook(),
+        Type: "payment-link-attempted"
+      }),
+      undefined
+    );
+  });
+
   test("accepts documented metadata arrays and rejects contradictory commitment evidence", () => {
     const metadata = [
       {
