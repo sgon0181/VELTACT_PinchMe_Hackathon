@@ -70,7 +70,7 @@ describe("CommitmentPaymentService", () => {
     assert.equal(provider.lastCreateInput?.amount, 750_000);
     assert.equal(
       provider.lastCreateInput?.metadata?.milestoneId,
-      "eng-robotics-m1-site-assessment"
+      "eng-robotics-m1-site-assessment-scoping-visit"
     );
     assert.equal(
       provider.lastCreateInput?.metadata?.commitmentType,
@@ -96,6 +96,55 @@ describe("CommitmentPaymentService", () => {
     );
     assert.equal(persistence.saveCalls, 0);
     assert.equal(persistence.context.existingPaymentLink, undefined);
+  });
+
+  test("does not reuse a local demo link in real Pinch mode", async () => {
+    const context = commitmentContext();
+    context.existingPaymentLink = {
+      provider: "local_demo",
+      payerId: "local_demo_payer_need-robotics",
+      paymentLinkId: "local_demo_link_eng-robotics",
+      hostedCheckoutUrl:
+        "http://localhost:4000/api/pinch/return/eng-robotics?payment_provider=local_demo&payment_link_id=local_demo_link_eng-robotics",
+      paymentStatus: "awaiting_payment"
+    };
+    const persistence = new MemoryCommitmentAdapter(context);
+    const provider = new FakePaymentProvider();
+
+    const result = await new CommitmentPaymentService(
+      persistence,
+      provider
+    ).createOrReuseHostedPaymentLink({
+      engagementId: context.engagementId,
+      buyerAccessToken: "buyer-token",
+      returnUrl: "https://veltact.example/api/pinch/return/eng-robotics"
+    });
+
+    assert.equal(result.reused, false);
+    assert.equal(result.paymentLink.provider, "pinch");
+    assert.equal(provider.createCalls, 1);
+    assert.equal(persistence.saveCalls, 1);
+  });
+
+  test("rejects a link whose identity does not match the selected provider", async () => {
+    const persistence = new MemoryCommitmentAdapter(commitmentContext());
+    const provider = new FakePaymentProvider();
+    provider.returnedProvider = "local_demo";
+
+    await assert.rejects(
+      new CommitmentPaymentService(
+        persistence,
+        provider
+      ).createOrReuseHostedPaymentLink({
+        engagementId: "eng-robotics",
+        buyerAccessToken: "buyer-token",
+        returnUrl: "https://veltact.example/api/pinch/return/eng-robotics"
+      }),
+      (error: unknown) =>
+        error instanceof CommitmentPaymentError &&
+        error.statusCode === 502
+    );
+    assert.equal(persistence.saveCalls, 0);
   });
 
   test("does not reopen or replace a link after authoritative payment", async () => {
@@ -224,12 +273,14 @@ class MemoryCommitmentAdapter
 }
 
 class FakePaymentProvider implements PaymentProvider {
+  readonly provider = "pinch" as const;
   createCalls = 0;
   createError: Error | undefined;
   createDelay: Promise<void> | undefined;
   releaseCreate: (() => void) | undefined;
   lastCreateInput: CreateHostedPaymentLinkInput | undefined;
   approvedPayment: AuthoritativePaymentResult | undefined;
+  returnedProvider: HostedPaymentLink["provider"] = "pinch";
 
   async createHostedPaymentLink(input: CreateHostedPaymentLinkInput) {
     this.createCalls += 1;
@@ -238,7 +289,10 @@ class FakePaymentProvider implements PaymentProvider {
     if (this.createError) {
       throw this.createError;
     }
-    return hostedPaymentLink(String(this.createCalls));
+    return {
+      ...hostedPaymentLink(String(this.createCalls)),
+      provider: this.returnedProvider
+    };
   }
 
   async getApprovedPaymentForLink() {
@@ -254,8 +308,8 @@ function commitmentContext(): CommitmentPaymentContext {
     buyerEmail: "buyer@example.com",
     buyerName: "Western Sydney Factory",
     commitment: {
-      milestoneId: "eng-robotics-m1-site-assessment",
-      title: "Site assessment",
+      milestoneId: "eng-robotics-m1-site-assessment-scoping-visit",
+      title: "Site Assessment / Scoping Visit",
       amount: {
         amount: 750_000,
         currency: "AUD"

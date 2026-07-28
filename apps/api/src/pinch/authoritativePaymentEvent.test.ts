@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import type { AuthoritativePinchEvidence } from "../payments/commitmentPaymentService.js";
 import {
   extractApprovedPinchPaymentEvent,
+  matchesExpectedPinchCommitment,
   PinchWebhookPaymentProcessor,
   type PinchWebhookAuthorityAdapter
 } from "./authoritativePaymentEvent.js";
@@ -15,7 +16,12 @@ describe("authoritative Pinch webhook payments", () => {
         eventId: "evt_approved",
         eventType: "realtime-payment",
         engagementId: "eng-123",
+        needProfileId: "need-123",
+        supplierId: "supplier-123",
+        milestoneId: "eng-123-m1-site-assessment-scoping-visit",
         paymentId: "pmt_123",
+        amountMinor: 750_000,
+        currency: "AUD",
         status: "approved"
       }
     );
@@ -36,6 +42,61 @@ describe("authoritative Pinch webhook payments", () => {
         ...approvedWebhook(),
         Type: "transfer"
       }),
+      undefined
+    );
+  });
+
+  test("matches the signed commitment metadata and amount to canonical state", () => {
+    const event = extractApprovedPinchPaymentEvent(approvedWebhook());
+    assert(event);
+    const expected = {
+      engagementId: "eng-123",
+      needProfileId: "need-123",
+      supplierId: "supplier-123",
+      milestoneId: "eng-123-m1-site-assessment-scoping-visit",
+      amountMinor: 750_000,
+      currency: "AUD"
+    };
+
+    assert.equal(matchesExpectedPinchCommitment(event, expected), true);
+    assert.equal(
+      matchesExpectedPinchCommitment(event, {
+        ...expected,
+        supplierId: "supplier-other"
+      }),
+      false
+    );
+    assert.equal(
+      matchesExpectedPinchCommitment(event, {
+        ...expected,
+        amountMinor: 1
+      }),
+      false
+    );
+  });
+
+  test("accepts documented metadata arrays and rejects contradictory commitment evidence", () => {
+    const metadata = [
+      {
+        engagementId: "eng-123",
+        needId: "need-123",
+        supplierId: "supplier-123"
+      },
+      {
+        milestoneId: "eng-123-m1-site-assessment-scoping-visit",
+        commitmentType: "commercial_commitment",
+        commitmentAmountMinor: "750000",
+        commitmentCurrency: "AUD"
+      },
+      { providerAddedField: true }
+    ];
+    assert(
+      extractApprovedPinchPaymentEvent(
+        approvedWebhook({ Metadata: JSON.stringify(metadata) })
+      )
+    );
+    assert.equal(
+      extractApprovedPinchPaymentEvent(approvedWebhook({ Amount: 1 })),
       undefined
     );
   });
@@ -109,10 +170,17 @@ function approvedWebhook(
     Data: {
       Payment: {
         Id: "pmt_123",
+        Amount: 750_000,
+        Currency: "AUD",
         Status: "approved",
         Metadata: JSON.stringify({
           engagementId: "eng-123",
-          milestoneId: "eng-123-m1-site-assessment"
+          needId: "need-123",
+          supplierId: "supplier-123",
+          milestoneId: "eng-123-m1-site-assessment-scoping-visit",
+          commitmentType: "commercial_commitment",
+          commitmentAmountMinor: "750000",
+          commitmentCurrency: "AUD"
         }),
         ...paymentOverrides
       }
