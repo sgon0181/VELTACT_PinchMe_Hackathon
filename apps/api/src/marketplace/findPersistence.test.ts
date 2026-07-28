@@ -21,6 +21,8 @@ import {
   discoverNeedSuppliers,
   getInvitation,
   getNeed,
+  getNeedReportForNeed,
+  getOrCreateNeedReport,
   getResearchResultForNeed,
   getSolutionDecisionForNeed,
   listSupplierLeadsForNeed,
@@ -65,9 +67,9 @@ describe("canonical Marketplace Find persistence", { concurrency: false }, () =>
       assert.ok(researched);
       const decision = createSolutionDecision(need.id, {
         decision: "hybrid",
-        selectedApproachIds: researched.researchResult.approaches.map(
-          (approach) => approach.id
-        )
+        selectedApproachIds: [
+          researched.researchResult.approaches[1].id
+        ]
       });
       assert.equal(decision.status, "created");
       const discovered = await discoverNeedSuppliers(need.id);
@@ -90,12 +92,24 @@ describe("canonical Marketplace Find persistence", { concurrency: false }, () =>
         version: number;
         researchResults: unknown[];
         solutionDecisions: unknown[];
+        needReports: Array<{
+          selectedApproachId: string;
+          pdfBase64: string;
+          sha256: string;
+        }>;
         supplierLeads: unknown[];
         supplierClaims: unknown[];
       };
       assert.equal(persisted.version, 2);
       assert.equal(persisted.researchResults.length, 1);
       assert.equal(persisted.solutionDecisions.length, 1);
+      assert.equal(persisted.needReports.length, 1);
+      assert.equal(
+        persisted.needReports[0].selectedApproachId,
+        researched.researchResult.approaches[1].id
+      );
+      assert.ok(persisted.needReports[0].pdfBase64.length > 100);
+      assert.equal(persisted.needReports[0].sha256.length, 64);
       assert.equal(persisted.supplierLeads.length, 3);
       assert.equal(persisted.supplierClaims.length, 6);
 
@@ -114,6 +128,19 @@ describe("canonical Marketplace Find persistence", { concurrency: false }, () =>
       assert.doesNotThrow(() =>
         solutionDecisionSchema.parse(getSolutionDecisionForNeed(need.id))
       );
+      assert.deepEqual(
+        getNeedReportForNeed(need.id),
+        persisted.needReports[0]
+      );
+      const report = getOrCreateNeedReport(need.id);
+      assert.equal(report.status, "ready");
+      if (report.status === "ready") {
+        assert.equal(report.pdf.subarray(0, 8).toString(), "%PDF-1.4");
+        assert.equal(
+          report.report.selectedApproachId,
+          researched.researchResult.approaches[1].id
+        );
+      }
       assert.doesNotThrow(() =>
         supplierLeadSchema.array().parse(
           listSupplierLeadsForNeed(need.id)
@@ -176,6 +203,7 @@ describe("canonical Marketplace Find persistence", { concurrency: false }, () =>
       snapshot.version = 1;
       delete snapshot.researchResults;
       delete snapshot.solutionDecisions;
+      delete snapshot.needReports;
       delete snapshot.supplierLeads;
       delete snapshot.supplierClaims;
       delete snapshot.needs[0].outreachApprovedAt;

@@ -32,6 +32,7 @@ describe("marketplace persistence", () => {
       needs: [],
       researchResults: [],
       solutionDecisions: [],
+      needReports: [],
       supplierLeads: [],
       invitations: [],
       supplierClaims: [],
@@ -130,6 +131,7 @@ describe("marketplace persistence", () => {
     assert.equal(loaded?.version, 2);
     assert.deepEqual(loaded?.researchResults, []);
     assert.deepEqual(loaded?.solutionDecisions, []);
+    assert.deepEqual(loaded?.needReports, []);
     assert.deepEqual(loaded?.supplierLeads, []);
     assert.deepEqual(loaded?.supplierClaims, []);
     assert.deepEqual(loaded?.deployments, []);

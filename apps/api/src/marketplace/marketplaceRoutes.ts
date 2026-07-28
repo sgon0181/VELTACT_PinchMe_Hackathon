@@ -18,6 +18,7 @@ import {
   getEngagementForNeed,
   getDeployment,
   getNeed,
+  getOrCreateNeedReport,
   getProviderWarningsForNeed,
   getResearchResultForNeed,
   getResponseForInvitation,
@@ -135,7 +136,9 @@ const supplierClaimSchema = z.object({
 
 const solutionDecisionSchema = z.object({
   decision: solutionDecisionTypeSchema,
-  selectedApproachIds: z.array(z.string().trim().min(1)).min(1),
+  selectedApproachIds: z
+    .array(z.string().trim().min(1))
+    .length(1, "Select exactly one solution pathway"),
   buyerNote: z.string().trim().min(1).optional()
 });
 
@@ -329,6 +332,13 @@ marketplaceRouter.post(
       });
       return;
     }
+    if (result.status === "single_solution_required") {
+      response.status(400).json({
+        status: "error",
+        message: "Select exactly one solution pathway"
+      });
+      return;
+    }
     if (result.status === "invalid_approaches") {
       response.status(400).json({
         status: "error",
@@ -358,6 +368,75 @@ marketplaceRouter.post(
   }
 );
 
+marketplaceRouter.get(
+  "/need-profiles/:needProfileId/report.pdf",
+  (request, response) => {
+    const need = getNeed(request.params.needProfileId);
+    if (!need) {
+      response.status(404).json({
+        status: "error",
+        message: "Need profile not found"
+      });
+      return;
+    }
+    if (!requireBuyerAccess(request, response, need.id)) return;
+
+    try {
+      const result = getOrCreateNeedReport(need.id);
+      if (result.status === "research_required") {
+        response.status(409).json({
+          status: "error",
+          message: "Research must be completed before downloading the report"
+        });
+        return;
+      }
+      if (result.status === "decision_required") {
+        response.status(409).json({
+          status: "error",
+          message:
+            "Select exactly one solution pathway before downloading the report"
+        });
+        return;
+      }
+      if (result.status === "single_solution_required") {
+        response.status(409).json({
+          status: "error",
+          message:
+            "The report requires exactly one selected solution pathway"
+        });
+        return;
+      }
+      if (result.status === "not_found") {
+        response.status(404).json({
+          status: "error",
+          message: "Need profile not found"
+        });
+        return;
+      }
+
+      response
+        .status(200)
+        .set({
+          "Content-Type": result.report.contentType,
+          "Content-Disposition": `attachment; filename="${result.report.fileName}"`,
+          "Content-Length": result.report.byteLength.toString(),
+          "Cache-Control": "private, no-store",
+          "X-Veltact-Report-Id": result.report.id,
+          "X-Veltact-Report-Source": result.report.sourceMode
+        })
+        .send(result.pdf);
+    } catch (error) {
+      response.status(500).json({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Need report could not be rendered"
+      });
+    }
+  }
+);
+
 marketplaceRouter.post(
   "/need-profiles/:needProfileId/suppliers/discover",
   async (request, response) => {
@@ -384,6 +463,14 @@ marketplaceRouter.post(
         response.status(409).json({
           status: "error",
           message: "Approve a solution decision before supplier discovery"
+        });
+        return;
+      }
+      if (result.status === "single_solution_required") {
+        response.status(409).json({
+          status: "error",
+          message:
+            "Select exactly one solution pathway before supplier discovery"
         });
         return;
       }
@@ -1081,6 +1168,7 @@ function serialiseNeed(need: NonNullable<ReturnType<typeof getNeed>>) {
     suppliers: need.matches.map((match) => ({
       id: match.supplier.id,
       companyName: match.supplier.companyName,
+      logoUrl: match.supplier.logoUrl,
       contactEmail: match.supplier.contactEmail,
       categories: match.supplier.categories,
       serviceRegions: match.supplier.serviceRegions,
@@ -1139,6 +1227,7 @@ function serialiseBuyerWorkspace(
     suppliers: need.matches.map((match) => ({
       id: match.supplier.id,
       companyName: match.supplier.companyName,
+      logoUrl: match.supplier.logoUrl,
       contactName: match.supplier.contactName,
       contactEmail: match.supplier.contactEmail,
       categories: match.supplier.categories,

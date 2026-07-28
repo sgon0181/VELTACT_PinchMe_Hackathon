@@ -44,6 +44,21 @@ export type NeedRecord = {
   updatedAt: string;
 };
 
+export type NeedReportRecord = {
+  id: string;
+  needProfileId: string;
+  researchResultId: string;
+  solutionDecisionId: string;
+  selectedApproachId: string;
+  sourceMode: SolutionResearchResult["sourceMode"];
+  generatedAt: string;
+  fileName: string;
+  contentType: "application/pdf";
+  byteLength: number;
+  sha256: string;
+  pdfBase64: string;
+};
+
 export type SupplierInvitation = ContractSupplierInvitation & {
   needId: string;
   supplierName: string;

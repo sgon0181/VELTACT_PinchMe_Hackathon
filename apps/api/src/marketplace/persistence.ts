@@ -12,6 +12,7 @@ import type {
   Engagement,
   LocalDemoPaymentEvidence,
   MarketplaceAuditEvent,
+  NeedReportRecord,
   NeedRecord,
   PinchWebhookEvidence,
   SolutionDecision,
@@ -28,6 +29,7 @@ export type MarketplaceSnapshot = {
   needs: NeedRecord[];
   researchResults: SolutionResearchResult[];
   solutionDecisions: SolutionDecision[];
+  needReports: NeedReportRecord[];
   supplierLeads: SupplierLead[];
   invitations: SupplierInvitation[];
   supplierClaims: SupplierClaim[];
@@ -74,6 +76,7 @@ export function loadMarketplaceSnapshot(
     needs: parsed.needs,
     researchResults: arrayOrEmpty(parsed.researchResults),
     solutionDecisions: arrayOrEmpty(parsed.solutionDecisions),
+    needReports: arrayOrEmpty(parsed.needReports),
     supplierLeads: arrayOrEmpty(parsed.supplierLeads),
     invitations: parsed.invitations,
     supplierClaims: arrayOrEmpty(parsed.supplierClaims),
