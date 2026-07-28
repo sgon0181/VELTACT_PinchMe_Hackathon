@@ -426,6 +426,11 @@ export const solutionDecisionSchema = z.object({
 });
 export type SolutionDecision = z.infer<typeof solutionDecisionSchema>;
 
+export const needReportRequestSchema = z.object({
+  selectedApproachId: z.string().trim().min(1).optional()
+});
+export type NeedReportRequest = z.infer<typeof needReportRequestSchema>;
+
 export const supplierLifecycleStatusSchema = z.enum([
   "discovered",
   "approved_for_outreach",

@@ -296,13 +296,17 @@ export class RapidMatchService {
   }
 
   async downloadNeedReport(
-    workspace: RapidMatchBuyerWorkspace
+    workspace: RapidMatchBuyerWorkspace,
+    selectedApproachId: string
   ): Promise<DownloadedNeedReport> {
     const needProfile = requiredNeedProfile(workspace);
+    const reportRoute = routeFor(rapidMatchApiRoute.needReportPdf, {
+      needProfileId: needProfile.id
+    });
     const response = await requestFile(
-      routeFor(rapidMatchApiRoute.needReportPdf, {
-        needProfileId: needProfile.id
-      }),
+      `${reportRoute}?selectedApproachId=${encodeURIComponent(
+        selectedApproachId
+      )}`,
       this.buyerAccessTokens.get(needProfile.id)
     );
     const contentType = response.headers.get("content-type")?.toLowerCase();

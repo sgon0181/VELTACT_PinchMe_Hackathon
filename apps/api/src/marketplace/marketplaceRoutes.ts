@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import {
   marketplaceNeedProfileSchema,
+  needReportRequestSchema,
   rapidMatchBuyerWorkspaceSchema,
   sendSupplierInvitationsRequestSchema,
   solutionDecisionTypeSchema
@@ -141,10 +142,6 @@ const solutionDecisionSchema = z.object({
     .array(z.string().trim().min(1))
     .length(1, "Select exactly one solution pathway"),
   buyerNote: z.string().trim().min(1).optional()
-});
-
-const needReportQuerySchema = z.object({
-  selectedApproachId: z.string().trim().min(1).optional()
 });
 
 const demoResetSchema = z.object({
@@ -382,7 +379,7 @@ marketplaceRouter.get(
     }
     if (!requireBuyerAccess(request, response, need.id)) return;
 
-    const parsedQuery = needReportQuerySchema.safeParse(request.query);
+    const parsedQuery = needReportRequestSchema.safeParse(request.query);
     if (!parsedQuery.success) {
       response.status(400).json({
         status: "error",

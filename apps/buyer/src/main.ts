@@ -2176,7 +2176,8 @@ async function downloadReport() {
   if (!workspace || !selectedApproachId) return;
   await runAction("Preparing Need Profile report", async () => {
     const report = await service.downloadNeedReport(
-      workspace as BuyerWorkspace
+      workspace as BuyerWorkspace,
+      selectedApproachId
     );
     const objectUrl = URL.createObjectURL(report.blob);
     const anchor = document.createElement("a");

@@ -162,11 +162,12 @@ export class RapidMatchService {
             return decisionWorkspace(workspace, fixtureDecision(workspace, decision, selectedApproachId));
         }
     }
-    async downloadNeedReport(workspace) {
+    async downloadNeedReport(workspace, selectedApproachId) {
         const needProfile = requiredNeedProfile(workspace);
-        const response = await requestFile(routeFor(rapidMatchApiRoute.needReportPdf, {
+        const reportRoute = routeFor(rapidMatchApiRoute.needReportPdf, {
             needProfileId: needProfile.id
-        }), this.buyerAccessTokens.get(needProfile.id));
+        });
+        const response = await requestFile(`${reportRoute}?selectedApproachId=${encodeURIComponent(selectedApproachId)}`, this.buyerAccessTokens.get(needProfile.id));
         const contentType = response.headers.get("content-type")?.toLowerCase();
         if (!contentType?.includes("application/pdf")) {
             throw new Error("The report API did not return a PDF.");

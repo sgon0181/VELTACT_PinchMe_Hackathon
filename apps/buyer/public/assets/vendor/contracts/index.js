@@ -347,6 +347,9 @@ export const solutionDecisionSchema = z.object({
     approvedBy: z.string().trim().min(1),
     approvedAt: isoDateTimeSchema
 });
+export const needReportRequestSchema = z.object({
+    selectedApproachId: z.string().trim().min(1).optional()
+});
 export const supplierLifecycleStatusSchema = z.enum([
     "discovered",
     "approved_for_outreach",

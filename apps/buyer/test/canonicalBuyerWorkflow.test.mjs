@@ -76,7 +76,7 @@ test("downloads the canonical buyer-scoped PDF without exposing the token", asyn
   globalThis.fetch = async (url, init) => {
     assert.equal(
       url,
-      "https://buyer.veltact.example/api/need-profiles/need-123/report.pdf"
+      "https://buyer.veltact.example/api/need-profiles/need-123/report.pdf?selectedApproachId=approach-123"
     );
     assert.equal(init.method, "GET");
     assert.equal(
@@ -94,9 +94,12 @@ test("downloads the canonical buyer-scoped PDF without exposing the token", asyn
     });
   };
 
-  const report = await service.downloadNeedReport({
-    needProfile: { id: "need-123" }
-  });
+  const report = await service.downloadNeedReport(
+    {
+      needProfile: { id: "need-123" }
+    },
+    "approach-123"
+  );
   assert.equal(report.fileName, "Veltact Need Profile.pdf");
   assert.equal(report.blob.type, "application/pdf");
 });
