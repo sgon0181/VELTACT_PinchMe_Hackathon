@@ -24,12 +24,18 @@ import {
   createMarketplaceFixtureSupplierLeads,
   inferMarketplaceDemoScenario
 } from "./findFixtures.js";
+import { rankDiscoveredSupplierLeads } from "./candidateDiscovery.js";
+import {
+  createNeedReportRecord,
+  readNeedReportPdf
+} from "./needReport.js";
 import type { DeploymentSummary } from "@veltact/contracts";
 import { syncCommitmentPayment } from "../deployment/templates.js";
 import type {
   Engagement,
   LocalDemoPaymentEvidence,
   MarketplaceAuditEvent,
+  NeedReportRecord,
   NeedProfile,
   NeedRecord,
   PinchWebhookEvidence,
@@ -56,6 +62,12 @@ const solutionDecisions = new Map<string, SolutionDecision>(
   initialSnapshot?.solutionDecisions.map((decision) => [
     decision.needProfileId,
     decision
+  ]) ?? []
+);
+const needReports = new Map<string, NeedReportRecord>(
+  initialSnapshot?.needReports.map((report) => [
+    report.needProfileId,
+    report
   ]) ?? []
 );
 const supplierLeads = new Map<string, SupplierLead>(
@@ -119,8 +131,20 @@ export type SolutionDecisionCreationResult =
   | { status: "created"; solutionDecision: SolutionDecision }
   | { status: "not_found" }
   | { status: "research_required" }
+  | { status: "single_solution_required" }
   | { status: "invalid_approaches" }
   | { status: "discovery_started" };
+
+export type NeedReportResult =
+  | {
+      status: "ready";
+      report: NeedReportRecord;
+      pdf: Buffer;
+    }
+  | { status: "not_found" }
+  | { status: "research_required" }
+  | { status: "decision_required" }
+  | { status: "single_solution_required" };
 
 export type SupplierDiscoveryResult =
   | {
@@ -131,6 +155,7 @@ export type SupplierDiscoveryResult =
   | { status: "not_found" }
   | { status: "research_required" }
   | { status: "decision_required" }
+  | { status: "single_solution_required" }
   | { status: "external_path_required" };
 
 export type SupplierClaimResult =
@@ -294,6 +319,85 @@ export function getSolutionDecisionForNeed(
   return solutionDecisions.get(needId);
 }
 
+export function getNeedReportForNeed(
+  needId: string
+): NeedReportRecord | undefined {
+  return needReports.get(needId);
+}
+
+export function getOrCreateNeedReport(needId: string): NeedReportResult {
+  const need = needs.get(needId);
+  if (!need) {
+    return { status: "not_found" };
+  }
+  const researchResult = researchResults.get(needId);
+  if (!researchResult) {
+    return { status: "research_required" };
+  }
+  const solutionDecision = solutionDecisions.get(needId);
+  if (!solutionDecision) {
+    return { status: "decision_required" };
+  }
+  if (
+    solutionDecision.selectedApproachIds.length !== 1 ||
+    !researchResult.approaches.some(
+      (approach) =>
+        approach.id === solutionDecision.selectedApproachIds[0]
+    )
+  ) {
+    return { status: "single_solution_required" };
+  }
+
+  const existing = needReports.get(needId);
+  let report =
+    existing &&
+    existing.researchResultId === researchResult.id &&
+    existing.solutionDecisionId === solutionDecision.id &&
+    existing.selectedApproachId ===
+      solutionDecision.selectedApproachIds[0]
+      ? existing
+      : createNeedReportRecord({
+          needProfileId: needId,
+          profile: need.profile,
+          researchResult,
+          solutionDecision
+        });
+  let pdf: Buffer;
+  try {
+    pdf = readNeedReportPdf(report);
+  } catch {
+    report = createNeedReportRecord({
+      needProfileId: needId,
+      profile: need.profile,
+      researchResult,
+      solutionDecision
+    });
+    pdf = readNeedReportPdf(report);
+  }
+
+  if (report !== existing) {
+    needReports.set(needId, report);
+    commitMarketplaceMutation({
+      eventType: "need_report.generated",
+      actorType: "buyer",
+      actorId: need.buyerEmail,
+      entityType: "need",
+      entityId: needId,
+      metadata: {
+        reportId: report.id,
+        selectedApproachId: report.selectedApproachId,
+        sourceMode: report.sourceMode
+      }
+    });
+  }
+
+  return {
+    status: "ready",
+    report,
+    pdf
+  };
+}
+
 export function listSupplierLeadsForNeed(needId: string): SupplierLead[] {
   return [...supplierLeads.values()]
     .filter((lead) => lead.needProfileId === needId)
@@ -379,12 +483,16 @@ export function createSolutionDecision(
   }
 
   const selectedIds = new Set(input.selectedApproachIds);
+  if (
+    input.selectedApproachIds.length !== 1 ||
+    selectedIds.size !== 1
+  ) {
+    return { status: "single_solution_required" };
+  }
   const validApproachIds = new Set(
     researchResult.approaches.map((approach) => approach.id)
   );
   if (
-    selectedIds.size === 0 ||
-    selectedIds.size !== input.selectedApproachIds.length ||
     [...selectedIds].some((id) => !validApproachIds.has(id))
   ) {
     return { status: "invalid_approaches" };
@@ -413,6 +521,13 @@ export function createSolutionDecision(
     approvedAt
   };
   solutionDecisions.set(needId, solutionDecision);
+  const report = createNeedReportRecord({
+    needProfileId: needId,
+    profile: need.profile,
+    researchResult,
+    solutionDecision
+  });
+  needReports.set(needId, report);
   need.updatedAt = approvedAt;
   commitMarketplaceMutation({
     eventType: "solution_decision.recorded",
@@ -422,7 +537,8 @@ export function createSolutionDecision(
     entityId: needId,
     metadata: {
       decision: solutionDecision.decision,
-      selectedApproachCount: solutionDecision.selectedApproachIds.length
+      selectedApproachCount: solutionDecision.selectedApproachIds.length,
+      reportId: report.id
     }
   });
   return { status: "created", solutionDecision };
@@ -443,8 +559,18 @@ export async function discoverNeedSuppliers(
   if (!solutionDecision) {
     return { status: "decision_required" };
   }
+  if (solutionDecision.selectedApproachIds.length !== 1) {
+    return { status: "single_solution_required" };
+  }
   if (solutionDecision.decision === "local_trial") {
     return { status: "external_path_required" };
+  }
+  const selectedApproach = researchResult.approaches.find(
+    (approach) =>
+      approach.id === solutionDecision.selectedApproachIds[0]
+  );
+  if (!selectedApproach) {
+    return { status: "single_solution_required" };
   }
 
   const existing = listSupplierLeadsForNeed(needId);
@@ -456,24 +582,10 @@ export async function discoverNeedSuppliers(
     };
   }
 
-  const selectedApproachIds = new Set(
-    solutionDecision.selectedApproachIds
-  );
-  const requiredCapabilities = [
-    ...new Set(
-      researchResult.approaches
-        .filter((approach) => selectedApproachIds.has(approach.id))
-        .flatMap((approach) => approach.requiredCapabilities)
-    )
-  ];
   const execution = await runSupplierDiscovery(
     needId,
     need.profile,
-    requiredCapabilities.length > 0
-      ? requiredCapabilities
-      : need.profile.requiredCapabilities ??
-          need.profile.requiredCapability ??
-          []
+    selectedApproach
   );
   if (needs.get(needId) !== need) {
     return { status: "not_found" };
@@ -524,19 +636,20 @@ export function seedMarketplaceDemoFindState(
     need.profile,
     currentTime
   );
-  const discoveredLeads = createMarketplaceFixtureSupplierLeads(
-    needId,
-    need.profile,
-    currentTime
+  const selectedApproach = researchResult.approaches.find((approach) =>
+    approach.id.endsWith(
+      scenario === "robotics" ? ":integration" : ":recovery"
+    )
   );
+  if (!selectedApproach) {
+    return undefined;
+  }
   const solutionDecision: SolutionDecision = {
     id: `${needId}:decision:${scenario}`,
     needProfileId: needId,
     researchResultId: researchResult.id,
     decision: scenario === "robotics" ? "outsource" : "hybrid",
-    selectedApproachIds: researchResult.approaches.map(
-      (approach) => approach.id
-    ),
+    selectedApproachIds: [selectedApproach.id],
     buyerNote:
       scenario === "robotics"
         ? "Use a specialist integrator for feasibility, safety, proof of process and staged commissioning."
@@ -544,9 +657,26 @@ export function seedMarketplaceDemoFindState(
     approvedBy: need.buyerEmail,
     approvedAt: currentTime.toISOString()
   };
+  const discoveredLeads = rankDiscoveredSupplierLeads({
+    profile: need.profile,
+    selectedApproach,
+    candidates: createMarketplaceFixtureSupplierLeads(
+      needId,
+      need.profile,
+      currentTime
+    ),
+    publicBaseUrl: env.PUBLIC_BASE_URL
+  });
+  const report = createNeedReportRecord({
+    needProfileId: needId,
+    profile: need.profile,
+    researchResult,
+    solutionDecision
+  });
 
   researchResults.set(needId, researchResult);
   solutionDecisions.set(needId, solutionDecision);
+  needReports.set(needId, report);
   for (const lead of discoveredLeads) {
     supplierLeads.set(lead.id, lead);
   }
@@ -559,7 +689,9 @@ export function seedMarketplaceDemoFindState(
     entityId: needId,
     metadata: {
       scenario,
-      leadCount: discoveredLeads.length
+      leadCount: discoveredLeads.length,
+      reportId: report.id,
+      selectedApproachId: selectedApproach.id
     }
   });
   return {
@@ -1543,6 +1675,7 @@ export function resetMarketplaceStore(options: { preserveAudit?: boolean } = {})
   needs.clear();
   researchResults.clear();
   solutionDecisions.clear();
+  needReports.clear();
   supplierLeads.clear();
   invitations.clear();
   supplierClaims.clear();
@@ -1590,6 +1723,13 @@ export function reloadMarketplaceStore(
     snapshot.solutionDecisions.map((decision) => [
       decision.needProfileId,
       decision
+    ])
+  );
+  replaceMap(
+    needReports,
+    snapshot.needReports.map((report) => [
+      report.needProfileId,
+      report
     ])
   );
   replaceMap(
@@ -1684,6 +1824,7 @@ function persistMarketplaceState() {
     needs: [...needs.values()],
     researchResults: [...researchResults.values()],
     solutionDecisions: [...solutionDecisions.values()],
+    needReports: [...needReports.values()],
     supplierLeads: [...supplierLeads.values()],
     invitations: [...invitations.values()],
     supplierClaims: [...supplierClaims.values()],
