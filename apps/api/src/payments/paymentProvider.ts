@@ -24,6 +24,7 @@ export type AuthoritativePaymentResult = {
 };
 
 export interface PaymentProvider {
+  readonly provider?: HostedPaymentLink["provider"];
   createHostedPaymentLink(input: CreateHostedPaymentLinkInput): Promise<HostedPaymentLink>;
   getApprovedPaymentForLink(paymentLinkId: string): Promise<AuthoritativePaymentResult | undefined>;
 }

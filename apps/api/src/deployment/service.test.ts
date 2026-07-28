@@ -35,7 +35,12 @@ describe("DeploymentService", () => {
     );
     assert.deepEqual(
       robotics.milestones.map((milestone) => milestone.title),
-      ["Site assessment", "Design", "Installation", "Commissioning"]
+      [
+        "Site Assessment / Scoping Visit",
+        "Design",
+        "Installation",
+        "Commissioning"
+      ]
     );
     assert.equal(robotics.milestones[0]?.status, "awaiting_payment");
     assert.equal(robotics.status, "commitment_pending");
@@ -54,6 +59,10 @@ describe("DeploymentService", () => {
 
     assert.equal(deployment.status, "active");
     assert.equal(deployment.progressPercentage, 0);
+    assert.equal(
+      deployment.milestones[0]?.title,
+      "Site Assessment / Scoping Visit"
+    );
     assert.equal(deployment.milestones[0]?.status, "funded");
     assert.equal(deployment.milestones[0]?.progressPercentage, 0);
     assert.equal(

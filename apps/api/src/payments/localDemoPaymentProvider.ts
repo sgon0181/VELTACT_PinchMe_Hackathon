@@ -13,6 +13,8 @@ type LocalDemoHostedPaymentLinkIdentity = Pick<
 >;
 
 export class LocalDemoPaymentProvider implements PaymentProvider {
+  readonly provider = "local_demo" as const;
+
   async createHostedPaymentLink(
     input: CreateHostedPaymentLinkInput
   ): Promise<HostedPaymentLink> {

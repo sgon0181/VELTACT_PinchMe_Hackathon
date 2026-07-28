@@ -96,6 +96,9 @@ const marketplaceCommitmentPersistence: CommitmentPaymentPersistenceAdapter = {
 };
 
 const currentPaymentProvider: PaymentProvider = {
+  get provider() {
+    return getPaymentProvider().provider ?? "pinch";
+  },
   createHostedPaymentLink(input) {
     return getPaymentProvider().createHostedPaymentLink(input);
   },

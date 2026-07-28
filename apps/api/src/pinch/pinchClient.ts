@@ -30,6 +30,7 @@ export class PinchApiError extends Error {
 }
 
 export class PinchClient implements PaymentProvider {
+  readonly provider = "pinch" as const;
   private cachedToken: CachedToken | undefined;
 
   async health() {
@@ -133,6 +134,7 @@ export class PinchClient implements PaymentProvider {
     if (!paymentLinkId || !hostedCheckoutUrl) {
       throw new PinchApiError("Pinch payment link response was incomplete");
     }
+    assertPinchHostedCheckoutUrl(hostedCheckoutUrl);
 
     return {
       provider: "pinch",
@@ -144,6 +146,7 @@ export class PinchClient implements PaymentProvider {
 
   private async getAccessToken() {
     assertPinchSandboxConfiguration({
+      authUrl: env.PINCH_AUTH_URL,
       apiBaseUrl: env.PINCH_API_BASE_URL,
       secretKey: env.PINCH_SECRET_KEY
     });
@@ -236,23 +239,74 @@ export class PinchClient implements PaymentProvider {
 }
 
 export function assertPinchSandboxConfiguration(input: {
+  authUrl?: string;
   apiBaseUrl: string;
   secretKey: string;
 }) {
   const apiUrl = new URL(input.apiBaseUrl);
-  const usesSandboxPath =
-    apiUrl.pathname === "/test" || apiUrl.pathname.startsWith("/test/");
-  const isTestFixtureHost = apiUrl.hostname.endsWith(".test");
+  const usesOfficialSandbox =
+    apiUrl.protocol === "https:" &&
+    apiUrl.hostname === "api.getpinch.com.au" &&
+    ["/test", "/test/"].includes(apiUrl.pathname) &&
+    apiUrl.username === "" &&
+    apiUrl.password === "" &&
+    apiUrl.search === "" &&
+    apiUrl.hash === "";
+  const isTestFixtureHost =
+    apiUrl.protocol === "https:" && apiUrl.hostname.endsWith(".test");
   const usesObviousLiveSecret = input.secretKey
     .toLowerCase()
     .startsWith("sk_live_");
   if (
     usesObviousLiveSecret ||
-    (!usesSandboxPath && !isTestFixtureHost)
+    (!usesOfficialSandbox && !isTestFixtureHost)
   ) {
     throw new PinchApiError(
       "Live Pinch configuration is not permitted in this integration",
       503
+    );
+  }
+
+  if (input.authUrl) {
+    const authUrl = new URL(input.authUrl);
+    const usesOfficialAuth =
+      authUrl.protocol === "https:" &&
+      authUrl.hostname === "auth.getpinch.com.au" &&
+      authUrl.pathname === "/connect/token" &&
+      authUrl.username === "" &&
+      authUrl.password === "" &&
+      authUrl.search === "" &&
+      authUrl.hash === "";
+    const usesTestFixtureAuth =
+      authUrl.protocol === "https:" && authUrl.hostname.endsWith(".test");
+    if (!usesOfficialAuth && !usesTestFixtureAuth) {
+      throw new PinchApiError(
+        "Untrusted Pinch authentication configuration is not permitted",
+        503
+      );
+    }
+  }
+}
+
+export function assertPinchHostedCheckoutUrl(value: string) {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new PinchApiError(
+      "Pinch payment link response contained an untrusted URL"
+    );
+  }
+  if (
+    url.protocol !== "https:" ||
+    !["pay.getpinch.com.au", "sandbox.getpinch.com.au"].includes(
+      url.hostname
+    ) ||
+    url.username !== "" ||
+    url.password !== ""
+  ) {
+    throw new PinchApiError(
+      "Pinch payment link response contained an untrusted URL"
     );
   }
 }
