@@ -29,23 +29,7 @@ supplierExperienceRouter.get(
       });
       return;
     }
-    if (
-      context.invitation.status === "expired" ||
-      Date.parse(context.invitation.expiresAt) <= Date.now()
-    ) {
-      response.status(410).json({
-        status: "error",
-        message: "Supplier invitation has expired"
-      });
-      return;
-    }
-    if (context.invitation.status === "cancelled") {
-      response.status(409).json({
-        status: "error",
-        message: "Supplier invitation is closed"
-      });
-      return;
-    }
+    if (rejectUnavailableInvitation(response, context.invitation)) return;
 
     sendPdf(response, buildSupplierRfqPdf(context));
   }
@@ -62,6 +46,7 @@ supplierExperienceRouter.get(
       });
       return;
     }
+    if (rejectUnavailableInvitation(response, context.invitation)) return;
     if (!context.response) {
       response.status(409).json({
         status: "error",
@@ -128,6 +113,30 @@ function documentContext(
     matchReasons: match?.explanation ?? lead?.matchReasons ?? [],
     sourceDisclosure
   };
+}
+
+function rejectUnavailableInvitation(
+  response: Response,
+  invitation: SupplierDocumentContext["invitation"]
+) {
+  if (invitation.status === "cancelled") {
+    response.status(409).json({
+      status: "error",
+      message: "Supplier invitation is closed"
+    });
+    return true;
+  }
+  if (
+    invitation.status === "expired" ||
+    Date.parse(invitation.expiresAt) <= Date.now()
+  ) {
+    response.status(410).json({
+      status: "error",
+      message: "Supplier invitation has expired"
+    });
+    return true;
+  }
+  return false;
 }
 
 function sendPdf(

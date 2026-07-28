@@ -1,4 +1,11 @@
 import assert from "node:assert/strict";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync
+} from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { env } from "../env.js";
 import {
@@ -6,9 +13,12 @@ import {
   claimSupplierInvitation,
   createEngagement,
   createNeed,
+  getEngagement,
   recordAuthoritativePinchPayment,
   recordLocalDemoPayment,
+  reloadMarketplaceStore,
   resetMarketplaceStore,
+  saveSupplierCommitmentNotification,
   submitSupplierResponse
 } from "../marketplace/store.js";
 import {
@@ -22,21 +32,24 @@ let originalEmailEnv: {
   EMAIL_PROVIDER: typeof env.EMAIL_PROVIDER;
   EMAIL_FROM: typeof env.EMAIL_FROM;
   RESEND_API_KEY: typeof env.RESEND_API_KEY;
+  MARKETPLACE_DATA_FILE: typeof env.MARKETPLACE_DATA_FILE;
 };
 
 beforeEach(() => {
   originalEmailEnv = {
     EMAIL_PROVIDER: env.EMAIL_PROVIDER,
     EMAIL_FROM: env.EMAIL_FROM,
-    RESEND_API_KEY: env.RESEND_API_KEY
+    RESEND_API_KEY: env.RESEND_API_KEY,
+    MARKETPLACE_DATA_FILE: env.MARKETPLACE_DATA_FILE
   };
 });
 
 afterEach(() => {
-  Object.assign(env, originalEmailEnv);
   globalThis.fetch = originalFetch;
   resetCommitmentNotificationsForTests();
+  env.MARKETPLACE_DATA_FILE = undefined;
   resetMarketplaceStore();
+  Object.assign(env, originalEmailEnv);
 });
 
 describe("commitment-confirmed supplier email", { concurrency: false }, () => {
@@ -120,6 +133,94 @@ describe("commitment-confirmed supplier email", { concurrency: false }, () => {
     assert.equal(notification?.deliveryStatus, "not_sent");
     assert.match(notification?.errorMessage ?? "", /RESEND_API_KEY/);
     assert.equal(providerCalled, false);
+  });
+
+  test("persists sent state and suppresses a duplicate after store reload", async () => {
+    const directory = mkdtempSync(
+      path.join(os.tmpdir(), "veltact-commitment-")
+    );
+    const filePath = path.join(directory, "marketplace.json");
+    Object.assign(env, {
+      MARKETPLACE_DATA_FILE: filePath,
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key"
+    });
+    let providerCalls = 0;
+    globalThis.fetch = async () => {
+      providerCalls += 1;
+      return new Response(JSON.stringify({ id: "email-123" }), {
+        status: 200
+      });
+    };
+
+    try {
+      const engagementId = securedEngagement("pinch");
+      const first = await notifyCommitmentConfirmed(engagementId);
+      assert.equal(first?.deliveryStatus, "sent");
+      assert.equal(providerCalls, 1);
+      const persisted = JSON.parse(readFileSync(filePath, "utf8"));
+      assert.equal(
+        persisted.commitmentNotifications[0].deliveryStatus,
+        "sent"
+      );
+
+      assert.equal(reloadMarketplaceStore(filePath), true);
+      resetCommitmentNotificationsForTests();
+      const recovered = await notifyCommitmentConfirmed(engagementId);
+
+      assert.equal(recovered?.deliveryStatus, "sent");
+      assert.equal(providerCalls, 1);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("does not replay a persisted queued notification after restart", async () => {
+    const directory = mkdtempSync(
+      path.join(os.tmpdir(), "veltact-commitment-queued-")
+    );
+    const filePath = path.join(directory, "marketplace.json");
+    Object.assign(env, {
+      MARKETPLACE_DATA_FILE: filePath,
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key"
+    });
+
+    try {
+      const engagementId = securedEngagement("pinch");
+      const engagement = getEngagement(engagementId);
+      assert.ok(engagement);
+      const now = new Date().toISOString();
+      saveSupplierCommitmentNotification({
+        id: `commitment-notification-${engagementId}`,
+        engagementId,
+        supplierId: engagement.supplierId,
+        notificationType: "commitment_confirmed",
+        channel: "email",
+        destination: "supplier@example.com",
+        deliveryStatus: "queued",
+        createdAt: now,
+        updatedAt: now
+      });
+      assert.equal(reloadMarketplaceStore(filePath), true);
+      resetCommitmentNotificationsForTests();
+      let providerCalled = false;
+      globalThis.fetch = async () => {
+        providerCalled = true;
+        return new Response(JSON.stringify({ id: "email-123" }), {
+          status: 200
+        });
+      };
+
+      const recovered = await notifyCommitmentConfirmed(engagementId);
+
+      assert.equal(recovered?.deliveryStatus, "queued");
+      assert.equal(providerCalled, false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 

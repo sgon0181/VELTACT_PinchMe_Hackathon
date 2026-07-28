@@ -7,7 +7,10 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { DeploymentSummary } from "@veltact/contracts";
+import type {
+  DeploymentSummary,
+  SupplierCommitmentNotification
+} from "@veltact/contracts";
 import type {
   Engagement,
   LocalDemoPaymentEvidence,
@@ -36,6 +39,7 @@ export type MarketplaceSnapshot = {
   outreachDeliveries: SupplierOutreachDelivery[];
   responses: SupplierResponse[];
   engagements: Engagement[];
+  commitmentNotifications: SupplierCommitmentNotification[];
   deployments: DeploymentSummary[];
   processedPinchEventIds: string[];
   pinchWebhookEvidence: PinchWebhookEvidence[];
@@ -83,6 +87,9 @@ export function loadMarketplaceSnapshot(
     outreachDeliveries: parsed.outreachDeliveries,
     responses: parsed.responses,
     engagements: parsed.engagements,
+    commitmentNotifications: arrayOrEmpty(
+      parsed.commitmentNotifications
+    ),
     deployments: arrayOrEmpty(parsed.deployments),
     processedPinchEventIds: parsed.processedPinchEventIds,
     pinchWebhookEvidence: parsed.pinchWebhookEvidence,

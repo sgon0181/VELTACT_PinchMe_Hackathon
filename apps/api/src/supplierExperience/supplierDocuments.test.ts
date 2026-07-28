@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { afterEach, describe, test } from "node:test";
-import express from "express";
+import { app } from "../app.js";
 import {
   approveSupplierOutreachForNeed,
   claimSupplierInvitation,
@@ -9,7 +9,6 @@ import {
   resetMarketplaceStore,
   submitSupplierResponse
 } from "../marketplace/store.js";
-import { supplierExperienceRouter } from "./router.js";
 import {
   buildSupplierQuotePdf,
   buildSupplierRfqPdf,
@@ -42,15 +41,13 @@ describe("token-scoped supplier PDF documents", () => {
     assert.doesNotMatch(quoteText, /supplier has been paid|payout complete/i);
   });
 
-  test("serves the reserved canonical PDF routes in claim-response order", async () => {
+  test("serves and protects canonical PDF routes through the real app", async () => {
     const need = createNeed({
       buyerEmail: "buyer@example.com",
       profile: documentContext().need.profile
     });
     assert.ok(approveSupplierOutreachForNeed(need.id));
     const invitation = need.invitations[0];
-    const app = express();
-    app.use("/api", supplierExperienceRouter);
     const server = createServer(app);
     await new Promise<void>((resolve) => {
       server.listen(0, "127.0.0.1", resolve);
@@ -96,6 +93,28 @@ describe("token-scoped supplier PDF documents", () => {
         quote.headers.get("content-disposition") ?? "",
         /quote-summary\.pdf/
       );
+
+      const unknownRfq = await fetch(
+        `${baseUrl.replace(invitation.token, "unknown-token")}/rfq.pdf`
+      );
+      const unknownQuote = await fetch(
+        `${baseUrl.replace(invitation.token, "unknown-token")}/quote.pdf`
+      );
+      assert.equal(unknownRfq.status, 404);
+      assert.equal(unknownQuote.status, 404);
+
+      invitation.status = "cancelled";
+      const cancelledRfq = await fetch(`${baseUrl}/rfq.pdf`);
+      const cancelledQuote = await fetch(`${baseUrl}/quote.pdf`);
+      assert.equal(cancelledRfq.status, 409);
+      assert.equal(cancelledQuote.status, 409);
+
+      invitation.status = "responded";
+      invitation.expiresAt = new Date(Date.now() - 1_000).toISOString();
+      const expiredRfq = await fetch(`${baseUrl}/rfq.pdf`);
+      const expiredQuote = await fetch(`${baseUrl}/quote.pdf`);
+      assert.equal(expiredRfq.status, 410);
+      assert.equal(expiredQuote.status, 410);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
