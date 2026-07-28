@@ -69,12 +69,13 @@ const envSchema = z.object({
   PINCH_WEBHOOK_SECRET: optionalProviderString
 }).superRefine((value, context) => {
   if (value.PAYMENT_PROVIDER !== "pinch") return;
-  for (const field of [
+  const requiredFields = [
     "PINCH_CLIENT_ID",
     "PINCH_SECRET_KEY",
     "PINCH_AUTH_URL",
     "PINCH_API_BASE_URL"
-  ] as const) {
+  ] as const;
+  for (const field of requiredFields) {
     if (value[field]) continue;
     context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -82,14 +83,45 @@ const envSchema = z.object({
       message: `${field} is required when PAYMENT_PROVIDER=pinch`
     });
   }
+
+  if (value.NODE_ENV !== "production") return;
+  if (!value.PINCH_WEBHOOK_SECRET) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["PINCH_WEBHOOK_SECRET"],
+      message:
+        "PINCH_WEBHOOK_SECRET is required for authoritative payment confirmation in production"
+    });
+  }
+
+  for (const [field, configuredUrl] of [
+    ["WEB_ORIGIN", value.WEB_ORIGIN],
+    ["PUBLIC_BASE_URL", value.PUBLIC_BASE_URL ?? value.WEB_ORIGIN],
+    [
+      "PINCH_RETURN_URL",
+      value.PINCH_RETURN_URL ??
+        new URL("/api/pinch/return", value.WEB_ORIGIN).toString()
+    ]
+  ] as const) {
+    if (new URL(configuredUrl).protocol === "https:") continue;
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [field],
+      message: `${field} must use HTTPS when Pinch is enabled in production`
+    });
+  }
 });
 
-const rawEnv = {
-  ...process.env,
-  PINCH_CLIENT_ID: process.env.PINCH_CLIENT_ID ?? process.env.PINCH_APPLICATION_ID
-};
+export function parseEnvironment(
+  source: Record<string, unknown>
+) {
+  return envSchema.parse({
+    ...source,
+    PINCH_CLIENT_ID: source.PINCH_CLIENT_ID ?? source.PINCH_APPLICATION_ID
+  });
+}
 
-const parsedEnv = envSchema.parse(rawEnv);
+const parsedEnv = parseEnvironment(process.env);
 
 export const env = {
   ...parsedEnv,

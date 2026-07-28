@@ -62,6 +62,18 @@ npm test
 npm run build
 ```
 
+Run the read-only preflight against the assigned HTTPS origin:
+
+```bash
+npm run smoke:staging -- --origin https://YOUR-STAGING-ORIGIN
+```
+
+The preflight verifies production mode, persistence, account protection,
+OpenAI, email, SMS, controlled recipient overrides, Pinch configuration, live
+Pinch sandbox authentication and the public pages. It does not send a message,
+create a payer or Payment Link, or simulate an authoritative webhook. Those
+provider actions remain part of the physical release verification below.
+
 Verify on staging:
 
 - `/api/health` returns `status: ok`.

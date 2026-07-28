@@ -77,7 +77,15 @@ app.get("/api/health", (_request, response) => {
       v2Persistence: Boolean(env.VELTACT_V2_DATA_FILE),
       accountPersistence: Boolean(env.ACCOUNT_DATA_FILE),
       buyerCapabilityAuth: env.BUYER_CAPABILITY_AUTH_REQUIRED,
-      pinch: env.PAYMENT_PROVIDER === "pinch",
+      pinch: Boolean(
+        env.PAYMENT_PROVIDER === "pinch" &&
+          env.PINCH_CLIENT_ID &&
+          env.PINCH_SECRET_KEY &&
+          env.PINCH_AUTH_URL &&
+          env.PINCH_API_BASE_URL &&
+          new URL(env.PINCH_RETURN_URL).protocol === "https:" &&
+          env.PINCH_WEBHOOK_SECRET
+      ),
       localDemoPayment:
         env.PAYMENT_PROVIDER === "local_demo" && env.NODE_ENV !== "production",
       openAi: Boolean(env.OPENAI_API_KEY),
@@ -92,6 +100,10 @@ app.get("/api/health", (_request, response) => {
                   ? env.RESEND_API_KEY
                   : env.SENDGRID_API_KEY)
             ),
+      outreachRecipientOverrides: Boolean(
+        env.SUPPLIER_OUTREACH_EMAIL_TO &&
+          env.SUPPLIER_OUTREACH_SMS_TO
+      ),
       sms: Boolean(
         env.SMS_PROVIDER === "twilio" &&
           env.TWILIO_ACCOUNT_SID &&
