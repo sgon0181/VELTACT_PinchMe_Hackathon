@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="same-origin" />
+    <title>Sign in | Veltact</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./account.css?v=account-1" />
+  </head>
+  <body class="account-page" data-account-page="signin">
+    <div class="account-shell">
+      <header class="account-header">
+        <a class="account-wordmark" href="./landing.html" aria-label="Veltact home">
+          <span class="account-wordmark-mark" aria-hidden="true"></span>
+          <span>Veltact</span>
+        </a>
+        <nav class="account-nav" aria-label="Account navigation">
+          <a href="./signin.html" aria-current="page">Sign in</a>
+          <a href="./create-account.html">Create account</a>
+          <a class="try-demo" href="./index.html">Try demo</a>
+        </nav>
+      </header>
+
+      <main class="account-main">
+        <section class="account-context" aria-labelledby="account-context-title">
+          <span class="account-eyebrow">Account access</span>
+          <h1 id="account-context-title">Return to your procurement workspace.</h1>
+          <p>
+            Sign in with your staging account, then continue to Veltact's buyer
+            workflow. Requirement and supplier links retain their existing
+            scoped security.
+          </p>
+          <p class="account-boundary">
+            The public demo does not require an account. Supplier invitations
+            remain private, token-scoped links.
+          </p>
+        </section>
+
+        <section class="account-access" aria-live="polite">
+          <div id="account-form-panel" class="account-form-panel">
+            <span class="account-label">Welcome back</span>
+            <h2>Sign in</h2>
+            <p class="account-intro">
+              Use the email and password registered for this staging environment.
+            </p>
+            <form id="account-form" class="account-form">
+              <label class="account-field">
+                Email
+                <input
+                  name="email"
+                  type="email"
+                  autocomplete="email"
+                  inputmode="email"
+                  required
+                />
+              </label>
+              <label class="account-field">
+                Password
+                <input
+                  name="password"
+                  type="password"
+                  autocomplete="current-password"
+                  minlength="12"
+                  maxlength="128"
+                  data-password-field="true"
+                  required
+                />
+              </label>
+              <label class="password-visibility">
+                <input id="show-passwords" type="checkbox" />
+                Show password
+              </label>
+              <button class="account-primary" type="submit">Sign in</button>
+            </form>
+            <p class="account-switch">
+              New to Veltact? <a href="./create-account.html">Create account</a>
+            </p>
+          </div>
+
+          <div id="account-session" class="account-session" hidden>
+            <span class="account-label">Session active</span>
+            <h2>Signed in</h2>
+            <p>
+              You are signed in as
+              <strong id="session-email" class="session-email"></strong>.
+            </p>
+            <div class="session-actions">
+              <a class="account-primary" href="./index.html">Continue to buyer workspace</a>
+              <button id="sign-out-button" class="account-secondary" type="button">Sign out</button>
+            </div>
+          </div>
+          <p id="account-status" class="account-status" role="status"></p>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="./assets/accountAccess.js?v=account-1"></script>
+  </body>
+</html>
