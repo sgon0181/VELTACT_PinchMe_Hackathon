@@ -143,8 +143,8 @@ export type NeedReportResult =
     }
   | { status: "not_found" }
   | { status: "research_required" }
-  | { status: "decision_required" }
-  | { status: "single_solution_required" };
+  | { status: "selection_required" }
+  | { status: "invalid_selection" };
 
 export type SupplierDiscoveryResult =
   | {
@@ -325,7 +325,11 @@ export function getNeedReportForNeed(
   return needReports.get(needId);
 }
 
-export function getOrCreateNeedReport(needId: string): NeedReportResult {
+export function getOrCreateNeedReport(
+  needId: string,
+  selectedApproachId?: string,
+  currentTime = new Date()
+): NeedReportResult {
   const need = needs.get(needId);
   if (!need) {
     return { status: "not_found" };
@@ -335,32 +339,62 @@ export function getOrCreateNeedReport(needId: string): NeedReportResult {
     return { status: "research_required" };
   }
   const solutionDecision = solutionDecisions.get(needId);
-  if (!solutionDecision) {
-    return { status: "decision_required" };
+  const hasExplicitSelection = selectedApproachId !== undefined;
+  const requestedApproachId = selectedApproachId?.trim();
+  if (hasExplicitSelection && !requestedApproachId) {
+    return { status: "invalid_selection" };
+  }
+  const decisionApproachId =
+    solutionDecision?.selectedApproachIds.length === 1
+      ? solutionDecision.selectedApproachIds[0]
+      : undefined;
+  const resolvedApproachId = requestedApproachId ?? decisionApproachId;
+  if (!resolvedApproachId) {
+    return { status: "selection_required" };
   }
   if (
-    solutionDecision.selectedApproachIds.length !== 1 ||
     !researchResult.approaches.some(
-      (approach) =>
-        approach.id === solutionDecision.selectedApproachIds[0]
+      (approach) => approach.id === resolvedApproachId
     )
   ) {
-    return { status: "single_solution_required" };
+    return { status: "invalid_selection" };
   }
+  const matchingDecision =
+    solutionDecision?.researchResultId === researchResult.id &&
+    decisionApproachId === resolvedApproachId
+      ? solutionDecision
+      : undefined;
+  const selectionProvenance: NeedReportRecord["selectionProvenance"] =
+    hasExplicitSelection
+      ? {
+          source: "report_request",
+          selectedBy: need.buyerEmail,
+          selectedAt: currentTime.toISOString()
+        }
+      : {
+          source: "solution_decision",
+          selectedBy: matchingDecision?.approvedBy ?? need.buyerEmail,
+          selectedAt:
+            matchingDecision?.approvedAt ?? currentTime.toISOString()
+        };
 
   const existing = needReports.get(needId);
   let report =
     existing &&
     existing.researchResultId === researchResult.id &&
-    existing.solutionDecisionId === solutionDecision.id &&
-    existing.selectedApproachId ===
-      solutionDecision.selectedApproachIds[0]
-      ? existing
+    existing.selectedApproachId === resolvedApproachId
+      ? withNeedReportSelectionProvenance(
+          existing,
+          need.buyerEmail,
+          matchingDecision
+        )
       : createNeedReportRecord({
           needProfileId: needId,
           profile: need.profile,
           researchResult,
-          solutionDecision
+          selectedApproachId: resolvedApproachId,
+          selectionProvenance,
+          solutionDecision: matchingDecision
         });
   let pdf: Buffer;
   try {
@@ -370,7 +404,12 @@ export function getOrCreateNeedReport(needId: string): NeedReportResult {
       needProfileId: needId,
       profile: need.profile,
       researchResult,
-      solutionDecision
+      selectedApproachId: resolvedApproachId,
+      selectionProvenance: report.selectionProvenance,
+      solutionDecision:
+        report.solutionDecisionId === matchingDecision?.id
+          ? matchingDecision
+          : undefined
     });
     pdf = readNeedReportPdf(report);
   }
@@ -386,6 +425,10 @@ export function getOrCreateNeedReport(needId: string): NeedReportResult {
       metadata: {
         reportId: report.id,
         selectedApproachId: report.selectedApproachId,
+        selectionSource: report.selectionProvenance.source,
+        ...(report.solutionDecisionId
+          ? { solutionDecisionId: report.solutionDecisionId }
+          : {}),
         sourceMode: report.sourceMode
       }
     });
@@ -395,6 +438,26 @@ export function getOrCreateNeedReport(needId: string): NeedReportResult {
     status: "ready",
     report,
     pdf
+  };
+}
+
+function withNeedReportSelectionProvenance(
+  report: NeedReportRecord,
+  buyerEmail: string,
+  solutionDecision: SolutionDecision | undefined
+): NeedReportRecord {
+  if (report.selectionProvenance) {
+    return report;
+  }
+  return {
+    ...report,
+    selectionProvenance: {
+      source: report.solutionDecisionId
+        ? "solution_decision"
+        : "report_request",
+      selectedBy: solutionDecision?.approvedBy ?? buyerEmail,
+      selectedAt: report.generatedAt
+    }
   };
 }
 
@@ -521,12 +584,26 @@ export function createSolutionDecision(
     approvedAt
   };
   solutionDecisions.set(needId, solutionDecision);
-  const report = createNeedReportRecord({
-    needProfileId: needId,
-    profile: need.profile,
-    researchResult,
-    solutionDecision
-  });
+  const existingReport = needReports.get(needId);
+  const report =
+    existingReport?.researchResultId === researchResult.id &&
+    existingReport.selectedApproachId ===
+      solutionDecision.selectedApproachIds[0] &&
+    existingReport.selectionProvenance?.source === "report_request"
+      ? existingReport
+      : createNeedReportRecord({
+          needProfileId: needId,
+          profile: need.profile,
+          researchResult,
+          selectedApproachId:
+            solutionDecision.selectedApproachIds[0],
+          selectionProvenance: {
+            source: "solution_decision",
+            selectedBy: solutionDecision.approvedBy,
+            selectedAt: solutionDecision.approvedAt
+          },
+          solutionDecision
+        });
   needReports.set(needId, report);
   need.updatedAt = approvedAt;
   commitMarketplaceMutation({
@@ -671,6 +748,12 @@ export function seedMarketplaceDemoFindState(
     needProfileId: needId,
     profile: need.profile,
     researchResult,
+    selectedApproachId: selectedApproach.id,
+    selectionProvenance: {
+      source: "solution_decision",
+      selectedBy: solutionDecision.approvedBy,
+      selectedAt: solutionDecision.approvedAt
+    },
     solutionDecision
   });
 

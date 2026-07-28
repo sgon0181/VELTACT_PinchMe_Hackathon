@@ -20,22 +20,16 @@ describe("persisted need report", () => {
       new Date("2026-07-28T00:00:00.000Z")
     );
     const selectedApproach = researchResult.approaches[1];
-    const solutionDecision: SolutionDecision = {
-      id: "decision-report-plc",
-      needProfileId,
-      researchResultId: researchResult.id,
-      decision: "outsource",
-      selectedApproachIds: [selectedApproach.id],
-      buyerNote: "Use a specialist for controlled recovery.",
-      approvedBy: "buyer@example.com",
-      approvedAt: "2026-07-28T00:00:00.000Z"
-    };
-
     const report = createNeedReportRecord({
       needProfileId,
       profile,
       researchResult,
-      solutionDecision
+      selectedApproachId: selectedApproach.id,
+      selectionProvenance: {
+        source: "report_request",
+        selectedBy: "buyer@example.com",
+        selectedAt: "2026-07-28T00:00:00.000Z"
+      }
     });
     const pdf = readNeedReportPdf(report);
     const pdfText = pdf.toString("latin1");
@@ -43,6 +37,8 @@ describe("persisted need report", () => {
     assert.equal(pdf.subarray(0, 8).toString(), "%PDF-1.4");
     assert.equal(report.sourceMode, "fixture");
     assert.equal(report.selectedApproachId, selectedApproach.id);
+    assert.equal(report.solutionDecisionId, undefined);
+    assert.equal(report.selectionProvenance.source, "report_request");
     assert.equal(report.byteLength, pdf.byteLength);
     assert.equal(report.sha256.length, 64);
     assert.match(pdfText, /VELTACT NEED AND SOLUTION REPORT/);
@@ -50,6 +46,12 @@ describe("persisted need report", () => {
     assert.match(
       pdfText,
       /SELECTED - Controlled recovery from a verified baseline/
+    );
+    assert.match(pdfText, /Execution decision: Not recorded/);
+    assert.match(pdfText, /does not choose local/);
+    assert.match(
+      pdfText,
+      /execution, hybrid delivery or supplier outsourcing/
     );
     assert.match(pdfText, /Validation and recurrence prevention/);
     assert.match(pdfText, /EVIDENCE AND CITATIONS/);
@@ -77,6 +79,12 @@ describe("persisted need report", () => {
       needProfileId,
       profile,
       researchResult,
+      selectedApproachId: solutionDecision.selectedApproachIds[0],
+      selectionProvenance: {
+        source: "solution_decision",
+        selectedBy: solutionDecision.approvedBy,
+        selectedAt: solutionDecision.approvedAt
+      },
       solutionDecision
     });
 

@@ -28,37 +28,46 @@ export function createNeedReportRecord(input: {
   needProfileId: string;
   profile: MarketplaceNeedProfile;
   researchResult: SolutionResearchResult;
-  solutionDecision: SolutionDecision;
+  selectedApproachId: string;
+  selectionProvenance: NeedReportRecord["selectionProvenance"];
+  solutionDecision?: SolutionDecision;
 }): NeedReportRecord {
-  if (input.solutionDecision.selectedApproachIds.length !== 1) {
-    throw new Error("A need report requires exactly one selected solution");
-  }
-
-  const selectedApproachId =
-    input.solutionDecision.selectedApproachIds[0];
   const selectedApproach = input.researchResult.approaches.find(
-    (approach) => approach.id === selectedApproachId
+    (approach) => approach.id === input.selectedApproachId
   );
   if (!selectedApproach) {
     throw new Error(
       "The selected solution does not belong to the persisted research result"
     );
   }
+  if (
+    input.solutionDecision &&
+    (input.solutionDecision.researchResultId !== input.researchResult.id ||
+      input.solutionDecision.selectedApproachIds.length !== 1 ||
+      input.solutionDecision.selectedApproachIds[0] !==
+        input.selectedApproachId)
+  ) {
+    throw new Error(
+      "The execution decision does not match the selected report pathway"
+    );
+  }
 
-  const generatedAt = input.solutionDecision.approvedAt;
+  const generatedAt = input.selectionProvenance.selectedAt;
   const pdf = renderNeedReportPdf({
     profile: input.profile,
     researchResult: input.researchResult,
     solutionDecision: input.solutionDecision,
-    selectedApproachId
+    selectedApproachId: input.selectedApproachId,
+    selectedAt: input.selectionProvenance.selectedAt
   });
 
   return {
-    id: `${input.needProfileId}:report:${input.solutionDecision.id}`,
+    id: `${input.needProfileId}:report:${input.researchResult.id}:${input.selectedApproachId}`,
     needProfileId: input.needProfileId,
     researchResultId: input.researchResult.id,
-    solutionDecisionId: input.solutionDecision.id,
-    selectedApproachId,
+    solutionDecisionId: input.solutionDecision?.id,
+    selectedApproachId: input.selectedApproachId,
+    selectionProvenance: input.selectionProvenance,
     sourceMode: input.researchResult.sourceMode,
     generatedAt,
     fileName: `veltact-need-report-${safeFileSegment(
@@ -85,8 +94,9 @@ export function readNeedReportPdf(report: NeedReportRecord): Buffer {
 function renderNeedReportPdf(input: {
   profile: MarketplaceNeedProfile;
   researchResult: SolutionResearchResult;
-  solutionDecision: SolutionDecision;
+  solutionDecision?: SolutionDecision;
   selectedApproachId: string;
+  selectedAt: string;
 }): Buffer {
   const lines: ReportLine[] = [];
   const add = (
@@ -108,7 +118,7 @@ function renderNeedReportPdf(input: {
   });
   add(input.profile.title, { font: "bold", size: 13, gapAfter: 4 });
   add(
-    `Generated ${formatDateTime(input.solutionDecision.approvedAt)} | Evidence mode: ${input.researchResult.sourceMode.toUpperCase()}`,
+    `Selected ${formatDateTime(input.selectedAt)} | Evidence mode: ${input.researchResult.sourceMode.toUpperCase()}`,
     { size: 9, gapAfter: 12 }
   );
 
@@ -186,10 +196,25 @@ function renderNeedReportPdf(input: {
     throw new Error("Selected solution disappeared while rendering report");
   }
 
-  add("APPROVED SCOPE", { font: "bold", size: 12, gapAfter: 4 });
-  add(`Decision: ${formatLabel(input.solutionDecision.decision)}`);
+  add("SELECTED PATHWAY DETAIL", {
+    font: "bold",
+    size: 12,
+    gapAfter: 4
+  });
+  add(
+    `Execution decision: ${
+      input.solutionDecision
+        ? formatLabel(input.solutionDecision.decision)
+        : "Not recorded"
+    }`
+  );
   add(`Selected pathway: ${selectedApproach.title}`);
-  if (input.solutionDecision.buyerNote) {
+  if (!input.solutionDecision) {
+    add(
+      "Downloading this report records the selected pathway only. It does not choose local execution, hybrid delivery or supplier outsourcing."
+    );
+  }
+  if (input.solutionDecision?.buyerNote) {
     add(`Buyer note: ${input.solutionDecision.buyerNote}`);
   }
   add("Safe factory preparation:", { font: "bold", size: 10 });

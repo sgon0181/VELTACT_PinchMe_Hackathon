@@ -48,8 +48,13 @@ export type NeedReportRecord = {
   id: string;
   needProfileId: string;
   researchResultId: string;
-  solutionDecisionId: string;
+  solutionDecisionId?: string;
   selectedApproachId: string;
+  selectionProvenance: {
+    source: "report_request" | "solution_decision";
+    selectedBy: string;
+    selectedAt: string;
+  };
   sourceMode: SolutionResearchResult["sourceMode"];
   generatedAt: string;
   fileName: string;

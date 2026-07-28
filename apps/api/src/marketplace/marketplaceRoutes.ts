@@ -142,6 +142,10 @@ const solutionDecisionSchema = z.object({
   buyerNote: z.string().trim().min(1).optional()
 });
 
+const needReportQuerySchema = z.object({
+  selectedApproachId: z.string().trim().min(1).optional()
+});
+
 const demoResetSchema = z.object({
   scenario: z
     .enum(["plc", "robotics", "robotic-integration"])
@@ -381,8 +385,21 @@ marketplaceRouter.get(
     }
     if (!requireBuyerAccess(request, response, need.id)) return;
 
+    const parsedQuery = needReportQuerySchema.safeParse(request.query);
+    if (!parsedQuery.success) {
+      response.status(400).json({
+        status: "error",
+        message: "Invalid report pathway selection",
+        issues: parsedQuery.error.flatten().fieldErrors
+      });
+      return;
+    }
+
     try {
-      const result = getOrCreateNeedReport(need.id);
+      const result = getOrCreateNeedReport(
+        need.id,
+        parsedQuery.data.selectedApproachId
+      );
       if (result.status === "research_required") {
         response.status(409).json({
           status: "error",
@@ -390,19 +407,19 @@ marketplaceRouter.get(
         });
         return;
       }
-      if (result.status === "decision_required") {
-        response.status(409).json({
+      if (result.status === "selection_required") {
+        response.status(400).json({
           status: "error",
           message:
-            "Select exactly one solution pathway before downloading the report"
+            "selectedApproachId is required before an execution decision exists"
         });
         return;
       }
-      if (result.status === "single_solution_required") {
-        response.status(409).json({
+      if (result.status === "invalid_selection") {
+        response.status(400).json({
           status: "error",
           message:
-            "The report requires exactly one selected solution pathway"
+            "The selected approach does not belong to the current research result"
         });
         return;
       }
