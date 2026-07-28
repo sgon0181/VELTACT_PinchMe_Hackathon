@@ -14,6 +14,7 @@ import {
 } from "./store.js";
 import {
   attachRealtime,
+  emitCommitmentNotificationUpdated,
   emitSupplierResponseSubmitted
 } from "../realtime.js";
 
@@ -45,6 +46,17 @@ describe("canonical RapidMatch realtime", { concurrency: false }, () => {
 
     const httpServer = createServer();
     const socketServer = attachRealtime(httpServer);
+    assert.deepEqual(
+      (
+        socketServer as unknown as {
+          opts: { connectionStateRecovery?: unknown };
+        }
+      ).opts.connectionStateRecovery,
+      {
+        maxDisconnectionDuration: 120_000,
+        skipMiddlewares: true
+      }
+    );
     await new Promise<void>((resolve) => {
       httpServer.listen(0, "127.0.0.1", resolve);
     });
@@ -63,11 +75,18 @@ describe("canonical RapidMatch realtime", { concurrency: false }, () => {
     try {
       await Promise.all([connected(authorised), connected(unauthorised)]);
       let unauthorisedUpdate = false;
+      let unauthorisedCommitmentUpdate = false;
       let nonCanonicalEvent = false;
       unauthorised.on(
         rapidMatchSocketEvent.supplierResponseSubmitted,
         () => {
           unauthorisedUpdate = true;
+        }
+      );
+      unauthorised.on(
+        rapidMatchSocketEvent.commitmentNotificationUpdated,
+        () => {
+          unauthorisedCommitmentUpdate = true;
         }
       );
       authorised.onAny((eventName) => {
@@ -123,6 +142,31 @@ describe("canonical RapidMatch realtime", { concurrency: false }, () => {
       assert.equal(unauthorisedUpdate, false);
       assert.equal(nonCanonicalEvent, false);
       assert.doesNotMatch(JSON.stringify(update), new RegExp(need.invitations[0].token));
+
+      const commitmentUpdatePromise = onceEvent(
+        authorised,
+        rapidMatchSocketEvent.commitmentNotificationUpdated
+      );
+      emitCommitmentNotificationUpdated(need.id, {
+        id: "commitment-notification-123",
+        engagementId: "engagement-123",
+        supplierId: submitted.supplierResponse.supplierId,
+        notificationType: "commitment_confirmed",
+        channel: "email",
+        destination: "supplier@example.com",
+        deliveryStatus: "sent",
+        sentAt: "2026-07-28T00:00:00.000Z",
+        createdAt: "2026-07-28T00:00:00.000Z",
+        updatedAt: "2026-07-28T00:00:00.000Z"
+      });
+      const commitmentUpdate = await commitmentUpdatePromise;
+      await wait(30);
+      assert.equal(commitmentUpdate.needProfileId, need.id);
+      assert.equal(
+        commitmentUpdate.commitmentNotification.deliveryStatus,
+        "sent"
+      );
+      assert.equal(unauthorisedCommitmentUpdate, false);
     } finally {
       authorised.close();
       unauthorised.close();
