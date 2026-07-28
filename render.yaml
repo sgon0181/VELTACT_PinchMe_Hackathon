@@ -27,6 +27,8 @@ services:
         value: /var/data/veltact/marketplace.json
       - key: VELTACT_V2_DATA_FILE
         value: /var/data/veltact/veltact-v2.json
+      - key: ACCOUNT_DATA_FILE
+        value: /var/data/veltact/accounts.json
       - key: BUYER_CAPABILITY_AUTH_REQUIRED
         value: "true"
       - key: PAYMENT_PROVIDER

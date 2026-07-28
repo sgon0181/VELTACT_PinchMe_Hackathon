@@ -119,7 +119,7 @@ describe("isolated account access", () => {
     assert.equal(invalidBody.message, "Email or password is incorrect.");
   });
 
-  test("retains account credentials across service restarts without retaining sessions", async () => {
+  test("retains account credentials across application restarts without retaining sessions", async () => {
     const directory = await createTemporaryDirectory();
     const dataFile = path.join(directory, "accounts.json");
     const first = await startAccountServer(dataFile);

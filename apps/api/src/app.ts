@@ -60,7 +60,10 @@ app.use(
     windowMs: 15 * 60_000,
     scope: "accounts"
   }),
-  createDefaultAccountRouter()
+  createDefaultAccountRouter({
+    dataFile: env.ACCOUNT_DATA_FILE,
+    secureCookies: env.NODE_ENV === "production"
+  })
 );
 
 app.get("/api/health", (_request, response) => {
@@ -72,6 +75,7 @@ app.get("/api/health", (_request, response) => {
     readiness: {
       persistence: Boolean(env.MARKETPLACE_DATA_FILE),
       v2Persistence: Boolean(env.VELTACT_V2_DATA_FILE),
+      accountPersistence: Boolean(env.ACCOUNT_DATA_FILE),
       buyerCapabilityAuth: env.BUYER_CAPABILITY_AUTH_REQUIRED,
       pinch: env.PAYMENT_PROVIDER === "pinch",
       localDemoPayment:

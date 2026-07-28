@@ -7,7 +7,6 @@ import {
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 const storedAccountSchema = z.object({
@@ -63,13 +62,6 @@ export class AccountRepository {
     this.mutationQueue = operation.catch(() => undefined);
     await operation;
   }
-}
-
-export function defaultAccountDataFile() {
-  return path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "../../.data/accounts.json"
-  );
 }
 
 function loadAccounts(filePath: string | undefined): StoredAccount[] {
