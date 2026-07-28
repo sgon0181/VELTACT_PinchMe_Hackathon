@@ -35,6 +35,8 @@ import {
   createNeed,
   getEngagement,
   getInvitation,
+  getNeedReportForNeed,
+  getSolutionDecisionForNeed,
   listLocalDemoPaymentEvidence,
   listMarketplaceAuditEvents,
   listPinchWebhookEvidence,
@@ -312,6 +314,148 @@ describe("marketplace core routes", () => {
     }
   });
 
+  test("downloads and reuses a selected-path report before later outsource discovery", async () => {
+    const originalAuth = env.BUYER_CAPABILITY_AUTH_REQUIRED;
+    const originalProvider = env.VELTACT_RESEARCH_PROVIDER;
+    Object.assign(env, {
+      BUYER_CAPABILITY_AUTH_REQUIRED: true,
+      VELTACT_RESEARCH_PROVIDER: "fixture"
+    });
+
+    try {
+      const created = await postJson("/api/need-profiles", {
+        buyerEmail: "buyer@example.com",
+        profile: structuredSiemensNeed()
+      });
+      const needId = created.body.need.id;
+      const buyerHeaders = {
+        "x-veltact-buyer-token": created.body.buyerAccessToken
+      };
+      const researched = await postJson(
+        `/api/need-profiles/${needId}/research`,
+        {},
+        buyerHeaders
+      );
+      assert.equal(researched.status, 200);
+      const selectedApproachId =
+        researched.body.researchResult.approaches[1].id;
+      const reportPath =
+        `/api/need-profiles/${needId}/report.pdf?selectedApproachId=` +
+        encodeURIComponent(selectedApproachId);
+
+      assert.equal(getSolutionDecisionForNeed(needId), undefined);
+      const discoveryBeforeDecision = await postJson(
+        `/api/need-profiles/${needId}/suppliers/discover`,
+        {},
+        buyerHeaders
+      );
+      assert.equal(discoveryBeforeDecision.status, 409);
+      assert.match(
+        discoveryBeforeDecision.body.message,
+        /solution decision/i
+      );
+
+      const firstDownload = await getBinary(reportPath, buyerHeaders);
+      assert.equal(firstDownload.status, 200);
+      assert.equal(
+        firstDownload.headers.get("content-type"),
+        "application/pdf"
+      );
+      assert.match(
+        firstDownload.body.toString("latin1"),
+        /Execution decision: Not recorded/
+      );
+      assert.equal(getSolutionDecisionForNeed(needId), undefined);
+      const persistedReport = getNeedReportForNeed(needId);
+      assert.equal(
+        persistedReport?.selectedApproachId,
+        selectedApproachId
+      );
+      assert.deepEqual(persistedReport?.selectionProvenance, {
+        source: "report_request",
+        selectedBy: "buyer@example.com",
+        selectedAt: persistedReport?.generatedAt
+      });
+      assert.equal(persistedReport?.solutionDecisionId, undefined);
+
+      const repeatDownload = await getBinary(reportPath, buyerHeaders);
+      assert.equal(repeatDownload.status, 200);
+      assert.equal(
+        repeatDownload.headers.get("x-veltact-report-id"),
+        firstDownload.headers.get("x-veltact-report-id")
+      );
+      assert.deepEqual(repeatDownload.body, firstDownload.body);
+      assert.deepEqual(getNeedReportForNeed(needId), persistedReport);
+
+      const decision = await postJson(
+        `/api/need-profiles/${needId}/solution-decision`,
+        {
+          decision: "outsource",
+          selectedApproachIds: [selectedApproachId]
+        },
+        buyerHeaders
+      );
+      assert.equal(decision.status, 200);
+      assert.equal(
+        getNeedReportForNeed(needId)?.selectionProvenance.source,
+        "report_request"
+      );
+
+      const discovered = await postJson(
+        `/api/need-profiles/${needId}/suppliers/discover`,
+        {},
+        buyerHeaders
+      );
+      assert.equal(discovered.status, 200);
+      assert.equal(discovered.body.supplierLeads.length, 3);
+    } finally {
+      Object.assign(env, {
+        BUYER_CAPABILITY_AUTH_REQUIRED: originalAuth,
+        VELTACT_RESEARCH_PROVIDER: originalProvider
+      });
+    }
+  });
+
+  test("rejects report selections outside the current persisted research", async () => {
+    const originalAuth = env.BUYER_CAPABILITY_AUTH_REQUIRED;
+    const originalProvider = env.VELTACT_RESEARCH_PROVIDER;
+    Object.assign(env, {
+      BUYER_CAPABILITY_AUTH_REQUIRED: true,
+      VELTACT_RESEARCH_PROVIDER: "fixture"
+    });
+
+    try {
+      const created = await postJson("/api/need-profiles", {
+        buyerEmail: "buyer@example.com",
+        profile: structuredSiemensNeed()
+      });
+      const needId = created.body.need.id;
+      const buyerHeaders = {
+        "x-veltact-buyer-token": created.body.buyerAccessToken
+      };
+      const researched = await postJson(
+        `/api/need-profiles/${needId}/research`,
+        {},
+        buyerHeaders
+      );
+      assert.equal(researched.status, 200);
+
+      const invalid = await getJson(
+        `/api/need-profiles/${needId}/report.pdf?selectedApproachId=not-from-current-research`,
+        buyerHeaders
+      );
+      assert.equal(invalid.status, 400);
+      assert.match(invalid.body.message, /current research result/i);
+      assert.equal(getNeedReportForNeed(needId), undefined);
+      assert.equal(getSolutionDecisionForNeed(needId), undefined);
+    } finally {
+      Object.assign(env, {
+        BUYER_CAPABILITY_AUTH_REQUIRED: originalAuth,
+        VELTACT_RESEARCH_PROVIDER: originalProvider
+      });
+    }
+  });
+
   test("enforces the canonical Find lifecycle with scoped authorization and provenance", async () => {
     const originalAuth = env.BUYER_CAPABILITY_AUTH_REQUIRED;
     const originalProvider = env.VELTACT_RESEARCH_PROVIDER;
@@ -368,8 +512,11 @@ describe("marketplace core routes", () => {
         `/api/need-profiles/${needId}/report.pdf`,
         buyerHeaders
       );
-      assert.equal(reportBeforeDecision.status, 409);
-      assert.match(reportBeforeDecision.body.message, /exactly one/i);
+      assert.equal(reportBeforeDecision.status, 400);
+      assert.match(
+        reportBeforeDecision.body.message,
+        /selectedApproachId is required/
+      );
 
       const discoveryBeforeDecision = await postJson(
         `/api/need-profiles/${needId}/suppliers/discover`,
