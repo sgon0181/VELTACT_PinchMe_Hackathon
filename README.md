@@ -3,6 +3,9 @@
 Veltact turns industrial requirements into cited solution options, qualified
 supplier responses and controlled deployments with Pinch milestone payments.
 
+For the free hackathon deployment and the `veltact.com` DNS cutover, see
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
 # PLEASE WATCH THIS VIDEO AS IT WILL BE REALLY HELPFUL: 
 Feel free to bring the speed to 1x and not 1.2 x haha. 
 https://www.loom.com/share/78842dc66a984bb18dbca402c7949854
