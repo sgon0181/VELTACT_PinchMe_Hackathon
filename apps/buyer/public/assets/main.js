@@ -1365,7 +1365,7 @@ function renderDeployment(data) {
     <section class="panel deployment-summary">
       <div class="deployment-heading">
         <div>
-          <p class="eyebrow">Deploy / Site Assessment project</p>
+          <p class="eyebrow">Deploy / Active project</p>
           <h2>${escapeHtml(currentMilestoneTitle)}</h2>
           <p>${deployment?.latestUpdate ? escapeHtml(deployment.latestUpdate) : "Payment is confirmed, but the deployment API has not returned a delivery summary."}</p>
         </div>
@@ -1447,7 +1447,7 @@ function renderDeployment(data) {
           `}
       <div class="primary-action-row">
         <div>
-          <strong>${deployment?.status === "completed" ? "Delivery record complete" : "Keep Site Assessment status current"}</strong>
+          <strong>${deployment?.status === "completed" ? "Delivery record complete" : `Keep ${escapeHtml(currentMilestoneTitle)} status current`}</strong>
           <span>Refreshes authoritative payment and deployment records. Payment never marks engineering work complete.</span>
         </div>
         ${deployment?.status === "completed"
