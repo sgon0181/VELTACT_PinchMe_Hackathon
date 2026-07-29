@@ -76,7 +76,7 @@ Verify:
   not require authentication.
 - This configuration is not suitable for commercial data or real payments.
 
-Rollback is application-only: redeploy commit `b41ba82`. Do not alter DNS or
+Rollback is application-only: redeploy commit `93ba999`. Do not alter DNS or
 Google Workspace MX and TXT records.
 
 ## Real Provider Promotion

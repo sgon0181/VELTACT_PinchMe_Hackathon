@@ -79,6 +79,11 @@ channels. An empty channel list creates copyable links without making an
 external delivery attempt. Omitted channels preserve the existing configured
 default during migration.
 
+The canonical buyer interaction may select both `email` and `sms` in one
+request. `Link` is a UI choice, not an `OutreachChannel`: selecting it requests
+copyable invitation links and adds no provider channel to
+`deliveryChannels`.
+
 ## Deploy Contracts
 
 - `Engagement`: selected supplier and Pinch commercial state.
@@ -269,3 +274,39 @@ Delivery state semantics:
 - A6: account pages and isolated staging authentication.
 
 Cross-owner edits require A0 integration review.
+
+## Canonical Demo Sprint
+
+The active integration branch is `codex/canonical-demo-flow`, created from
+`origin/main` commit `5376b0c`. Historical A1-A6 branches are evidence of prior
+work, not merge inputs for this sprint.
+
+Agents do not update automatically. Before each assignment, A0 supplies the
+latest integration SHA. The agent must:
+
+1. Fetch `origin`.
+2. Confirm its worktree is clean.
+3. Create a fresh task branch from the supplied
+   `origin/codex/canonical-demo-flow` SHA.
+4. Read the active product, blueprint, architecture and integration documents.
+5. Change only its owned files.
+6. Run its focused tests plus lint, typecheck and build.
+7. Commit and push without merging.
+
+A0 reviews and integrates one workstream at a time. No agent merges directly
+into `main`, `Recurssion` or `codex/canonical-demo-flow`. Do not merge or rebase
+an old agent branch into the sprint.
+
+Integration order:
+
+1. A5 landing simplification.
+2. A2 Find intake and recommendation review.
+3. A1 supplier matching and Connect preparation.
+4. A3 multi-channel outreach, supplier response and realtime status.
+5. A4 commitment and lightweight Deploy.
+6. A6 complete journey certification.
+7. A0 legacy-surface removal after parity.
+
+Only one workstream may edit `apps/buyer/src/main.ts` at a time. A5 must remain
+within landing assets during its first pass; A6 adds tests and release evidence
+without redesigning product surfaces.

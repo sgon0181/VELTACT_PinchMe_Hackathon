@@ -183,7 +183,7 @@ function renderOpportunity(payload, need, invitation) {
 
   const reasons = supplierMatchReasons(payload, capabilities);
   document.querySelector("#match-reasons").replaceChildren(
-    ...reasons.map((reason) => {
+    ...reasons.slice(0, 3).map((reason) => {
       const item = document.createElement("li");
       item.textContent = reason;
       return item;

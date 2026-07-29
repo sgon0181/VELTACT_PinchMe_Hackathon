@@ -15,6 +15,15 @@ const productionPinchEnvironment = {
 };
 
 describe("production Pinch environment", () => {
+  test("uses an available low-latency OpenAI model by default", () => {
+    const result = parseEnvironment({
+      NODE_ENV: "development",
+      PAYMENT_PROVIDER: "local_demo"
+    });
+
+    assert.equal(result.OPENAI_MODEL, "gpt-5.4-mini");
+  });
+
   test("accepts a Render revision without requiring a manually configured release id", () => {
     const result = parseEnvironment({
       NODE_ENV: "development",

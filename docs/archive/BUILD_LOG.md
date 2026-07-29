@@ -1,4 +1,4 @@
-# Veltact 2.0 Build Log
+# Archived: Veltact 2.0 Build Log
 
 This log records autonomous build loops for the `codex/veltact-2-find-connect-deploy`
 branch. A loop is only complete after implementation, automated verification, and

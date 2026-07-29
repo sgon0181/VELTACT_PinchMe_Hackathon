@@ -38,8 +38,13 @@ test("public landing exposes only the canonical account and demo header actions"
   assert.deepEqual(actions, [
     { href: "./signin.html", label: "Sign in" },
     { href: "./create-account.html", label: "Create account" },
-    { href: "./index.html", label: "Try demo" },
+    { href: "./index.html?start=new", label: "Trial Demo" },
   ]);
+  assert.equal(
+    [...html.matchAll(/href="\.\/(?:signin|create-account|index)\.html(?:\?start=new)?"/g)].length,
+    3,
+    "expected account and demo routes only in the sticky header",
+  );
   assert.doesNotMatch(html, /(?:href|src)="[^"]*v2/i);
 });
 

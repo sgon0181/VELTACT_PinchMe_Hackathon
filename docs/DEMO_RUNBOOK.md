@@ -71,7 +71,7 @@ match `EXPECTED_SHA`.
    the demo notes. Do not record a health response body.
 2. Close old buyer and supplier tabs. Open Browser A in a fresh profile or
    private context with no prior Veltact local storage.
-3. Open only `ORIGIN`, choose `Try demo`, and confirm the buyer workspace is
+3. Open only `ORIGIN`, choose `Trial Demo`, and confirm the buyer workspace is
    `/index.html` with no old workspace loaded.
 4. On a fixture deployment, select `Demo: Robotic integration`. On strict
    staging, enter the locked mixed-carton robotic palletising scenario in
@@ -94,8 +94,8 @@ session.
 2. Select one pathway. Download the report, verify the selected scope appears,
    then choose `Find suppliers`.
 3. Confirm three candidates show explainable fit and provenance. Select the
-   intended candidates and exercise email, SMS and copy-link as separate
-   actions.
+   intended candidates, choose `Connect`, select Link, Email and SMS, then
+   choose `Send` once.
 4. In fixture mode, use the development-only private links and keep delivery
    labelled local demo or not sent. In strict mode, open only links delivered
    to the controlled email inbox and phone.
@@ -212,11 +212,9 @@ that output. The reset is unavailable on strict production staging.
 ## Rollback
 
 The authorized application-only rollback in `docs/DEPLOYMENT.md` is commit
-`b41ba82`. Do not alter DNS or Google Workspace MX/TXT records.
+`93ba999`. It includes the current health contract and passed the fixture
+release gate before the stale-workspace recovery hotfix. Do not alter DNS or
+Google Workspace MX/TXT records.
 
-That legacy commit predates the required `releaseRevision` and `providerModes`
-health fields, so this readiness command must reject it. Treat it as emergency
-availability recovery only. Before demo day, A0 should designate a newer
-rollback SHA that includes the current health contract. After every rollback,
-prewarm and run the gate against the exact rollback SHA; make no readiness claim
-until it passes.
+After every rollback, prewarm and run the gate against the exact rollback SHA;
+make no readiness claim until it passes.

@@ -68,6 +68,17 @@ Migration-only surfaces may remain available to tests while capabilities are
 extracted. They must not remain in primary navigation or receive independent
 product features.
 
+Canonical implementation entry points are:
+
+- `apps/buyer/src/main.ts` for the buyer state machine.
+- `apps/buyer/public/supplier.html` and `supplier.js` for the private supplier
+  opportunity.
+- `apps/api/src/marketplace/*` for the canonical journey repository and routes.
+
+`apps/buyer/src/v2.ts`, `v2.html`, `supplierClaim.ts`,
+`supplier-claim.html` and `apps/api/src/v2/*` are frozen donor or
+migration-test surfaces. No canonical screen may import them or link to them.
+
 ## Module Ownership
 
 ### Find
@@ -170,7 +181,9 @@ The canonical frontend preserves RapidMatch's interaction density:
 - One primary next action per state.
 - Progressive disclosure for citations and evidence.
 - One selected solution and two outcomes at the end of Find.
-- Supplier selection plus one explicit outreach channel in Connect.
+- Supplier selection followed by one `Connect` action.
+- One progressively disclosed outreach panel with independent Link, SMS and
+  Email choices, followed by one `Send` action.
 - One comparison and selection decision.
 - One current milestone in Deploy.
 
@@ -178,12 +191,13 @@ Internal lifecycle complexity must not become additional buyer buttons.
 
 ## Integration Sequence
 
-1. Freeze product, contracts, routes and events.
-2. Add research and decision records to the RapidMatch repository.
-3. Extend the RapidMatch buyer UI with Find.
-4. Map provenance-aware discovery into RapidMatch matching and outreach.
-5. Simplify the supplier consent and response surface.
-6. Add deterministic two-response comparison.
-7. Attach the existing Pinch engagement to lightweight deployment progress.
-8. Redirect the public product entry to the unified RapidMatch journey.
-9. Retire V2 only after canonical end-to-end acceptance.
+1. Freeze the streamlined screen contract and create one integration branch.
+2. Simplify the public landing without changing workflow behavior.
+3. Simplify Find intake and recommendation review.
+4. Preserve exactly three explainable matches and add the clear Connect
+   transition.
+5. Implement multi-channel outreach and the concise supplier response.
+6. Preserve comparison, commitment payment and lightweight Deploy.
+7. Certify the complete journey twice on desktop and mobile.
+8. Remove frozen donor surfaces only after canonical tests no longer depend on
+   them.

@@ -32,6 +32,11 @@ The buyer provides the industrial problem once using:
 - Optional photographs.
 - Location, urgency, budget and buyer priority.
 
+`Trial Demo` opens a fresh intake. Its first viewport is deliberately simple:
+the dominant requirement field, PDF and photograph inputs, and one analysis
+action. Procurement details may use progressive disclosure and remain editable
+in the reviewed Need Profile.
+
 Veltact structures the evidence into a buyer-reviewed Need Profile and returns:
 
 - Three cited solution pathways based on current industry evidence.
@@ -57,13 +62,16 @@ RapidMatch converts the approved scope into a standardised request for quote:
 
 1. Explainable supplier matches are produced from catalog and public discovery
    evidence.
-2. The buyer selects candidates and approves outreach.
-3. Veltact creates a private opportunity link and sends it through the
-   buyer-selected email or SMS channel, or lets the buyer copy it.
-4. Each supplier confirms its identity and submits availability, indicative
+2. The buyer selects candidates and chooses `Connect`.
+3. Veltact reveals independent `Link`, `SMS` and `Email` channel controls.
+   Email and SMS may be selected together. Link creates one private opportunity
+   URL per selected supplier without claiming external delivery.
+4. The buyer chooses `Send` once to create the invitations and attempt only the
+   selected external channels.
+5. Each supplier confirms its identity and submits availability, indicative
    price, relevant experience, proposed approach, assumptions and conditions.
-5. The buyer compares at least two standardised responses.
-6. The buyer selects one supplier.
+6. The buyer compares at least two standardised responses.
+7. The buyer selects one supplier.
 
 Public supplier evidence creates a candidate, not a verified or enrolled
 marketplace supplier. Outreach requires buyer approval. Supplier activation
@@ -103,10 +111,16 @@ that engineering work is complete.
 ## Canonical Product Surface
 
 - One public Veltact entry.
-- One public header with `Sign in`, `Create account` and `Try demo`.
+- One sticky public header with `Sign in`, `Create account` and `Trial Demo`.
+- An informative landing body without duplicated account or demo actions.
 - One RapidMatch-based buyer workspace moving through Find, Connect and Deploy.
 - One private, token-scoped supplier opportunity page.
 - One engagement and deployment record for the selected response.
+
+Minimal account entry is isolated from the trial journey. It may collect an
+email/password account record and create a session, but it does not gate
+`Trial Demo`, replace requirement-scoped buyer capability checks or imply
+durable production identity storage.
 
 The existing RapidMatch buyer experience is the implementation base. V2 is
 temporary donor code for research, discovery provenance, milestone templates
@@ -116,6 +130,7 @@ not remain a competing public journey.
 ## Interaction Principles
 
 - Show one primary next action for the current state.
+- Do not repeat the same route action throughout an informational landing page.
 - Keep the original RapidMatch level of interaction density.
 - Use progressive disclosure for citations, supplier evidence and project
   detail.
@@ -141,7 +156,8 @@ The unified product is demonstrable when one buyer URL supports:
 3. Three cited, selectable solution pathways.
 4. Downloadable report or specialist decision.
 5. Explainable, selectable supplier matches.
-6. Buyer-controlled email, SMS or copy-link outreach.
+6. Buyer-controlled multi-channel email/SMS outreach and copy-link generation
+   behind one `Connect` then `Send` interaction.
 7. Downloadable RFQ and standardised supplier response.
 8. Two standardised supplier responses.
 9. Comparison and selection.

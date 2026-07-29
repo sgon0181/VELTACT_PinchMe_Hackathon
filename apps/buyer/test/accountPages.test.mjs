@@ -20,7 +20,7 @@ describe("account entry pages", () => {
     for (const page of [signIn, createAccount]) {
       assert.match(page, />Sign in</);
       assert.match(page, />Create account</);
-      assert.match(page, /class="try-demo" href="\.\/index\.html">Try demo</);
+      assert.match(page, /class="try-demo" href="\.\/index\.html\?start=new">Trial Demo</);
       assert.doesNotMatch(page, /v2\.html/);
       assert.match(page, /assets\/accountAccess\.js/);
     }
