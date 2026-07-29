@@ -11,6 +11,10 @@ The active authority chain is:
 4. [`docs/INTEGRATION_CONTRACT.md`](docs/INTEGRATION_CONTRACT.md)
 5. [`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBOOK.md)
 
+Visual-design work must start from
+[`docs/DESIGN_HANDOFF.md`](docs/DESIGN_HANDOFF.md) and the current running
+product, not historical screenshots.
+
 Historical execution plans are retained under [`docs/archive`](docs/archive)
 and are not implementation baselines. Deployment instructions are in
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
