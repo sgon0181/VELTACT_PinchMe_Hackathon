@@ -447,6 +447,16 @@ type PaymentLinkReconciliationContext = {
   metadata: Record<string, unknown>;
 };
 
+const commitmentMetadataKeys = [
+  "engagementId",
+  "needId",
+  "supplierId",
+  "milestoneId",
+  "commitmentType",
+  "commitmentAmountMinor",
+  "commitmentCurrency"
+] as const;
+
 function parsePaymentLinkForReconciliation(
   payload: unknown,
   expectedPaymentLinkId: string
@@ -483,7 +493,8 @@ function parsePaymentLinkForReconciliation(
     amount === undefined ||
     amount <= 0 ||
     currency.length !== 3 ||
-    !metadata
+    !metadata ||
+    !isCompleteCommitmentMetadata(metadata, amount, currency)
   ) {
     throw new PinchApiError(
       "Pinch Payment Link response was incomplete for reconciliation"
@@ -539,7 +550,7 @@ function findApprovedPaymentsForLink(
       amount !== expected.amount ||
       currency !== expected.currency ||
       !metadata ||
-      !isDeepStrictEqual(metadata, expected.metadata)
+      !matchesCommitmentMetadata(metadata, expected.metadata)
     ) {
       return [];
     }
@@ -563,14 +574,72 @@ function paymentRecords(payload: unknown): Array<Record<string, unknown>> {
 function parseMetadataObject(
   value: unknown
 ): Record<string, unknown> | undefined {
-  if (typeof value === "string") {
+  let parsed = value;
+  if (typeof parsed === "string") {
     try {
-      return asRecord(JSON.parse(value) as unknown);
+      parsed = JSON.parse(parsed) as unknown;
     } catch {
       return undefined;
     }
   }
-  return asRecord(value);
+
+  const direct = asRecord(parsed);
+  if (direct) return direct;
+  if (!Array.isArray(parsed)) return undefined;
+
+  const merged: Record<string, unknown> = {};
+  for (const item of parsed) {
+    const record = asRecord(item);
+    if (!record) continue;
+    for (const [key, itemValue] of Object.entries(record)) {
+      if (key in merged && !isDeepStrictEqual(merged[key], itemValue)) {
+        return undefined;
+      }
+      merged[key] = itemValue;
+    }
+  }
+  return merged;
+}
+
+function isCompleteCommitmentMetadata(
+  metadata: Record<string, unknown>,
+  amount: number,
+  currency: string
+) {
+  return (
+    commitmentMetadataKeys.every((key) => key in metadata) &&
+    metadata.commitmentType === "commercial_commitment" &&
+    getIntegerValue(metadata.commitmentAmountMinor) === amount &&
+    String(metadata.commitmentCurrency).toUpperCase() === currency &&
+    ["engagementId", "needId", "supplierId", "milestoneId"].every(
+      (key) =>
+        typeof metadata[key] === "string" &&
+        String(metadata[key]).trim().length > 0
+    )
+  );
+}
+
+function matchesCommitmentMetadata(
+  actual: Record<string, unknown>,
+  expected: Record<string, unknown>
+) {
+  return commitmentMetadataKeys.every(
+    (key) =>
+      key in actual &&
+      key in expected &&
+      isDeepStrictEqual(actual[key], expected[key])
+  );
+}
+
+function getIntegerValue(value: unknown) {
+  if (typeof value === "number" && Number.isSafeInteger(value)) {
+    return value;
+  }
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : undefined;
+  }
+  return undefined;
 }
 
 function asRecord(

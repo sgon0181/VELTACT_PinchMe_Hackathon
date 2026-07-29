@@ -141,7 +141,10 @@ describe("PinchClient", () => {
             amount: 750_000,
             currency: "AUD",
             status: "approved",
-            metadata: JSON.stringify(commitmentMetadata())
+            metadata: JSON.stringify([
+              commitmentMetadata(),
+              { pinchAddedReference: "safe-to-ignore" }
+            ])
           }
         ]);
       }
@@ -166,6 +169,45 @@ describe("PinchClient", () => {
       "https://pinch.test/api/payment-links/plk_sandbox",
       "https://pinch.test/api/payments/payer/pyr_sandbox"
     ]);
+  });
+
+  test("rejects conflicting duplicate metadata values", async () => {
+    globalThis.fetch = (async (input) => {
+      const url = String(input);
+      if (url === "https://pinch.test/auth") {
+        return jsonResponse({ access_token: "sandbox-access-token" });
+      }
+      if (url === "https://pinch.test/api/payment-links/plk_sandbox") {
+        return jsonResponse({
+          id: "plk_sandbox",
+          amount: 750_000,
+          currency: "AUD",
+          metadata: JSON.stringify(commitmentMetadata()),
+          payerId: "pyr_sandbox"
+        });
+      }
+      if (url === "https://pinch.test/api/payments/payer/pyr_sandbox") {
+        return jsonResponse([
+          {
+            id: "pmt_conflicting",
+            payerId: "pyr_sandbox",
+            amount: 750_000,
+            currency: "AUD",
+            status: "approved",
+            metadata: JSON.stringify([
+              commitmentMetadata(),
+              { supplierId: "supplier-other" }
+            ])
+          }
+        ]);
+      }
+      throw new Error(`Unexpected test URL: ${url}`);
+    }) as typeof fetch;
+
+    assert.equal(
+      await new PinchClient().getApprovedPaymentForLink("plk_sandbox"),
+      undefined
+    );
   });
 
   test("does not reconcile approved payment data that is not bound to the link", async () => {
