@@ -315,10 +315,19 @@ async function bootstrap() {
     restoreFailed = false;
     loadState = "idle";
   } catch (error) {
-    restoreFailed = true;
-    loadState = "error";
-    errorMessage = errorText(error);
-    view = "intake";
+    if (
+      identity.restoredFromStorage &&
+      isMissingNeedProfileError(error)
+    ) {
+      resetRequirementState(identity.needProfileId);
+      liveMessage =
+        "The previous requirement is no longer available. A fresh workspace is ready.";
+    } else {
+      restoreFailed = true;
+      loadState = "error";
+      errorMessage = errorText(error);
+      view = "intake";
+    }
   } finally {
     [demoControlsAvailable, localDemoPaymentAvailable] = await Promise.all([
       demoGate,
@@ -3111,6 +3120,8 @@ function readWorkspaceIdentity() {
   );
   return {
     needProfileId,
+    restoredFromStorage:
+      !explicitNeedProfileId && Boolean(needProfileId),
     buyerAccessToken:
       incomingToken ??
       (needProfileId
@@ -3300,10 +3311,9 @@ function resolveRestoredView(
   return "intake";
 }
 
-function startNewRequirement() {
+function resetRequirementState(needProfileId?: string) {
   intakeRevision += 1;
   activeIntakeRequestId += 1;
-  const needProfileId = workspace?.needProfile?.id;
   if (needProfileId) {
     safeStorageRemove(`${CONTEXT_PREFIX}${needProfileId}`);
     safeStorageRemove(`${TOKEN_PREFIX}${needProfileId}`);
@@ -3329,6 +3339,10 @@ function startNewRequirement() {
   errorMessage = "";
   liveMessage = "";
   window.history.replaceState({}, "", window.location.pathname);
+}
+
+function startNewRequirement() {
+  resetRequirementState(workspace?.needProfile?.id);
   render();
 }
 
@@ -3956,6 +3970,14 @@ function errorText(error: unknown) {
   return error instanceof Error
     ? error.message
     : "Unexpected RapidMatch error.";
+}
+
+function isMissingNeedProfileError(error: unknown) {
+  return (
+    error instanceof Error &&
+    "status" in error &&
+    (error as Error & { status?: unknown }).status === 404
+  );
 }
 
 function renderCompanyIdentity(companyName: string, compact = false) {

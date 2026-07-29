@@ -119,3 +119,18 @@ test("Start new stores a tab-scoped reset marker", () => {
     /safeSessionStorageRemove\(NEW_REQUIREMENT_KEY\)/
   );
 });
+
+test("a missing workspace restored from browser storage recovers to fresh intake", () => {
+  assert.match(
+    mainBundle,
+    /identity\.restoredFromStorage\s*&&\s*isMissingNeedProfileError\(error\)/
+  );
+  assert.match(
+    mainBundle,
+    /resetRequirementState\(identity\.needProfileId\)/
+  );
+  assert.match(
+    mainBundle,
+    /restoredFromStorage:\s*!explicitNeedProfileId\s*&&\s*Boolean\(needProfileId\)/
+  );
+});

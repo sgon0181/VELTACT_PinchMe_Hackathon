@@ -197,10 +197,18 @@ async function bootstrap() {
         loadState = "idle";
     }
     catch (error) {
-        restoreFailed = true;
-        loadState = "error";
-        errorMessage = errorText(error);
-        view = "intake";
+        if (identity.restoredFromStorage &&
+            isMissingNeedProfileError(error)) {
+            resetRequirementState(identity.needProfileId);
+            liveMessage =
+                "The previous requirement is no longer available. A fresh workspace is ready.";
+        }
+        else {
+            restoreFailed = true;
+            loadState = "error";
+            errorMessage = errorText(error);
+            view = "intake";
+        }
     }
     finally {
         [demoControlsAvailable, localDemoPaymentAvailable] = await Promise.all([
@@ -2453,6 +2461,7 @@ function readWorkspaceIdentity() {
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
     return {
         needProfileId,
+        restoredFromStorage: !explicitNeedProfileId && Boolean(needProfileId),
         buyerAccessToken: incomingToken ??
             (needProfileId
                 ? safeStorageGet(`${TOKEN_PREFIX}${needProfileId}`) ?? undefined
@@ -2606,10 +2615,9 @@ function resolveRestoredView(data, storedView) {
         return "plan";
     return "intake";
 }
-function startNewRequirement() {
+function resetRequirementState(needProfileId) {
     intakeRevision += 1;
     activeIntakeRequestId += 1;
-    const needProfileId = workspace?.needProfile?.id;
     if (needProfileId) {
         safeStorageRemove(`${CONTEXT_PREFIX}${needProfileId}`);
         safeStorageRemove(`${TOKEN_PREFIX}${needProfileId}`);
@@ -2635,6 +2643,9 @@ function startNewRequirement() {
     errorMessage = "";
     liveMessage = "";
     window.history.replaceState({}, "", window.location.pathname);
+}
+function startNewRequirement() {
+    resetRequirementState(workspace?.needProfile?.id);
     render();
 }
 function currentPhase() {
@@ -3149,6 +3160,11 @@ function errorText(error) {
     return error instanceof Error
         ? error.message
         : "Unexpected RapidMatch error.";
+}
+function isMissingNeedProfileError(error) {
+    return (error instanceof Error &&
+        "status" in error &&
+        error.status === 404);
 }
 function renderCompanyIdentity(companyName, compact = false) {
     const logo = companyLogoFor(companyName);
