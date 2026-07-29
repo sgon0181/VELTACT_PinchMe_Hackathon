@@ -2,6 +2,7 @@ import type { Server as HttpServer } from "node:http";
 import {
   rapidMatchSocketEvent,
   veltactV2SocketEvent,
+  type SupplierCommitmentNotification,
   type VeltactV2SocketEvent
 } from "@veltact/contracts";
 import { Server } from "socket.io";
@@ -14,6 +15,7 @@ import type {
   SupplierOutreachDelivery,
   SupplierResponse
 } from "./marketplace/types.js";
+import { notifyCommitmentConfirmed } from "./supplierExperience/commitmentNotification.js";
 import { v2Service } from "./v2/service.js";
 
 let io: Server | undefined;
@@ -22,6 +24,10 @@ export function attachRealtime(httpServer: HttpServer) {
   io = new Server(httpServer, {
     cors: {
       origin: env.WEB_ORIGIN
+    },
+    connectionStateRecovery: {
+      maxDisconnectionDuration: 2 * 60 * 1000,
+      skipMiddlewares: true
     }
   });
 
@@ -47,10 +53,10 @@ export function attachRealtime(httpServer: HttpServer) {
 
     socket.on(
       veltactV2SocketEvent.joinNeed,
-      (payload: unknown) => {
+      async (payload: unknown) => {
         if (!isNeedRoomPayload(payload)) return;
         try {
-          v2Service.getWorkspace(
+          await v2Service.getWorkspace(
             payload.needProfileId,
             payload.buyerAccessToken
           );
@@ -119,6 +125,29 @@ export function emitEngagementSecured(engagement: Engagement) {
     paymentStatus: engagement.paymentStatus,
     engagement
   });
+  void notifyCommitmentConfirmed(
+    engagement.id,
+    (commitmentNotification) => {
+      emitCommitmentNotificationUpdated(
+        engagement.needId,
+        commitmentNotification
+      );
+    }
+  ).catch(() => {
+    // Provider failures are reflected by notification status, never payment state.
+  });
+}
+
+export function emitCommitmentNotificationUpdated(
+  needProfileId: string,
+  commitmentNotification: SupplierCommitmentNotification
+) {
+  io
+    ?.to(needProfileRoom(needProfileId))
+    .emit(rapidMatchSocketEvent.commitmentNotificationUpdated, {
+      needProfileId,
+      commitmentNotification
+    });
 }
 
 export function emitDeploymentUpdated(event: DeploymentUpdatedEvent) {

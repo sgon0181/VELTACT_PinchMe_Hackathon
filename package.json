@@ -11,9 +11,11 @@
     "dev": "npm run build:contracts && npm run build -w apps/buyer && npm run dev -w apps/api",
     "dev:api": "npm run dev -w apps/api",
     "demo:reset": "node scripts/demo-reset.mjs",
+    "smoke:staging": "node scripts/staging-smoke.mjs",
     "build": "npm run build:contracts && npm run build -w apps/api && npm run build -w apps/buyer",
+    "start": "node apps/api/dist/server.js",
     "lint": "npm run build:contracts && npm run lint --workspaces --if-present",
-    "test": "npm run build:contracts && npm run test --workspaces --if-present",
+    "test": "npm run build:contracts && node --test scripts/staging-smoke.test.mjs && npm run test --workspaces --if-present",
     "typecheck": "npm run build:contracts && npm run typecheck --workspaces --if-present"
   },
   "engines": {

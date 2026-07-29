@@ -22,6 +22,7 @@ import {
 import { io as createSocketClient, type Socket } from "socket.io-client";
 import { app } from "../app.js";
 import { env } from "../env.js";
+import { localDemoPaymentProvider } from "../payments/localDemoPaymentProvider.js";
 import {
   resetPaymentProviderForTest,
   setPaymentProviderForTest
@@ -30,18 +31,28 @@ import { attachRealtime } from "../realtime.js";
 import {
   approveSupplierOutreachForNeed,
   claimSupplierInvitation,
+  createEngagement,
   createNeed,
+  getEngagement,
   getInvitation,
+  getNeedReportForNeed,
+  getSolutionDecisionForNeed,
+  listLocalDemoPaymentEvidence,
   listMarketplaceAuditEvents,
+  listPinchWebhookEvidence,
+  recordLocalDemoPayment,
   resetMarketplaceStore,
   submitSupplierResponse
 } from "./store.js";
 
 let server: Server;
 let baseUrl: string;
+let originalPaymentProviderMode: typeof env.PAYMENT_PROVIDER;
 
 beforeEach(async () => {
   resetMarketplaceStore();
+  originalPaymentProviderMode = env.PAYMENT_PROVIDER;
+  env.PAYMENT_PROVIDER = "pinch";
   process.env.PINCH_WEBHOOK_SECRET = "whsec_test_secret";
   setPaymentProviderForTest({
     async createHostedPaymentLink(input) {
@@ -74,6 +85,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  env.PAYMENT_PROVIDER = originalPaymentProviderMode;
   resetPaymentProviderForTest();
   await new Promise<void>((resolve, reject) => {
     server.close((error) => {
@@ -177,7 +189,7 @@ describe("marketplace core routes", () => {
     assert.equal(rejected.body.error, "low_signal_ai_intake_request");
   });
 
-  test("accepts industrial photo evidence with filename context", async () => {
+  test("does not fabricate local intake facts from a binary evidence filename", async () => {
     const structured = await postJson("/api/ai-intake/structure", {
       rawRequirement: "",
       evidence: [
@@ -190,9 +202,10 @@ describe("marketplace core routes", () => {
       ]
     }, { "x-veltact-ai-intake-source": "local_demo" });
 
-    assert.equal(structured.status, 200);
-    assert.equal(structured.body.source, "local_demo");
-    assert.doesNotThrow(() => aiIntakeResultSchema.parse(structured.body.aiIntakeResult));
+    assert.equal(structured.status, 422);
+    assert.equal(structured.body.error, "binary_evidence_requires_live_ai");
+    assert.match(structured.body.message, /cannot read binary-only/i);
+    assert.doesNotMatch(structured.body.message, /siemens-plc-fault/i);
   });
 
   test("rejects context-free photo evidence before a paid model call", async () => {
@@ -301,6 +314,148 @@ describe("marketplace core routes", () => {
     }
   });
 
+  test("downloads and reuses a selected-path report before later outsource discovery", async () => {
+    const originalAuth = env.BUYER_CAPABILITY_AUTH_REQUIRED;
+    const originalProvider = env.VELTACT_RESEARCH_PROVIDER;
+    Object.assign(env, {
+      BUYER_CAPABILITY_AUTH_REQUIRED: true,
+      VELTACT_RESEARCH_PROVIDER: "fixture"
+    });
+
+    try {
+      const created = await postJson("/api/need-profiles", {
+        buyerEmail: "buyer@example.com",
+        profile: structuredSiemensNeed()
+      });
+      const needId = created.body.need.id;
+      const buyerHeaders = {
+        "x-veltact-buyer-token": created.body.buyerAccessToken
+      };
+      const researched = await postJson(
+        `/api/need-profiles/${needId}/research`,
+        {},
+        buyerHeaders
+      );
+      assert.equal(researched.status, 200);
+      const selectedApproachId =
+        researched.body.researchResult.approaches[1].id;
+      const reportPath =
+        `/api/need-profiles/${needId}/report.pdf?selectedApproachId=` +
+        encodeURIComponent(selectedApproachId);
+
+      assert.equal(getSolutionDecisionForNeed(needId), undefined);
+      const discoveryBeforeDecision = await postJson(
+        `/api/need-profiles/${needId}/suppliers/discover`,
+        {},
+        buyerHeaders
+      );
+      assert.equal(discoveryBeforeDecision.status, 409);
+      assert.match(
+        discoveryBeforeDecision.body.message,
+        /solution decision/i
+      );
+
+      const firstDownload = await getBinary(reportPath, buyerHeaders);
+      assert.equal(firstDownload.status, 200);
+      assert.equal(
+        firstDownload.headers.get("content-type"),
+        "application/pdf"
+      );
+      assert.match(
+        firstDownload.body.toString("latin1"),
+        /Execution decision: Not recorded/
+      );
+      assert.equal(getSolutionDecisionForNeed(needId), undefined);
+      const persistedReport = getNeedReportForNeed(needId);
+      assert.equal(
+        persistedReport?.selectedApproachId,
+        selectedApproachId
+      );
+      assert.deepEqual(persistedReport?.selectionProvenance, {
+        source: "report_request",
+        selectedBy: "buyer@example.com",
+        selectedAt: persistedReport?.generatedAt
+      });
+      assert.equal(persistedReport?.solutionDecisionId, undefined);
+
+      const repeatDownload = await getBinary(reportPath, buyerHeaders);
+      assert.equal(repeatDownload.status, 200);
+      assert.equal(
+        repeatDownload.headers.get("x-veltact-report-id"),
+        firstDownload.headers.get("x-veltact-report-id")
+      );
+      assert.deepEqual(repeatDownload.body, firstDownload.body);
+      assert.deepEqual(getNeedReportForNeed(needId), persistedReport);
+
+      const decision = await postJson(
+        `/api/need-profiles/${needId}/solution-decision`,
+        {
+          decision: "outsource",
+          selectedApproachIds: [selectedApproachId]
+        },
+        buyerHeaders
+      );
+      assert.equal(decision.status, 200);
+      assert.equal(
+        getNeedReportForNeed(needId)?.selectionProvenance.source,
+        "report_request"
+      );
+
+      const discovered = await postJson(
+        `/api/need-profiles/${needId}/suppliers/discover`,
+        {},
+        buyerHeaders
+      );
+      assert.equal(discovered.status, 200);
+      assert.equal(discovered.body.supplierLeads.length, 3);
+    } finally {
+      Object.assign(env, {
+        BUYER_CAPABILITY_AUTH_REQUIRED: originalAuth,
+        VELTACT_RESEARCH_PROVIDER: originalProvider
+      });
+    }
+  });
+
+  test("rejects report selections outside the current persisted research", async () => {
+    const originalAuth = env.BUYER_CAPABILITY_AUTH_REQUIRED;
+    const originalProvider = env.VELTACT_RESEARCH_PROVIDER;
+    Object.assign(env, {
+      BUYER_CAPABILITY_AUTH_REQUIRED: true,
+      VELTACT_RESEARCH_PROVIDER: "fixture"
+    });
+
+    try {
+      const created = await postJson("/api/need-profiles", {
+        buyerEmail: "buyer@example.com",
+        profile: structuredSiemensNeed()
+      });
+      const needId = created.body.need.id;
+      const buyerHeaders = {
+        "x-veltact-buyer-token": created.body.buyerAccessToken
+      };
+      const researched = await postJson(
+        `/api/need-profiles/${needId}/research`,
+        {},
+        buyerHeaders
+      );
+      assert.equal(researched.status, 200);
+
+      const invalid = await getJson(
+        `/api/need-profiles/${needId}/report.pdf?selectedApproachId=not-from-current-research`,
+        buyerHeaders
+      );
+      assert.equal(invalid.status, 400);
+      assert.match(invalid.body.message, /current research result/i);
+      assert.equal(getNeedReportForNeed(needId), undefined);
+      assert.equal(getSolutionDecisionForNeed(needId), undefined);
+    } finally {
+      Object.assign(env, {
+        BUYER_CAPABILITY_AUTH_REQUIRED: originalAuth,
+        VELTACT_RESEARCH_PROVIDER: originalProvider
+      });
+    }
+  });
+
   test("enforces the canonical Find lifecycle with scoped authorization and provenance", async () => {
     const originalAuth = env.BUYER_CAPABILITY_AUTH_REQUIRED;
     const originalProvider = env.VELTACT_RESEARCH_PROVIDER;
@@ -346,6 +501,21 @@ describe("marketplace core routes", () => {
         researched.body.researchResult.citations.every(
           (citation: { provider: string }) => citation.provider === "fixture"
         )
+      );
+
+      const unauthorisedReport = await getJson(
+        `/api/need-profiles/${needId}/report.pdf`
+      );
+      assert.equal(unauthorisedReport.status, 401);
+
+      const reportBeforeDecision = await getJson(
+        `/api/need-profiles/${needId}/report.pdf`,
+        buyerHeaders
+      );
+      assert.equal(reportBeforeDecision.status, 400);
+      assert.match(
+        reportBeforeDecision.body.message,
+        /selectedApproachId is required/
       );
 
       const discoveryBeforeDecision = await postJson(
@@ -399,18 +569,56 @@ describe("marketplace core routes", () => {
       );
       assert.equal(localDiscovery.status, 409);
 
+      const multipleApproaches = await postJson(
+        `/api/need-profiles/${needId}/solution-decision`,
+        {
+          decision: "outsource",
+          selectedApproachIds:
+            researched.body.researchResult.approaches.map(
+              (approach: { id: string }) => approach.id
+            )
+        },
+        buyerHeaders
+      );
+      assert.equal(multipleApproaches.status, 400);
+      assert.match(multipleApproaches.body.message, /invalid solution decision/i);
+
       const outsourceDecision = await postJson(
         `/api/need-profiles/${needId}/solution-decision`,
         {
           decision: "outsource",
-          selectedApproachIds: researched.body.researchResult.approaches.map(
-            (approach: { id: string }) => approach.id
-          ),
+          selectedApproachIds: [
+            researched.body.researchResult.approaches[1].id
+          ],
           buyerNote: "Find a specialist for the controlled recovery."
         },
         buyerHeaders
       );
       assert.equal(outsourceDecision.status, 200);
+      assert.deepEqual(
+        outsourceDecision.body.solutionDecision.selectedApproachIds,
+        [researched.body.researchResult.approaches[1].id]
+      );
+
+      const report = await getBinary(
+        `/api/need-profiles/${needId}/report.pdf`,
+        buyerHeaders
+      );
+      assert.equal(report.status, 200);
+      assert.equal(report.headers.get("content-type"), "application/pdf");
+      assert.match(
+        report.headers.get("content-disposition") ?? "",
+        /veltact-need-report-.*\.pdf/
+      );
+      assert.equal(report.body.subarray(0, 8).toString(), "%PDF-1.4");
+      const reportText = report.body.toString("latin1");
+      assert.match(reportText, /VELTACT NEED AND SOLUTION REPORT/);
+      assert.match(
+        reportText,
+        /SELECTED - Controlled recovery from a verified baseline/
+      );
+      assert.match(reportText, /Evidence mode: FIXTURE/);
+      assert.match(reportText, /SAFETY NOTICE/);
 
       const wrongTokenDiscovery = await postJson(
         `/api/need-profiles/${needId}/suppliers/discover`,
@@ -429,6 +637,25 @@ describe("marketplace core routes", () => {
         supplierLeadSchema.array().parse(discovered.body.supplierLeads)
       );
       assert.equal(discovered.body.supplierLeads.length, 3);
+      assert.equal(
+        discovered.body.supplierLeads[0].companyName,
+        "EastGrid Automation (Demo)"
+      );
+      assert.ok(
+        discovered.body.supplierLeads.every(
+          (lead: { matchReasons: string[]; risks: string[] }) => {
+            const reasons = lead.matchReasons.join(" ");
+            const risks = lead.risks.join(" ");
+            return (
+              /Selected solution (fit|check):/.test(reasons) &&
+              /Location fit:/.test(reasons) &&
+              /Buyer priority (fit|check):/.test(reasons) &&
+              /Availability check:/.test(risks) &&
+              /Budget check:/.test(risks)
+            );
+          }
+        )
+      );
       assert.ok(
         discovered.body.supplierLeads.every(
           (lead: {
@@ -627,24 +854,124 @@ describe("marketplace core routes", () => {
       );
       assert.equal(reset.body.workspace.researchResult.sourceMode, "fixture");
       assert.ok(reset.body.workspace.researchResult.citations.length >= 3);
-      assert.equal(reset.body.workspace.discoveredSuppliers.length, 2);
+      assert.equal(
+        reset.body.workspace.solutionDecision.selectedApproachIds.length,
+        1
+      );
+      assert.equal(reset.body.workspace.discoveredSuppliers.length, 3);
+      if (scenario === "robotics") {
+        assert.ok(
+          reset.body.workspace.discoveredSuppliers.every(
+            (lead: { logoUrl?: string }) =>
+              lead.logoUrl?.startsWith(
+                new URL("/logos/", env.PUBLIC_BASE_URL).toString()
+              )
+          )
+        );
+      } else {
+        assert.ok(
+          reset.body.workspace.discoveredSuppliers.every(
+            (lead: { companyName: string; logoUrl?: string }) =>
+              lead.logoUrl === undefined && lead.companyName.length > 0
+          )
+        );
+      }
       assert.equal(reset.body.supplierPaths.length, 2);
+      assert.deepEqual(
+        new Set(
+          reset.body.supplierPaths.map(
+            (path: { tradeOff: string }) => path.tradeOff
+          )
+        ),
+        new Set(["fastest_response", "lower_price"])
+      );
       assert.ok(
         reset.body.supplierPaths.every(
           (path: {
             sourceMode: string;
             deliveryStatus: string;
             responseUrl: string;
+            fixtureLabel: string;
+            evidenceLabel: string;
+            supplierResponseId: string;
           }) =>
             path.sourceMode === "fixture" &&
             path.deliveryStatus === "not_sent" &&
+            path.evidenceLabel === "Fixture" &&
+            /\(Fixture\)$/.test(path.fixtureLabel) &&
+            typeof path.supplierResponseId === "string" &&
             /supplier\.html\?token=/.test(path.responseUrl)
         )
       );
+      assert.deepEqual(
+        reset.body.workspace.invitations.map(
+          (invitation: { status: string }) => invitation.status
+        ),
+        ["responded", "responded", "pending"]
+      );
+      assert.equal(reset.body.workspace.responses.length, 2);
+      assert.equal(reset.body.workspace.status, "supplier_selection");
+      assert.equal(reset.body.workspace.nextAction, "compare_responses");
+      assert.deepEqual(
+        reset.body.workspace.discoveredSuppliers.map(
+          (supplierLead: { lifecycleStatus: string }) =>
+            supplierLead.lifecycleStatus
+        ),
+        ["claimed", "claimed", "approved_for_outreach"]
+      );
       assert.ok(
-        reset.body.workspace.invitations.every(
-          (invitation: { status: string }) => invitation.status === "pending"
+        reset.body.workspace.responses.every(
+          (supplierResponse: {
+            proposedApproach?: string;
+            assumptions?: string[];
+            conditions: string[];
+          }) =>
+            Boolean(supplierResponse.proposedApproach) &&
+            (supplierResponse.assumptions?.length ?? 0) >= 2 &&
+            supplierResponse.conditions.length >= 2
         )
+      );
+
+      for (const path of reset.body.supplierPaths) {
+        const supplierOpportunity = await getJson(
+          `/api/supplier-invitations/${path.token}`
+        );
+        assert.equal(supplierOpportunity.status, 200);
+        assert.equal(
+          supplierOpportunity.body.supplierClaim.status,
+          "claimed"
+        );
+        assert.equal(
+          supplierOpportunity.body.supplierResponse.id,
+          path.supplierResponseId
+        );
+      }
+      const responseIds = new Set(
+        reset.body.workspace.responses.map(
+          (supplierResponse: { id: string }) => supplierResponse.id
+        )
+      );
+      const invitationIds = new Set(
+        reset.body.supplierPaths.map(
+          (path: { invitationId: string }) => path.invitationId
+        )
+      );
+      const auditEvents = listMarketplaceAuditEvents();
+      assert.equal(
+        auditEvents.filter(
+          (event) =>
+            event.eventType === "response.submitted" &&
+            responseIds.has(event.entityId)
+        ).length,
+        2
+      );
+      assert.equal(
+        auditEvents.filter(
+          (event) =>
+            event.eventType === "supplier_claim.claimed" &&
+            invitationIds.has(event.entityId)
+        ).length,
+        2
       );
 
       const retrieved = await getJson(
@@ -654,6 +981,15 @@ describe("marketplace core routes", () => {
       assert.equal(retrieved.status, 200);
       assert.doesNotThrow(() =>
         rapidMatchBuyerWorkspaceSchema.parse(retrieved.body.workspace)
+      );
+      const report = await getBinary(
+        `/api/need-profiles/${reset.body.needProfileId}/report.pdf`,
+        { "x-veltact-buyer-token": reset.body.buyerAccessToken }
+      );
+      assert.equal(report.status, 200);
+      assert.equal(
+        report.headers.get("x-veltact-report-source"),
+        "fixture"
       );
       workspaces[scenario] = reset.body.workspace;
     }
@@ -960,6 +1296,19 @@ describe("marketplace core routes", () => {
     assert.equal(invitation.body.need.id, created.body.need.id);
     await claimInvitation(token);
 
+    const zeroPriced = await postJson(`/api/supplier-invitations/${token}/responses`, {
+      canHelp: true,
+      earliestAvailability: "2026-07-28",
+      indicativePriceAud: 0,
+      relevantExperience: "Completed urgent PLC and SCADA recovery for a packaging line.",
+      conditions: ["Remote diagnostics required before site attendance."]
+    });
+    assert.equal(zeroPriced.status, 400);
+    assert.match(
+      zeroPriced.body.issues.indicativePriceAud[0],
+      /greater than zero/
+    );
+
     const submitted = await postJson(`/api/supplier-invitations/${token}/responses`, {
       canHelp: true,
       earliestAvailability: "2026-07-28",
@@ -1034,6 +1383,25 @@ describe("marketplace core routes", () => {
     await sendOutreach(created.body.need.id);
     await claimInvitation(firstInvitation.token);
     await claimInvitation(secondInvitation.token);
+
+    const legacyZeroQuote = submitSupplierResponse(firstInvitation.token, {
+      canHelp: true,
+      earliestAvailability: "Same day",
+      indicativePriceAud: 0,
+      relevantExperience: "Legacy response created below the HTTP validation boundary.",
+      conditions: "Remote triage before dispatch."
+    });
+    assert.equal(legacyZeroQuote.status, "submitted");
+    if (legacyZeroQuote.status !== "submitted") {
+      assert.fail("Expected a direct store fixture response");
+    }
+    assert.equal(
+      createEngagement({
+        needId: created.body.need.id,
+        supplierResponseId: legacyZeroQuote.supplierResponse.id
+      }).status,
+      "not_selectable"
+    );
 
     const declined = await postJson(`/api/supplier-invitations/${firstInvitation.token}/responses`, {
       canHelp: false,
@@ -1156,6 +1524,142 @@ describe("marketplace core routes", () => {
     assert.equal(update.supplierInvitation.supplierId, "supplier-automation-nsw");
   });
 
+  test("honours shared deliveryChannels through the production invitation route", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalOutreachEnv = {
+      EMAIL_PROVIDER: env.EMAIL_PROVIDER,
+      EMAIL_FROM: env.EMAIL_FROM,
+      RESEND_API_KEY: env.RESEND_API_KEY,
+      SMS_PROVIDER: env.SMS_PROVIDER,
+      TWILIO_ACCOUNT_SID: env.TWILIO_ACCOUNT_SID,
+      TWILIO_AUTH_TOKEN: env.TWILIO_AUTH_TOKEN,
+      TWILIO_FROM_NUMBER: env.TWILIO_FROM_NUMBER,
+      SUPPLIER_OUTREACH_EMAIL_TO: env.SUPPLIER_OUTREACH_EMAIL_TO,
+      SUPPLIER_OUTREACH_SMS_TO: env.SUPPLIER_OUTREACH_SMS_TO,
+      SUPPLIER_OUTREACH_WHATSAPP_TO:
+        env.SUPPLIER_OUTREACH_WHATSAPP_TO
+    };
+    Object.assign(env, {
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key",
+      SMS_PROVIDER: "twilio",
+      TWILIO_ACCOUNT_SID: "AC123",
+      TWILIO_AUTH_TOKEN: "twilio_test_token",
+      TWILIO_FROM_NUMBER: "+61400000000",
+      SUPPLIER_OUTREACH_EMAIL_TO: "supplier@example.com",
+      SUPPLIER_OUTREACH_SMS_TO: "+61411111111",
+      SUPPLIER_OUTREACH_WHATSAPP_TO: undefined
+    });
+    const providerCalls: string[] = [];
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      if (url.startsWith(baseUrl)) {
+        return originalFetch(input, init);
+      }
+      providerCalls.push(url);
+      if (url === "https://api.resend.com/emails") {
+        return new Response(JSON.stringify({ id: "email-123" }), {
+          status: 200
+        });
+      }
+      if (
+        url ===
+        "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json"
+      ) {
+        return new Response(
+          JSON.stringify({ sid: "SM123", status: "queued" }),
+          { status: 201 }
+        );
+      }
+      throw new Error(`Unexpected provider URL: ${url}`);
+    };
+
+    const sendWithChannels = async (
+      deliveryChannels: Array<"email" | "sms">
+    ) => {
+      resetMarketplaceStore();
+      providerCalls.splice(0);
+      const created = await postJson("/api/needs", {
+        buyerEmail: "buyer@example.com",
+        profile: automationNeed()
+      });
+      const sent = await postJson(
+        `/api/need-profiles/${created.body.need.id}/invitations/send`,
+        {
+          deliveryChannels
+        }
+      );
+      assert.equal(sent.status, 200);
+      assert.ok(
+        sent.body.supplierInvitations.every(
+          (candidate: { responseUrl: string }) =>
+            /supplier\.html\?token=/.test(candidate.responseUrl)
+        )
+      );
+      return sent.body.supplierOutreachDeliveries as Array<{
+        channel: "email" | "sms";
+        deliveryStatus: string;
+      }>;
+    };
+
+    try {
+      const emailDeliveries = await sendWithChannels(["email"]);
+      const sentEmailCount = emailDeliveries.filter(
+        (delivery) =>
+          delivery.channel === "email" &&
+          delivery.deliveryStatus === "sent"
+      ).length;
+      assert.ok(sentEmailCount > 0);
+      assert.equal(providerCalls.length, sentEmailCount);
+      assert.deepEqual(
+        [...new Set(providerCalls)],
+        ["https://api.resend.com/emails"]
+      );
+      assert.equal(
+        emailDeliveries.some(
+          (delivery) =>
+            delivery.channel === "sms" &&
+            delivery.deliveryStatus === "sent"
+        ),
+        false
+      );
+
+      const smsDeliveries = await sendWithChannels(["sms"]);
+      const sentSmsCount = smsDeliveries.filter(
+        (delivery) =>
+          delivery.channel === "sms" &&
+          delivery.deliveryStatus === "sent"
+      ).length;
+      assert.ok(sentSmsCount > 0);
+      assert.equal(providerCalls.length, sentSmsCount);
+      assert.deepEqual(
+        [...new Set(providerCalls)],
+        [
+          "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json"
+        ]
+      );
+      assert.equal(
+        smsDeliveries.some(
+          (delivery) =>
+            delivery.channel === "email" &&
+            delivery.deliveryStatus === "sent"
+        ),
+        false
+      );
+      const linkDeliveries = await sendWithChannels([]);
+      assert.deepEqual(providerCalls, []);
+      assert.ok(
+        linkDeliveries.every(
+          (delivery) => delivery.deliveryStatus === "not_sent"
+        )
+      );
+    } finally {
+      Object.assign(env, originalOutreachEnv);
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("keeps local demo and unavailable outreach unsent without reporting failures", async () => {
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",
@@ -1194,8 +1698,18 @@ describe("marketplace core routes", () => {
     for (const delivery of smsDeliveries) {
       assert.doesNotThrow(() => supplierOutreachDeliverySchema.parse(delivery));
       assert.equal(delivery.deliveryStatus, "not_sent");
+      assert.equal(delivery.sentAt, undefined);
       assert.match(delivery.errorMessage, /SMS provider is not configured/);
     }
+    assert.equal(
+      listMarketplaceAuditEvents().filter(
+        (event) =>
+          event.eventType === "outreach.not_configured" &&
+          event.metadata.outcome === "not_configured" &&
+          event.metadata.attempted === false
+      ).length,
+      3
+    );
     assert.ok(
       updates.some(
         (update) =>
@@ -1213,7 +1727,7 @@ describe("marketplace core routes", () => {
     );
   });
 
-  test("marks provider network failures as failed and continues every delivery", async () => {
+  test("marks attempted provider failures while leaving unconfigured channels unsent", async () => {
     const originalEmailProvider = env.EMAIL_PROVIDER;
     const originalEmailFrom = env.EMAIL_FROM;
     const originalResendApiKey = env.RESEND_API_KEY;
@@ -1259,16 +1773,16 @@ describe("marketplace core routes", () => {
       assert.equal(emailDeliveries.length, 3);
       assert.equal(smsDeliveries.length, 3);
       assert.ok(
+        emailDeliveries.every(
+          (delivery: { deliveryStatus: string }) =>
+            delivery.deliveryStatus === "failed"
+        )
+      );
+      assert.ok(
         emailDeliveries.every((delivery: { errorMessage: string }) =>
           /Resend delivery request failed: provider connection unavailable/.test(
             delivery.errorMessage
           )
-        )
-      );
-      assert.ok(
-        emailDeliveries.every(
-          (delivery: { deliveryStatus: string }) =>
-            delivery.deliveryStatus === "failed"
         )
       );
       assert.ok(
@@ -1402,6 +1916,10 @@ describe("marketplace core routes", () => {
     assert.equal(secured.body.engagement.status, "supplier_secured");
     assert.equal(secured.body.engagement.paymentStatus, "paid");
     assert.equal(secured.body.engagement.pinchPaymentId, "pmt_approved");
+    assert.equal(secured.body.engagement.localDemoPaymentId, undefined);
+    assert.equal(secured.body.engagement.paymentEvidenceProvider, "pinch");
+    assert.equal(secured.body.engagement.paymentEvidenceSource, "pinch_webhook");
+    assert.equal(secured.body.engagement.paymentEvidenceAuthoritative, true);
 
     const securedWorkspace = await getJson(
       `/api/need-profiles/${created.body.need.id}`
@@ -1455,6 +1973,8 @@ describe("marketplace core routes", () => {
   });
 
   test("completes the local demo through the secured state without an external payment", async () => {
+    env.PAYMENT_PROVIDER = "local_demo";
+    setPaymentProviderForTest(localDemoPaymentProvider);
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",
       profile: automationNeed()
@@ -1486,15 +2006,112 @@ describe("marketplace core routes", () => {
     assert.doesNotThrow(() => engagementSchema.parse(completed.body.engagement));
     assert.equal(completed.body.engagement.status, "supplier_secured");
     assert.equal(completed.body.engagement.paymentStatus, "paid");
-    assert.match(completed.body.engagement.pinchPaymentId, /^demo_/);
+    assert.equal(completed.body.engagement.pinchPaymentId, undefined);
+    assert.match(completed.body.engagement.localDemoPaymentId, /^demo_/);
+    assert.equal(
+      completed.body.engagement.paymentEvidenceProvider,
+      "local_demo"
+    );
+    assert.equal(completed.body.engagement.paymentEvidenceSource, "local_demo");
+    assert.equal(
+      completed.body.engagement.paymentEvidenceAuthoritative,
+      false
+    );
     assert.equal(completed.body.paymentEvidence.authoritative, false);
+    assert.equal(completed.body.paymentEvidence.provider, "local_demo");
+    assert.equal(completed.body.paymentEvidence.source, "local_demo");
     assert.match(completed.body.paymentEvidence.label, /Local demo only/);
+    assert.match(completed.body.paymentEvidence.eventId, /^demo-payment:/);
+    assert.match(completed.body.paymentEvidence.paymentId, /^demo_/);
+
+    const persistedDemoEvidence = listLocalDemoPaymentEvidence();
+    assert.equal(persistedDemoEvidence.length, 1);
+    assert.equal(persistedDemoEvidence[0]?.provider, "local_demo");
+    assert.equal(persistedDemoEvidence[0]?.source, "local_demo");
+    assert.equal(persistedDemoEvidence[0]?.authoritative, false);
+    assert.equal(listPinchWebhookEvidence().length, 0);
+    assert.ok(
+      listMarketplaceAuditEvents().some(
+        (event) =>
+          event.eventType === "payment.local_demo_secured" &&
+          event.actorType === "system" &&
+          event.actorId === "local_demo" &&
+          event.metadata.provider === "local_demo" &&
+          event.metadata.authoritative === false
+      )
+    );
+
+    const securedAt = completed.body.engagement.securedAt;
+    const repeatedStoreRecord = recordLocalDemoPayment({
+      eventId: completed.body.paymentEvidence.eventId,
+      eventType: "local-demo-payment",
+      engagementId: selected.body.engagement.id,
+      paymentId: completed.body.paymentEvidence.paymentId,
+      payload: {
+        source: "local_demo"
+      }
+    });
+    assert.equal(repeatedStoreRecord.duplicate, true);
+    assert.equal(repeatedStoreRecord.engagement?.securedAt, securedAt);
+    assert.equal(listLocalDemoPaymentEvidence().length, 1);
 
     const duplicate = await postJson(
       `/api/engagements/${selected.body.engagement.id}/demo-payment`,
       {}
     );
     assert.equal(duplicate.status, 409);
+    assert.equal(listLocalDemoPaymentEvidence().length, 1);
+  });
+
+  test("rejects demo evidence for a Pinch configuration and for a non-local link", async () => {
+    const created = await postJson("/api/needs", {
+      buyerEmail: "buyer@example.com",
+      profile: automationNeed()
+    });
+    const token = created.body.need.invitations[0].token;
+    await approveOutreachAndClaim(created.body.need.id, token);
+    const submitted = await postJson(
+      `/api/supplier-invitations/${token}/responses`,
+      {
+        canHelp: true,
+        earliestAvailability: "2026-07-28",
+        indicativePriceAud: 18500,
+        relevantExperience:
+          "Completed urgent PLC and SCADA recovery for a packaging line.",
+        conditions: "Remote diagnostics required before site attendance."
+      }
+    );
+    const selected = await postJson(
+      `/api/need-profiles/${created.body.need.id}/engagements`,
+      {
+        supplierResponseId: submitted.body.response.id
+      }
+    );
+    const paymentLink = await postJson(
+      `/api/engagements/${selected.body.engagement.id}/payment-link`,
+      {}
+    );
+    assert.equal(paymentLink.status, 201);
+    assert.match(paymentLink.body.hostedCheckoutUrl, /getpinch\.com\.au/);
+
+    const providerRejected = await postJson(
+      `/api/engagements/${selected.body.engagement.id}/demo-payment`,
+      {}
+    );
+    assert.equal(providerRejected.status, 404);
+
+    env.PAYMENT_PROVIDER = "local_demo";
+    const provenanceRejected = await postJson(
+      `/api/engagements/${selected.body.engagement.id}/demo-payment`,
+      {}
+    );
+    assert.equal(provenanceRejected.status, 409);
+    assert.match(provenanceRejected.body.message, /local demo payment link/i);
+
+    const engagement = getEngagement(selected.body.engagement.id);
+    assert.equal(engagement?.paymentStatus, "awaiting_payment");
+    assert.equal(engagement?.localDemoPaymentId, undefined);
+    assert.equal(listLocalDemoPaymentEvidence().length, 0);
   });
 });
 
@@ -1503,6 +2120,18 @@ async function getJson(path: string, headers: Record<string, string> = {}) {
   return {
     status: response.status,
     body: (await response.json()) as Record<string, any>
+  };
+}
+
+async function getBinary(
+  path: string,
+  headers: Record<string, string> = {}
+) {
+  const response = await fetch(`${baseUrl}${path}`, { headers });
+  return {
+    status: response.status,
+    headers: response.headers,
+    body: Buffer.from(await response.arrayBuffer())
   };
 }
 

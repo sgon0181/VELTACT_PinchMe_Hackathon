@@ -26,9 +26,9 @@ One buyer workspace owns one requirement across:
 
 Domain progression:
 
-`evidence -> Need Profile -> research -> decision -> matches -> approved
-outreach -> responses -> selection -> engagement -> Pinch commitment -> secured
--> delivery progress`
+`evidence -> Need Profile -> research -> selected solution -> report -> matches
+-> approved outreach -> responses -> selection -> engagement -> Pinch
+commitment -> secured -> delivery progress`
 
 The aggregate journey state is a view over domain records. Existing domain
 status enums remain authoritative for Need Profile, invitation, response,
@@ -56,6 +56,7 @@ Target surfaces after migration:
 - `/index.html`: canonical RapidMatch-based buyer workspace for Find, Connect
   and Deploy.
 - `/supplier.html?token=...`: private supplier opportunity and response.
+- `/signin.html` and `/create-account.html`: isolated account entry.
 
 Migration-only surfaces:
 
@@ -82,6 +83,9 @@ product features.
 Find returns research and buyer decision records attached to the same
 RapidMatch Need Profile ID.
 
+The report/export boundary renders only persisted Need Profile, research,
+selected-solution and citation records. PDF rendering must not call AI again.
+
 ### Connect
 
 - `marketplace/marketplaceRoutes.ts`: canonical HTTP boundary.
@@ -99,6 +103,10 @@ RapidMatch Need Profile ID.
 The supplier UI may combine profile consent and quote submission into one
 screen. Backend consent and response records remain distinct.
 
+Invitation creation and external delivery remain separate operations. Copying a
+link creates no fabricated delivery record. RFQ and quote exports are generated
+from persisted canonical records.
+
 ### Deploy
 
 - `payments/*` and `pinch/*`: payer, hosted Payment Link, webhook verification
@@ -107,8 +115,8 @@ screen. Backend consent and response records remain distinct.
 - V2 project templates and payment evidence: donor logic used to create a
   minimal deployment summary.
 
-The canonical Deploy contract exposes milestones and progress, not the full V2
-task, issue, document, approval and change-request surface.
+The canonical Deploy contract exposes the commitment, milestones and progress,
+not the full V2 task, issue, document, approval and change-request surface.
 
 ## Data Ownership
 
@@ -135,8 +143,10 @@ Once parity is achieved:
 - Reset and simulated-payment routes are unavailable in production.
 - Pinch webhooks require verified timestamped signatures.
 
-Capability tokens are not user accounts. Multi-tenant authentication remains
-outside this migration.
+Capability tokens are not user accounts. Minimal account access may be added
+around the buyer entry, but the public demo and supplier token flow must remain
+independent. Replacing capability tokens with organisation authorization is a
+separate reviewed migration.
 
 ## Provider Semantics
 
@@ -159,8 +169,8 @@ The canonical frontend preserves RapidMatch's interaction density:
 
 - One primary next action per state.
 - Progressive disclosure for citations and evidence.
-- Two outcomes at the end of Find.
-- One outreach decision in Connect.
+- One selected solution and two outcomes at the end of Find.
+- Supplier selection plus one explicit outreach channel in Connect.
 - One comparison and selection decision.
 - One current milestone in Deploy.
 

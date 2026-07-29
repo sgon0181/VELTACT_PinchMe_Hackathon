@@ -45,8 +45,9 @@ response, engagement and payment statuses remain authoritative.
 
 User-facing outcomes map as:
 
-- `Use this plan internally` -> `local_trial`
-- `Find a specialist` -> `outsource`
+- `Download report` -> no lifecycle transition
+- `Find suppliers` -> `outsource`
+- Legacy `Use this plan internally` -> `local_trial`
 - A future combined execution path may use `hybrid`
 
 ## Connect Contracts
@@ -73,6 +74,11 @@ Public discovery produces `SupplierLead` evidence. It does not create a trusted
 backend records, even when the supplier UI completes confirmation and response
 from one screen.
 
+Invitation requests select supplier lead IDs and zero or more delivery
+channels. An empty channel list creates copyable links without making an
+external delivery attempt. Omitted channels preserve the existing configured
+default during migration.
+
 ## Deploy Contracts
 
 - `Engagement`: selected supplier and Pinch commercial state.
@@ -97,6 +103,7 @@ Route templates are exported as `rapidMatchApiRoute`.
 - `GET /api/need-profiles/:needProfileId`
 - `POST /api/need-profiles/:needProfileId/research`
 - `POST /api/need-profiles/:needProfileId/solution-decision`
+- `GET /api/need-profiles/:needProfileId/report.pdf`
 
 ### Connect
 
@@ -106,6 +113,8 @@ Route templates are exported as `rapidMatchApiRoute`.
 - `GET /api/supplier-invitations/:token`
 - `POST /api/supplier-invitations/:token/claim`
 - `POST /api/supplier-invitations/:token/responses`
+- `GET /api/supplier-invitations/:token/rfq.pdf`
+- `GET /api/supplier-invitations/:token/quote.pdf`
 - `POST /api/need-profiles/:needProfileId/engagements`
 
 ### Deploy
@@ -114,6 +123,7 @@ Route templates are exported as `rapidMatchApiRoute`.
 - `POST /api/engagements/:engagementId/payment-link`
 - `GET /api/engagements/:engagementId/deployment`
 - `PATCH /api/engagements/:engagementId/deployment/milestones/:milestoneId`
+- `GET /api/engagements/:engagementId/commitment-notification`
 - `POST /api/pinch/webhooks`
 
 ### Development
@@ -187,6 +197,7 @@ Agents must not emit canonical workflow updates under `veltact:v2:*`.
 - AI output remains buyer-reviewed.
 - Discovery never triggers outreach.
 - Buyer approval precedes supplier contact.
+- A copy-link action does not claim provider delivery.
 - Supplier confirmation precedes activation.
 - At least two deterministic responses support the guided comparison.
 - Selection requires a submitted `can_help` response.
@@ -194,6 +205,9 @@ Agents must not emit canonical workflow updates under `veltact:v2:*`.
 - Payment Link creation reuses an existing usable link.
 - Browser return does not update authoritative payment state.
 - Only verified webhook or reconciliation evidence secures the supplier.
+- Commitment notification is idempotent and follows authoritative payment
+  evidence.
+- Commitment notification never claims supplier settlement.
 - Deployment progress is derived and cannot be advanced by payment alone.
 - Fixture and local-demo evidence remain visible.
 - Buyer and supplier controls remain separated by capability.
@@ -231,5 +245,7 @@ Delivery state semantics:
 - A2: canonical buyer UI based on `apps/buyer/src/main.ts`.
 - A3: supplier page, outreach adapters and canonical realtime behavior.
 - A4: Pinch/payment modules and lightweight deployment projection.
+- A5: public landing, loading treatment, brand assets and global design tokens.
+- A6: account pages and isolated staging authentication.
 
 Cross-owner edits require A0 integration review.

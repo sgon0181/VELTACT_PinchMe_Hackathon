@@ -1,7 +1,14 @@
 # Veltact
 
 Veltact turns industrial requirements into cited solution options, qualified
-supplier responses and controlled deployments with Pinch milestone payments.
+supplier responses and controlled deployments with a Pinch commitment payment.
+
+The current product and agent execution baseline is
+[`docs/STAGING_DEMO_CHARTER.md`](docs/STAGING_DEMO_CHARTER.md). Staging
+deployment instructions are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+For the free hackathon deployment and the `veltact.com` DNS cutover, see
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 # PLEASE WATCH THIS VIDEO AS IT WILL BE REALLY HELPFUL: 
 Feel free to bring the speed to 1x and not 1.2 x haha. 

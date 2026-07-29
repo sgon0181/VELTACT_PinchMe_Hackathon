@@ -6,6 +6,7 @@ import {
   type AiIntakeResult,
   type IntakeEvidenceSummary,
   type NeedProfile,
+  type OutreachChannel,
   type ResearchCitation,
   type SolutionApproach,
   type Supplier,
@@ -20,6 +21,12 @@ import {
   type IntakeEvidence,
   type IntakeSourceMode
 } from "./aiIntakeService.js";
+import {
+  apiBaseUrl,
+  demoControlsEnabled,
+  localDemoPaymentEnabled
+} from "./apiBase.js";
+import { companyLogoFor } from "./companyLogos.js";
 import { RapidMatchService } from "./rapidMatchService.js";
 import type {
   BuyerRequirementInput,
@@ -30,7 +37,6 @@ import type {
 type BuyerView =
   | "intake"
   | "plan"
-  | "internal"
   | "candidates"
   | "outreach"
   | "compare"
@@ -39,6 +45,7 @@ type BuyerView =
   | "deployment";
 type IntakeMode = "ai" | "manual";
 type LoadState = "idle" | "loading" | "error" | "success";
+type OutreachMode = OutreachChannel | "link";
 type SupplierActivityStatus = "ready" | "sent" | "failed" | "viewed" | "responded";
 type SupplierCandidate = Pick<
   SupplierMatch,
@@ -49,6 +56,9 @@ type SupplierReference = Supplier | SupplierLead;
 type PersistedContext = {
   view?: BuyerView;
   priority?: PrioritySignal;
+  selectedApproachId?: string;
+  selectedCandidateIds?: string[];
+  outreachMode?: OutreachMode;
   selectedResponseId?: string;
   engagementId?: string;
   intakeSourceMode?: IntakeSourceMode;
@@ -59,19 +69,56 @@ type PersistedContext = {
   solutionDecision?: BuyerWorkspace["solutionDecision"];
 };
 
+type RealtimePayload = {
+  needProfileId?: string;
+  supplierInvitation?: {
+    status?: string;
+  };
+  supplierResponse?: {
+    decision?: string;
+  };
+  outreachDelivery?: {
+    channel?: "email" | "sms";
+    destination?: string;
+    deliveryStatus?: "not_sent" | "queued" | "sent" | "failed";
+  };
+};
+
+type RealtimeSocket = {
+  emit(
+    eventName: string,
+    payload: { needProfileId: string; buyerAccessToken?: string }
+  ): void;
+  on(eventName: string, handler: (payload: RealtimePayload) => void): void;
+};
+
+type SocketIoFactory = (
+  origin: string,
+  options: { transports: string[]; reconnection: boolean }
+) => RealtimeSocket;
+
 const service = new RapidMatchService();
 const aiIntakeService = new BackendAiIntakeService();
 const app = document.querySelector<HTMLDivElement>("#app");
-const localDemoMode = ["localhost", "127.0.0.1"].includes(
-  window.location.hostname
-);
+const socketWindow = window as Window & { io?: SocketIoFactory };
+const realtimeOrigin = new URL(apiBaseUrl(), window.location.origin).origin;
+const rapidMatchSocketEvent = {
+  joinNeedProfile: "rapidmatch:need.join",
+  leaveNeedProfile: "rapidmatch:need.leave",
+  invitationSent: "rapidmatch:invitation.sent",
+  outreachDeliveryUpdated: "rapidmatch:outreach.delivery_updated",
+  supplierResponseSubmitted: "rapidmatch:response.submitted",
+  paymentStatusUpdated: "rapidmatch:payment.status_updated",
+  engagementSecured: "rapidmatch:engagement.secured",
+  deploymentUpdated: "rapidmatch:deployment.updated"
+} as const;
 const LAST_NEED_KEY = "veltact:rapidmatch:last-need-id";
+const NEW_REQUIREMENT_KEY = "veltact:rapidmatch:new-requirement";
 const CONTEXT_PREFIX = "veltact:rapidmatch:buyer-context:";
 const TOKEN_PREFIX = "veltact:rapidmatch:buyer-token:";
 const buyerViews = new Set<BuyerView>([
   "intake",
   "plan",
-  "internal",
   "candidates",
   "outreach",
   "compare",
@@ -94,15 +141,27 @@ let loadingLabel = "";
 let errorMessage = "";
 let liveMessage = "";
 let priority: PrioritySignal = "speed";
+let selectedApproachId = "";
+let selectedCandidateIds = new Set<string>();
+let candidateSelectionInitialised = false;
+let outreachMode: OutreachMode = "email";
 let selectedResponseId = "";
 let workspace: BuyerWorkspace | undefined;
 let aiIntakeResult: AiIntakeResult | undefined;
 let intakeSourceMode: IntakeSourceMode = "fixture";
 let intakeEvidence: IntakeEvidence[] = [];
 let booting = true;
+let demoControlsAvailable = false;
+let localDemoPaymentAvailable = false;
+let milestoneUpdateDraft = "";
+let restoreFailed = false;
+let workspaceEpoch = 0;
 let pollHandle: number | undefined;
 let pollKey = "";
 let isPolling = false;
+let realtimeSocket: RealtimeSocket | undefined;
+let joinedNeedProfileId = "";
+let realtimeClientLoading: Promise<void> | undefined;
 
 const emptyInput: BuyerRequirementInput = {
   companyName: "",
@@ -181,8 +240,14 @@ render();
 void bootstrap();
 
 async function bootstrap() {
+  const demoGate = demoControlsEnabled();
+  const localDemoPaymentGate = localDemoPaymentEnabled();
   const identity = readWorkspaceIdentity();
   if (!identity.needProfileId) {
+    [demoControlsAvailable, localDemoPaymentAvailable] = await Promise.all([
+      demoGate,
+      localDemoPaymentGate
+    ]);
     booting = false;
     render();
     return;
@@ -190,6 +255,14 @@ async function bootstrap() {
 
   const context = loadContext(identity.needProfileId);
   if (context.priority) priority = context.priority;
+  if (context.selectedApproachId) {
+    selectedApproachId = context.selectedApproachId;
+  }
+  if (context.selectedCandidateIds) {
+    selectedCandidateIds = new Set(context.selectedCandidateIds);
+    candidateSelectionInitialised = true;
+  }
+  if (context.outreachMode) outreachMode = context.outreachMode;
   if (context.selectedResponseId) selectedResponseId = context.selectedResponseId;
   if (context.intakeResult) aiIntakeResult = context.intakeResult;
   if (context.intakeSourceMode) intakeSourceMode = context.intakeSourceMode;
@@ -220,13 +293,30 @@ async function bootstrap() {
     );
     selectedResponseId =
       workspace.engagement?.supplierResponseId || selectedResponseId;
+    selectedApproachId = resolveSelectedApproachId(
+      workspace.researchResult,
+      selectedApproachId ||
+        workspace.solutionDecision?.selectedApproachIds[0]
+    );
+    selectedCandidateIds = resolveSelectedCandidateIds(
+      workspace,
+      selectedCandidateIds,
+      candidateSelectionInitialised
+    );
+    candidateSelectionInitialised = true;
     view = resolveRestoredView(workspace, context.view);
+    restoreFailed = false;
     loadState = "idle";
   } catch (error) {
+    restoreFailed = true;
     loadState = "error";
     errorMessage = errorText(error);
     view = "intake";
   } finally {
+    [demoControlsAvailable, localDemoPaymentAvailable] = await Promise.all([
+      demoGate,
+      localDemoPaymentGate
+    ]);
     booting = false;
     render();
   }
@@ -235,6 +325,11 @@ async function bootstrap() {
 function render() {
   if (!app) return;
   const phase = currentPhase();
+  if (phase === "deploy") {
+    document.body.dataset.phase = "deploy";
+  } else {
+    delete document.body.dataset.phase;
+  }
   app.innerHTML = `
     <header class="product-header">
       <a class="product-wordmark" href="./index.html" aria-label="Veltact RapidMatch">
@@ -265,6 +360,7 @@ function render() {
   `;
   bindEvents();
   configurePolling();
+  configureRealtime();
 }
 
 function renderJourney(phase: "find" | "connect" | "deploy") {
@@ -317,7 +413,7 @@ function renderBanner() {
 }
 
 function renderCurrentView() {
-  if (loadState === "error" && !workspace && view === "intake") {
+  if (restoreFailed && !workspace && view === "intake") {
     return renderRestoreError();
   }
   if (view === "intake") return renderIntake();
@@ -328,7 +424,6 @@ function renderCurrentView() {
     );
   }
   if (view === "plan") return renderPlan(workspace);
-  if (view === "internal") return renderInternalPlan(workspace);
   if (view === "candidates") return renderCandidates(workspace);
   if (view === "outreach") return renderOutreach(workspace);
   if (view === "compare") return renderComparison(workspace);
@@ -397,15 +492,21 @@ function renderIntake() {
           <p class="eyebrow">Find / Requirement intake</p>
           <h2>Turn factory context into a supplier-ready Need Profile</h2>
         </div>
-        <div class="demo-utilities" aria-label="Demo utilities">
-          <button class="button button-quiet" type="button" data-demo="plc">Demo: PLC</button>
-          <button class="button button-quiet" type="button" data-demo="robotics">Demo: Robotic integration</button>
-        </div>
+        ${
+          demoControlsAvailable
+            ? `
+              <div class="demo-utilities" aria-label="Demo utilities">
+                <button class="button button-quiet" type="button" data-demo="plc">Demo: PLC</button>
+                <button class="button button-quiet" type="button" data-demo="robotics">Demo: Robotic integration</button>
+              </div>
+            `
+            : ""
+        }
       </div>
 
       <div class="mode-switch" role="group" aria-label="Intake mode">
-        <button type="button" class="${intakeMode === "ai" ? "is-active" : ""}" data-intake-mode="ai">AI assisted</button>
-        <button type="button" class="${intakeMode === "manual" ? "is-active" : ""}" data-intake-mode="manual">Manual</button>
+        <button type="button" class="${intakeMode === "ai" ? "is-active" : ""}" data-intake-mode="ai" aria-pressed="${intakeMode === "ai"}">AI assisted</button>
+        <button type="button" class="${intakeMode === "manual" ? "is-active" : ""}" data-intake-mode="manual" aria-pressed="${intakeMode === "manual"}">Manual</button>
       </div>
 
       <section class="intake-section intake-problem">
@@ -621,22 +722,34 @@ function renderPlan(data: BuyerWorkspace) {
       "retry-research"
     );
   }
-  const sorted = [...research.approaches].sort(
-    (left, right) => right.confidence - left.confidence
+  const approaches = selectableApproaches(research);
+  if (approaches.length !== 3) {
+    return renderUnavailable(
+      "Three solution pathways are required",
+      `The research API returned ${approaches.length} usable pathway${approaches.length === 1 ? "" : "s"}. Veltact will not invent the missing supplier scope.`,
+      "Retry analysis",
+      "retry-research"
+    );
+  }
+  selectedApproachId = resolveSelectedApproachId(
+    research,
+    selectedApproachId ||
+      data.solutionDecision?.selectedApproachIds[0]
   );
-  const recommended = sorted[0];
-  const alternatives = sorted.slice(1);
+  const selectedApproach = approaches.find(
+    (approach) => approach.id === selectedApproachId
+  );
   const missing = uniqueStrings([
     ...intakeMissingFields(),
     ...research.missingInformation
   ]);
   return `
     <div class="view-stack">
-      <section class="panel">
-        <div class="panel-heading">
+      <article class="need-report" aria-label="Veltact Need Profile report">
+        <header class="report-heading">
           <div>
-            <p class="eyebrow">Find / Need Profile ${escapeHtml(shortId(profile.id))}</p>
-            <h2>Review the requirement and recommended path</h2>
+            <span class="report-wordmark">Veltact</span>
+            <p>Need Profile ${escapeHtml(shortId(profile.id))}</p>
           </div>
           <div class="source-stack">
             ${sourceBadge(
@@ -650,93 +763,113 @@ function renderPlan(data: BuyerWorkspace) {
                 : `<span class="confidence">${Math.round(aiIntakeResult.confidence * 100)}% intake confidence</span>`
             }
           </div>
+        </header>
+        <div class="report-title">
+          <p class="eyebrow">Find / Buyer-reviewed requirement</p>
+          <h2>${escapeHtml(profile.title)}</h2>
+          <p>${escapeHtml(research.overview)}</p>
         </div>
         ${renderNeedProfile(profile)}
-      </section>
 
-      <section class="panel recommendation-panel">
-        <div class="recommendation-heading">
-          <div>
-            <p class="eyebrow">Recommended cited approach</p>
-            <h2>${escapeHtml(recommended.title)}</h2>
+        <section class="solution-report">
+          <div class="solution-report-heading">
+            <div>
+              <p class="eyebrow">Decision pathways</p>
+              <h2>Select one supplier-ready solution</h2>
+            </div>
+            <span class="solution-count">3 pathways</span>
           </div>
-          <span class="score-badge">${Math.round(recommended.confidence * 100)}% confidence</span>
-        </div>
-        <p class="recommendation-summary">${escapeHtml(recommended.summary)}</p>
-        <p class="rationale">${escapeHtml(recommended.rationale)}</p>
-        ${renderApproachDetails(recommended, research.citations)}
-      </section>
-
-      ${
-        alternatives.length
-          ? `
-            <details class="panel alternatives">
-              <summary>
-                <span>
-                  <strong>${alternatives.length} alternative ${alternatives.length === 1 ? "approach" : "approaches"}</strong>
-                  <small>Open to review lower-confidence options.</small>
-                </span>
-              </summary>
-              <div class="alternative-list">
-                ${alternatives
-                  .map(
-                    (approach) => `
-                      <article class="alternative">
-                        <div>
-                          <h3>${escapeHtml(approach.title)}</h3>
-                          <span>${Math.round(approach.confidence * 100)}% confidence</span>
-                        </div>
-                        <p>${escapeHtml(approach.summary)}</p>
-                        ${renderApproachDetails(approach, research.citations)}
-                      </article>
-                    `
-                  )
-                  .join("")}
-              </div>
-            </details>
-          `
-          : ""
-      }
-
-      <section class="panel evidence-panel">
-        <div class="evidence-columns">
-          <div>
-            <p class="eyebrow">Missing information</p>
-            <h3>Confirm before supplier commitment</h3>
-            ${
-              missing.length
-                ? `<ul class="check-list missing-list">${missing.map((item) => `<li>${escapeHtml(humanFieldName(item))}</li>`).join("")}</ul>`
-                : `<p class="positive-copy">No material intake gaps were identified.</p>`
-            }
+          <p class="section-intro">The highest-confidence path is recommended, but all three remain available for buyer review. Selecting a path does not contact suppliers.</p>
+          <div class="solution-grid" role="radiogroup" aria-label="Solution pathways">
+            ${approaches
+              .map((approach, index) =>
+                renderSolutionOption(
+                  approach,
+                  research.citations,
+                  index === 0
+                )
+              )
+              .join("")}
           </div>
-          <div>
-            <p class="eyebrow">Provenance</p>
-            <h3>Evidence used for this path</h3>
-            ${renderCitations(research.citations)}
+          <div class="selected-scope" aria-live="polite">
+            <span>Selected supplier scope</span>
+            <strong>${selectedApproach ? escapeHtml(selectedApproach.title) : "Select one pathway"}</strong>
           </div>
-        </div>
-        <div class="safety-boundary">
-          <strong>Safety boundary</strong>
-          <p>${escapeHtml(research.safetyNotice)}</p>
-        </div>
-      </section>
+        </section>
 
-      <section class="outcome-band">
+        <section class="report-evidence">
+          <div class="evidence-columns">
+            <div>
+              <p class="eyebrow">Missing information</p>
+              <h3>Confirm before supplier commitment</h3>
+              ${
+                missing.length
+                  ? `<ul class="check-list missing-list">${missing.map((item) => `<li>${escapeHtml(humanFieldName(item))}</li>`).join("")}</ul>`
+                  : `<p class="positive-copy">No material intake gaps were identified.</p>`
+              }
+            </div>
+            <div>
+              <p class="eyebrow">Provenance</p>
+              <h3>Evidence used for these pathways</h3>
+              ${renderCitations(research.citations)}
+            </div>
+          </div>
+          <div class="safety-boundary">
+            <strong>Safety boundary</strong>
+            <p>${escapeHtml(research.safetyNotice)}</p>
+          </div>
+        </section>
+      </article>
+
+      <section class="outcome-band report-outcomes">
         <div>
-          <p class="eyebrow">Choose one outcome</p>
-          <h2>How should Veltact continue?</h2>
-          <p>The requirement is not sent to suppliers until you choose Find a specialist and approve outreach.</p>
+          <p class="eyebrow">Report ready</p>
+          <h2>Keep the report or continue to suppliers</h2>
+          <p>Download is a report utility. Supplier discovery begins only when you choose Find suppliers.</p>
         </div>
         <div class="outcome-actions">
-          <button class="button button-secondary button-large" type="button" data-plan-outcome="internal">
-            Use this plan internally
+          <button class="button button-secondary button-large" type="button" data-download-report ${selectedApproach ? "" : "disabled"}>
+            Download report
           </button>
-          <button class="button button-primary button-large" type="button" data-plan-outcome="specialist">
-            Find a specialist
+          <button class="button button-primary button-large" type="button" data-find-suppliers ${selectedApproach ? "" : "disabled"}>
+            Find suppliers
           </button>
         </div>
       </section>
     </div>
+  `;
+}
+
+function renderSolutionOption(
+  approach: SolutionApproach,
+  citations: ResearchCitation[],
+  recommended: boolean
+) {
+  const selected = approach.id === selectedApproachId;
+  return `
+    <article class="solution-option ${selected ? "is-selected" : ""}">
+      <label class="solution-choice">
+        <input
+          type="radio"
+          name="solution-pathway"
+          value="${escapeHtml(approach.id)}"
+          ${selected ? "checked" : ""}
+        />
+        <span class="solution-choice-copy">
+          <span class="solution-option-meta">
+            ${recommended ? `<strong class="recommended-label">Recommended</strong>` : `<strong>Alternative</strong>`}
+            <span>${Math.round(approach.confidence * 100)}% confidence</span>
+          </span>
+          <strong class="solution-title">${escapeHtml(approach.title)}</strong>
+          <span class="solution-summary">${escapeHtml(approach.summary)}</span>
+        </span>
+      </label>
+      <details class="solution-details">
+        <summary>Review scope and cited evidence</summary>
+        <p class="rationale">${escapeHtml(approach.rationale)}</p>
+        ${renderApproachDetails(approach, citations)}
+      </details>
+    </article>
   `;
 }
 
@@ -752,7 +885,7 @@ function renderNeedProfile(profile: NeedProfile) {
   return `
     <div class="need-profile">
       <div class="need-profile-main">
-        <span class="profile-label">Requirement</span>
+        <span class="profile-label">Problem summary</span>
         <h3>${escapeHtml(profile.title)}</h3>
         <p>${escapeHtml(profile.description)}</p>
       </div>
@@ -824,48 +957,6 @@ function renderApproachDetails(
   `;
 }
 
-function renderInternalPlan(data: BuyerWorkspace) {
-  const research = data.researchResult;
-  if (!research) {
-    return renderUnavailable(
-      "Internal plan unavailable",
-      "No analysed approach is attached to this Need Profile."
-    );
-  }
-  const approach = [...research.approaches].sort(
-    (left, right) => right.confidence - left.confidence
-  )[0];
-  return `
-    <section class="panel terminal-panel">
-      <div class="success-mark" aria-hidden="true">OK</div>
-      <p class="eyebrow">Find / Internal plan selected</p>
-      <h2>${escapeHtml(approach.title)}</h2>
-      <p class="terminal-copy">The plan has been recorded for internal use. No supplier outreach was sent.</p>
-      <div class="approach-grid">
-        <div>
-          <h3>Safe preparation</h3>
-          ${bulletList(approach.localActions, "No local preparation listed.")}
-        </div>
-        <div>
-          <h3>Specialist trigger</h3>
-          ${bulletList(approach.outsourceTriggers, "No triggers listed.")}
-        </div>
-      </div>
-      <div class="safety-boundary">
-        <strong>Safety boundary</strong>
-        <p>${escapeHtml(research.safetyNotice)}</p>
-      </div>
-      <div class="primary-action-row">
-        <div>
-          <strong>Internal outcome complete</strong>
-          <span>Start a separate requirement when another supplier need arises.</span>
-        </div>
-        <button class="button button-primary" type="button" data-start-new>Start new requirement</button>
-      </div>
-    </section>
-  `;
-}
-
 function renderCandidates(data: BuyerWorkspace) {
   const profile = requireNeedProfile(data);
   const candidates = supplierCandidates(data);
@@ -880,6 +971,21 @@ function renderCandidates(data: BuyerWorkspace) {
   candidates.sort(
     (left, right) => right.score - left.score
   );
+  selectedCandidateIds = resolveSelectedCandidateIds(
+    data,
+    selectedCandidateIds,
+    candidateSelectionInitialised
+  );
+  candidateSelectionInitialised = true;
+  const selectedCount = candidates.filter((candidate) =>
+    selectedCandidateIds.has(candidate.supplierId)
+  ).length;
+  const channelAvailable = outreachModeAvailable(
+    data,
+    candidates,
+    outreachMode
+  );
+  const action = outreachAction(outreachMode, selectedCount);
   return `
     <div class="view-stack">
       <section class="panel">
@@ -890,21 +996,60 @@ function renderCandidates(data: BuyerWorkspace) {
           </div>
           <span class="source-badge is-api">API workspace</span>
         </div>
-        <p class="section-intro">Review fit and risk before authorising delivery. Generated secure links are not sent through configured channels until you approve outreach.</p>
+        <p class="section-intro">Select one or more candidates after reviewing fit, evidence and risk. No supplier is contacted until the outreach action below succeeds.</p>
         <div class="candidate-grid">
           ${candidates
             .map((match, index) => renderCandidate(data, match, index))
             .join("")}
         </div>
       </section>
-      <section class="primary-action-row action-band">
-        <div>
-          <strong>Buyer approval required</strong>
-          <span>Email and SMS are attempted only by the backend. Every supplier retains a secure-link fallback.</span>
+
+      <section class="outreach-approval action-band">
+        <div class="outreach-approval-heading">
+          <div>
+            <p class="eyebrow">Buyer-approved outreach</p>
+            <h2>${selectedCount} supplier${selectedCount === 1 ? "" : "s"} selected</h2>
+          </div>
+          <span class="selection-count">${selectedCount}/${candidates.length}</span>
         </div>
-        <button class="button button-primary button-large" type="button" data-send-outreach>
-          Send to matched suppliers
-        </button>
+        <fieldset class="outreach-modes">
+          <legend>Choose one outreach method</legend>
+          ${renderOutreachMode(
+            "email",
+            "Email",
+            "Send through the configured email provider"
+          )}
+          ${renderOutreachMode(
+            "sms",
+            "SMS",
+            "Send only where a mobile number is available"
+          )}
+          ${renderOutreachMode(
+            "link",
+            "Secure link",
+            "Generate links without requesting external delivery"
+          )}
+        </fieldset>
+        <div class="primary-action-row">
+          <div>
+            <strong>${escapeHtml(action.title)}</strong>
+            <span>${escapeHtml(
+              selectedCount === 0
+                ? "Select at least one supplier to continue."
+                : channelAvailable
+                  ? action.description
+                  : `${outreachMode === "sms" ? "SMS" : "Email"} is unavailable for the selected suppliers. Choose secure link instead.`
+            )}</span>
+          </div>
+          <button
+            class="button button-primary button-large"
+            type="button"
+            data-send-outreach
+            ${selectedCount > 0 && channelAvailable ? "" : "disabled"}
+          >
+            ${escapeHtml(action.label)}
+          </button>
+        </div>
       </section>
     </div>
   `;
@@ -917,15 +1062,33 @@ function renderCandidate(
 ) {
   const supplier = supplierFor(data, match.supplierId);
   const invitation = invitationForSupplier(data, match.supplierId);
+  const selected = selectedCandidateIds.has(match.supplierId);
   return `
-    <article class="candidate-card">
+    <article class="candidate-card ${selected ? "is-selected" : ""}">
       <div class="candidate-rank">0${index + 1}</div>
+      <label class="candidate-select">
+        <input
+          type="checkbox"
+          value="${escapeHtml(match.supplierId)}"
+          data-candidate-id="${escapeHtml(match.supplierId)}"
+          ${selected ? "checked" : ""}
+        />
+        <span>${selected ? "Selected for outreach" : "Select supplier"}</span>
+      </label>
       <div class="candidate-heading">
         <div>
-          <h3>${escapeHtml(supplierName(supplier, match.supplierId))}</h3>
-          <span>${escapeHtml(supplierRecordLabel(supplier))}</span>
+          <h3>${renderCompanyIdentity(supplierName(supplier, match.supplierId))}</h3>
+          <span>${escapeHtml(supplierLocation(supplier))}</span>
         </div>
         <span class="match-score">${Math.round(match.score)}%</span>
+      </div>
+      <div class="candidate-provenance">
+        ${sourceBadge(
+          supplier && "sourceMode" in supplier ? supplier.sourceMode : "fixture",
+          "Live public evidence",
+          supplierRecordLabel(supplier)
+        )}
+        <span>${escapeHtml(candidateContactReadiness(supplier))}</span>
       </div>
       <div class="candidate-section">
         <strong>Why this supplier</strong>
@@ -946,10 +1109,31 @@ function renderCandidate(
         ${bulletList(match.risks, "No specific match risks returned.")}
       </div>
       <div class="candidate-footer">
-        <span class="status-chip is-ready">Ready</span>
-        <span>${invitation ? "Secure supplier link generated" : "Invitation unavailable"}</span>
+        <span class="status-chip is-ready">${invitation ? "Link ready" : "Candidate"}</span>
+        <span>${invitation ? "Private supplier workspace generated" : "Buyer approval required"}</span>
       </div>
     </article>
+  `;
+}
+
+function renderOutreachMode(
+  value: OutreachMode,
+  label: string,
+  description: string
+) {
+  return `
+    <label class="outreach-mode ${outreachMode === value ? "is-selected" : ""}">
+      <input
+        type="radio"
+        name="outreach-mode"
+        value="${value}"
+        ${outreachMode === value ? "checked" : ""}
+      />
+      <span>
+        <strong>${escapeHtml(label)}</strong>
+        <small>${escapeHtml(description)}</small>
+      </span>
+    </label>
   `;
 }
 
@@ -1015,7 +1199,7 @@ function renderSupplierOutreach(
     <article class="outreach-item">
       <div class="outreach-heading">
         <div>
-          <h3>${escapeHtml(supplierName(supplier, invitation.supplierId))}</h3>
+          <h3>${renderCompanyIdentity(supplierName(supplier, invitation.supplierId))}</h3>
           <span>Secure response expires ${escapeHtml(formatTime(invitation.expiresAt))}</span>
         </div>
         <span class="status-chip is-${activity}">${activityLabel(activity)}</span>
@@ -1088,7 +1272,7 @@ function renderDelivery(
 
 function renderComparison(data: BuyerWorkspace) {
   const responses = submittedResponses(data);
-  const selectable = responses.filter((item) => item.decision === "can_help");
+  const selectable = responses.filter(isSelectableSupplierResponse);
   const hasMinimum = responses.length >= 2;
   const selected = selectable.find((item) => item.id === selectedResponseId);
   return `
@@ -1125,7 +1309,7 @@ function renderComparison(data: BuyerWorkspace) {
 
       <section class="primary-action-row action-band">
         <div>
-          <strong>${selected ? `${supplierName(supplierFor(data, selected.supplierId), selected.supplierId)} selected` : "Choose one supplier response"}</strong>
+          <strong>${selected ? `${renderCompanyIdentity(supplierName(supplierFor(data, selected.supplierId), selected.supplierId), true)} selected` : "Choose one supplier response"}</strong>
           <span>Selection creates the engagement. It does not mark payment complete or secure the supplier.</span>
         </div>
         ${
@@ -1144,21 +1328,23 @@ function renderResponseCard(
 ) {
   const supplier = supplierFor(data, response.supplierId);
   const match = matchForSupplier(data, response.supplierId);
-  const selected = response.id === selectedResponseId;
   const canHelp = response.decision === "can_help";
+  const validPrice = (response.indicativePrice?.amount ?? 0) > 0;
+  const selectable = canHelp && validPrice;
+  const selected = selectable && response.id === selectedResponseId;
   return `
-    <article class="response-card ${selected ? "is-selected" : ""} ${canHelp ? "" : "is-declined"}">
+    <article class="response-card ${selected ? "is-selected" : ""} ${selectable ? "" : canHelp ? "is-invalid" : "is-declined"}">
       <label class="response-select">
         <input
           type="radio"
           name="supplier-response"
           value="${escapeHtml(response.id)}"
           ${selected ? "checked" : ""}
-          ${canHelp ? "" : "disabled"}
+          ${selectable ? "" : "disabled"}
         />
         <span>
-          <strong>${escapeHtml(supplierName(supplier, response.supplierId))}</strong>
-          <small>${canHelp ? "Available for selection" : "Cannot help"}</small>
+          <strong>${renderCompanyIdentity(supplierName(supplier, response.supplierId), true)}</strong>
+          <small>${selectable ? "Available for selection" : canHelp ? "Invalid price — unavailable" : "Cannot help"}</small>
         </span>
         <span class="match-score">${match ? `${Math.round(match.score)}%` : "N/A"}</span>
       </label>
@@ -1172,7 +1358,7 @@ function renderResponseCard(
                 response.indicativePrice.currency
               )
             : "Not provided",
-          !response.indicativePrice
+          !validPrice
         )}
         ${comparisonFact(
           "Technical fit",
@@ -1221,7 +1407,7 @@ function renderSelected(data: BuyerWorkspace) {
     <section class="panel selection-panel">
       <div class="success-mark" aria-hidden="true">OK</div>
       <p class="eyebrow">Deploy / Supplier selected</p>
-      <h2>${escapeHtml(supplierName(selection.supplier, selection.response.supplierId))}</h2>
+      <h2>${renderCompanyIdentity(supplierName(selection.supplier, selection.response.supplierId), true)}</h2>
       <p class="terminal-copy">The engagement exists, but the supplier is not secured until payment evidence is confirmed by the backend.</p>
       <dl class="selection-summary">
         ${fact("Availability", selection.response.availability ?? "Not provided", !selection.response.availability)}
@@ -1240,13 +1426,111 @@ function renderSelected(data: BuyerWorkspace) {
       </dl>
       <div class="primary-action-row">
         <div>
-          <strong>Create a Pinch commitment</strong>
-          <span>The API creates the hosted payment link. This UI does not generate a demo checkout URL.</span>
+          <strong>Create a hosted commitment</strong>
+          <span>The API uses the configured payment provider and returns its hosted link. Payment remains pending until backend evidence is confirmed.</span>
         </div>
-        <button class="button button-primary button-large" type="button" data-create-payment>Create Pinch commitment</button>
+        <button class="button button-primary button-large" type="button" data-create-payment>Create payment link</button>
       </div>
     </section>
   `;
+}
+
+function hostedPaymentKind(value?: string) {
+  if (!value) return "uncreated" as const;
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return "hosted" as const;
+    }
+    const paymentLinkId = url.searchParams.get("payment_link_id");
+    if (
+      url.searchParams.get("payment_provider") === "local_demo" &&
+      paymentLinkId?.startsWith("local_demo_link_")
+    ) {
+      return "local_demo" as const;
+    }
+    if (
+      url.protocol === "https:" &&
+      (url.hostname === "getpinch.com.au" ||
+        url.hostname.endsWith(".getpinch.com.au"))
+    ) {
+      return "pinch" as const;
+    }
+    return "hosted" as const;
+  } catch {
+    return "hosted" as const;
+  }
+}
+
+function paymentLinkPresentation(hostedUrl?: string) {
+  const kind = hostedPaymentKind(hostedUrl);
+  if (kind === "local_demo") {
+    return {
+      kind,
+      eyebrow: "Deploy / Local demo commitment",
+      intro:
+        "This development-only link returns to Veltact without taking payment. The engagement remains pending until explicit local demo evidence is recorded.",
+      summaryLabel: "Demo return",
+      summaryValue: "Synthetic local link",
+      boundaryTitle: "Synthetic local return",
+      boundaryCopy:
+        "Opening this link does not contact Pinch or complete payment. It creates no provider approval or authoritative payment evidence.",
+      actionTitle: "Open the synthetic local return",
+      actionCopy:
+        "Development only. No money moves and the engagement remains awaiting payment.",
+      openLabel: "Open local demo return",
+      readyMessage: "Local demo return link is ready."
+    };
+  }
+  if (kind === "pinch") {
+    return {
+      kind,
+      eyebrow: "Deploy / Pinch commitment",
+      intro:
+        "Payment remains pending until Pinch returns authoritative evidence to the API.",
+      summaryLabel: "Pinch link",
+      summaryValue: "Created by API",
+      boundaryTitle: "Backend-confirmed payment only",
+      boundaryCopy:
+        "Opening checkout does not change payment status. The buyer workspace refreshes the engagement record to confirm Pinch evidence.",
+      actionTitle: "Complete the commitment in Pinch",
+      actionCopy: "Pinch checkout opens in a separate secure tab.",
+      openLabel: "Open Pinch payment",
+      readyMessage: "Pinch checkout is ready."
+    };
+  }
+  if (kind === "hosted") {
+    return {
+      kind,
+      eyebrow: "Deploy / Hosted commitment",
+      intro:
+        "Payment remains pending until the configured provider returns authoritative evidence to the API.",
+      summaryLabel: "Hosted link",
+      summaryValue: "Created by API",
+      boundaryTitle: "Provider confirmation required",
+      boundaryCopy:
+        "Opening the hosted link does not change payment status. The buyer workspace refreshes the engagement record for provider evidence.",
+      actionTitle: "Complete the hosted commitment",
+      actionCopy: "The configured provider opens in a separate secure tab.",
+      openLabel: "Open hosted payment",
+      readyMessage: "Hosted payment link is ready."
+    };
+  }
+  return {
+    kind,
+    eyebrow: "Deploy / Hosted commitment",
+    intro:
+      "Payment remains pending until the configured provider returns authoritative evidence to the API.",
+    summaryLabel: "Hosted link",
+    summaryValue: "Not created",
+    boundaryTitle: "Backend-confirmed payment only",
+    boundaryCopy:
+      "Creating or opening a hosted link does not change payment status. The buyer workspace waits for provider evidence.",
+    actionTitle: "Create a hosted payment link",
+    actionCopy: "The configured payment provider must return a hosted URL.",
+    openLabel: "Create payment link",
+    readyMessage: "The API did not return a hosted payment link."
+  };
 }
 
 function renderPayment(data: BuyerWorkspace): string {
@@ -1264,6 +1548,7 @@ function renderPayment(data: BuyerWorkspace): string {
     return renderDeployment(data);
   }
   const hostedUrl = engagement.hostedCheckoutUrl;
+  const paymentPresentation = paymentLinkPresentation(hostedUrl);
   const profile = requireNeedProfile(data);
   const commitmentAmount =
     data.deployment?.milestones[0]?.amount ??
@@ -1273,9 +1558,9 @@ function renderPayment(data: BuyerWorkspace): string {
     <section class="panel payment-panel">
       <div class="payment-heading">
         <div>
-          <p class="eyebrow">Deploy / Pinch commitment</p>
+          <p class="eyebrow">${escapeHtml(paymentPresentation.eyebrow)}</p>
           <h2>Awaiting payment</h2>
-          <p>Payment remains pending until Pinch or the local payment provider returns authoritative evidence to the API.</p>
+          <p>${escapeHtml(paymentPresentation.intro)}</p>
         </div>
         <span class="payment-state">${escapeHtml(statusLabel(engagement.paymentStatus))}</span>
       </div>
@@ -1289,30 +1574,35 @@ function renderPayment(data: BuyerWorkspace): string {
         )}
         ${fact("Supplier", supplierName(supplierFor(data, engagement.supplierId), engagement.supplierId))}
         ${fact("Engagement", shortId(engagement.id))}
-        ${fact("Pinch link", hostedUrl ? "Created by API" : "Not created", !hostedUrl)}
+        ${fact(
+          paymentPresentation.summaryLabel,
+          paymentPresentation.summaryValue,
+          !hostedUrl
+        )}
       </dl>
       <div class="payment-boundary">
-        <strong>No frontend simulation</strong>
-        <span>Opening checkout does not change this status. The buyer workspace refreshes the engagement record to confirm payment.</span>
+        <strong>${escapeHtml(paymentPresentation.boundaryTitle)}</strong>
+        <span>${escapeHtml(paymentPresentation.boundaryCopy)}</span>
       </div>
       <div class="primary-action-row">
         <div>
-          <strong>${hostedUrl ? "Complete the commitment in Pinch" : "Create the hosted Pinch link"}</strong>
-          <span>${hostedUrl ? "Checkout opens in a separate secure tab." : "The payment provider must return a hosted URL."}</span>
+          <strong>${escapeHtml(paymentPresentation.actionTitle)}</strong>
+          <span>${escapeHtml(paymentPresentation.actionCopy)}</span>
         </div>
         ${
           hostedUrl
-            ? `<a class="button button-primary button-large" href="${safeHttpUrl(hostedUrl)}" target="_blank" rel="noreferrer">Open Pinch payment</a>`
-            : `<button class="button button-primary button-large" type="button" data-create-payment>Create payment link</button>`
+            ? `<a class="button button-primary button-large" href="${safeHttpUrl(hostedUrl)}" target="_blank" rel="noreferrer">${escapeHtml(paymentPresentation.openLabel)}</a>`
+            : `<button class="button button-primary button-large" type="button" data-create-payment>${escapeHtml(paymentPresentation.openLabel)}</button>`
         }
       </div>
       <div class="secondary-actions">
         <button class="button button-secondary" type="button" data-refresh-payment>Check payment status</button>
       </div>
       ${
-        localDemoMode && hostedUrl
+        localDemoPaymentAvailable &&
+        hostedPaymentKind(hostedUrl) === "local_demo"
           ? `
-            <details class="developer-utility">
+            <details class="developer-utility" open>
               <summary>Local demo payment utility</summary>
               <p>This calls the backend demo-payment route. It is unavailable in production and remains distinct from live Pinch evidence.</p>
               <button class="button button-quiet" type="button" data-demo-payment>Record local demo payment</button>
@@ -1322,6 +1612,134 @@ function renderPayment(data: BuyerWorkspace): string {
       }
     </section>
   `;
+}
+
+function eligibleDeploymentTransition(
+  deployment: NonNullable<BuyerWorkspace["deployment"]>
+) {
+  const milestones = [...deployment.milestones].sort(
+    (left, right) => left.sequence - right.sequence
+  );
+  const index = milestones.findIndex(
+    (milestone) => milestone.status !== "completed"
+  );
+  if (index < 0) return undefined;
+  const milestone = milestones[index];
+  if (!milestone) return undefined;
+  if (milestone.status === "in_progress") {
+    return { milestone, nextStatus: "completed" as const };
+  }
+  const previous = index > 0 ? milestones[index - 1] : undefined;
+  if (
+    milestone.status === "funded" ||
+    (milestone.status === "not_started" &&
+      previous?.status === "completed")
+  ) {
+    return { milestone, nextStatus: "in_progress" as const };
+  }
+  return undefined;
+}
+
+function deploymentMilestoneTitle(
+  milestone: NonNullable<BuyerWorkspace["deployment"]>["milestones"][number],
+  profile: NeedProfile
+) {
+  const robotics = /robot|palletis|cobot/i.test(
+    `${profile.title} ${profile.description} ${profile.category}`
+  );
+  if (
+    robotics &&
+    milestone.sequence === 1 &&
+    /site assessment|scoping/i.test(milestone.title)
+  ) {
+    return "Site Assessment / Scoping Visit";
+  }
+  return milestone.title;
+}
+
+function renderMilestoneUpdate(
+  deployment: NonNullable<BuyerWorkspace["deployment"]>
+) {
+  if (deployment.status === "completed") return "";
+  const transition = eligibleDeploymentTransition(deployment);
+  if (!transition) {
+    return `
+      <div class="warning-strip milestone-update-unavailable">
+        <strong>No delivery transition is currently eligible</strong>
+        <span>Refresh the deployment record. Payment evidence and the previous milestone determine when work can start.</span>
+      </div>
+    `;
+  }
+  const completing = transition.nextStatus === "completed";
+  return `
+    <form
+      id="deployment-milestone-form"
+      class="milestone-update-form"
+      data-milestone-id="${escapeHtml(transition.milestone.id)}"
+      data-next-status="${transition.nextStatus}"
+    >
+      <div class="milestone-update-heading">
+        <div>
+          <p class="eyebrow">Buyer delivery update</p>
+          <h3>${completing ? "Complete" : "Start"} ${escapeHtml(transition.milestone.title)}</h3>
+        </div>
+        <span class="status-chip is-${transition.milestone.status}">${escapeHtml(statusLabel(transition.milestone.status))}</span>
+      </div>
+      <label class="field">
+        <span>Latest delivery update <b class="required-mark">Required</b></span>
+        <textarea
+          name="latestUpdate"
+          rows="3"
+          maxlength="500"
+          required
+          placeholder="${completing ? "Summarise the evidence or outcome accepted for this milestone." : "Describe the authorised work now starting and its immediate next step."}"
+        >${escapeHtml(milestoneUpdateDraft)}</textarea>
+        <small>Delivery updates do not fund milestones, alter payment evidence or secure suppliers.</small>
+      </label>
+      <button class="button button-primary" type="submit" ${loadState === "loading" ? "disabled" : ""}>
+        ${completing ? "Complete milestone" : "Start milestone"}
+      </button>
+    </form>
+  `;
+}
+
+function deploymentPaymentEvidence(
+  engagement: NonNullable<BuyerWorkspace["engagement"]>
+) {
+  const explicitKind =
+    engagement.paymentEvidenceProvider === "local_demo" ||
+    engagement.paymentEvidenceSource === "local_demo"
+      ? "local_demo"
+      : engagement.paymentEvidenceProvider === "pinch" ||
+          engagement.paymentEvidenceSource === "pinch_webhook" ||
+          engagement.paymentEvidenceSource === "pinch_reconciliation"
+        ? "pinch"
+        : engagement.localDemoPaymentId ||
+            engagement.paymentEvidenceAuthoritative === false
+          ? "local_demo"
+          : engagement.paymentEvidenceAuthoritative === true
+            ? "pinch"
+            : undefined;
+  const legacyLocalDemoPaymentId =
+    !explicitKind && engagement.pinchPaymentId?.startsWith("demo_")
+      ? engagement.pinchPaymentId
+      : undefined;
+  const kind =
+    explicitKind ?? (legacyLocalDemoPaymentId ? "local_demo" : undefined);
+  const localDemo = kind === "local_demo";
+
+  return {
+    localDemo,
+    evidenceId: localDemo
+      ? engagement.localDemoPaymentId ?? legacyLocalDemoPaymentId
+      : engagement.pinchPaymentId,
+    provider: kind ?? engagement.paymentEvidenceProvider,
+    source: localDemo ? "local_demo" : engagement.paymentEvidenceSource,
+    authoritative: localDemo
+      ? false
+      : engagement.paymentEvidenceAuthoritative,
+    legacyFallback: Boolean(legacyLocalDemoPaymentId)
+  };
 }
 
 function renderDeployment(data: BuyerWorkspace): string {
@@ -1337,17 +1755,54 @@ function renderDeployment(data: BuyerWorkspace): string {
     return renderPayment(data);
   }
   const deployment = data.deployment;
+  const profile = requireNeedProfile(data);
   const supplier = supplierFor(data, engagement.supplierId);
-  const localDemoPayment = engagement.pinchPaymentId?.startsWith("demo_");
+  const paymentEvidence = deploymentPaymentEvidence(engagement);
+  const paymentEvidenceValue = paymentEvidence.evidenceId
+    ? shortId(paymentEvidence.evidenceId)
+    : paymentEvidence.authoritative
+      ? paymentEvidence.source === "pinch_webhook"
+        ? "Pinch webhook confirmed"
+        : paymentEvidence.source === "pinch_reconciliation"
+          ? "Pinch reconciliation confirmed"
+          : "Provider confirmation recorded"
+      : paymentEvidence.localDemo
+        ? "Local demo record"
+        : "Provider confirmation recorded";
   const projection = Boolean(
     deployment?.milestones.some((item) => item.id.includes("fixture"))
   );
+  const milestones = deployment
+    ? [...deployment.milestones].sort(
+        (left, right) => left.sequence - right.sequence
+      )
+    : [];
+  const currentMilestone =
+    milestones.find(
+      (milestone) => milestone.id === deployment?.currentMilestoneId
+    ) ??
+    milestones.find((milestone) => milestone.status !== "completed") ??
+    milestones.at(-1);
+  const nextMilestone =
+    milestones.find(
+      (milestone) => milestone.id === deployment?.nextMilestoneId
+    ) ??
+    milestones.find(
+      (milestone) =>
+        currentMilestone && milestone.sequence > currentMilestone.sequence
+    );
+  const currentMilestoneTitle = currentMilestone
+    ? deploymentMilestoneTitle(currentMilestone, profile)
+    : "Site Assessment / Scoping Visit";
+  const nextMilestoneTitle = nextMilestone
+    ? deploymentMilestoneTitle(nextMilestone, profile)
+    : "To be confirmed";
   return `
     <section class="panel deployment-summary">
       <div class="deployment-heading">
         <div>
-          <p class="eyebrow">Deploy / Supplier secured</p>
-          <h2>${deployment ? escapeHtml(deployment.title) : "Deployment summary unavailable"}</h2>
+          <p class="eyebrow">Deploy / Site Assessment project</p>
+          <h2>${escapeHtml(currentMilestoneTitle)}</h2>
           <p>${deployment?.latestUpdate ? escapeHtml(deployment.latestUpdate) : "Payment is confirmed, but the deployment API has not returned a delivery summary."}</p>
         </div>
         <div class="source-stack">
@@ -1357,16 +1812,16 @@ function renderDeployment(data: BuyerWorkspace): string {
       </div>
       <dl class="deployment-facts">
         ${fact("Supplier", supplierName(supplier, engagement.supplierId))}
-        ${fact("Payment", statusLabel(engagement.paymentStatus))}
-        ${fact("Secured", formatTime(engagement.securedAt), !engagement.securedAt)}
-        ${fact("Payment evidence", engagement.pinchPaymentId ? shortId(engagement.pinchPaymentId) : "Confirmed by provider", false)}
+        ${fact("Current milestone", currentMilestoneTitle, !currentMilestone)}
+        ${fact("Next milestone", nextMilestoneTitle, !nextMilestone)}
+        ${fact(paymentEvidence.localDemo ? "Development evidence" : "Payment evidence", paymentEvidenceValue, false)}
       </dl>
       ${
-        localDemoPayment
+        paymentEvidence.localDemo
           ? `
             <div class="payment-boundary">
               <strong>Development evidence</strong>
-              <span>This secured state was created by the local demo route. It is non-authoritative and is not a Pinch webhook confirmation.</span>
+              <span>This secured state was created by the local demo route${paymentEvidence.evidenceId ? ` using evidence ${escapeHtml(paymentEvidence.evidenceId)}` : ""}. It is non-authoritative and is not a Pinch webhook confirmation.${paymentEvidence.legacyFallback ? " This record uses the legacy demo-ID fallback." : ""}</span>
             </div>
           `
           : ""
@@ -1374,9 +1829,21 @@ function renderDeployment(data: BuyerWorkspace): string {
       ${
         deployment
           ? `
+            <div class="project-current">
+              <div>
+                <span>Current stage</span>
+                <strong>${escapeHtml(currentMilestoneTitle)}</strong>
+                <small>${escapeHtml(currentMilestone ? statusLabel(currentMilestone.status) : "Awaiting deployment record")}</small>
+              </div>
+              <div>
+                <span>Engineering progress</span>
+                <strong>${deployment.progressPercentage}%</strong>
+                <small>Payment does not advance engineering work</small>
+              </div>
+            </div>
             <div class="progress-summary">
               <div>
-                <span>Delivery progress</span>
+                <span>Engineering progress</span>
                 <strong>${deployment.progressPercentage}%</strong>
               </div>
               <div class="progress-track" aria-label="Delivery progress ${deployment.progressPercentage}%">
@@ -1384,13 +1851,13 @@ function renderDeployment(data: BuyerWorkspace): string {
               </div>
             </div>
             <ol class="milestone-list">
-              ${deployment.milestones
+              ${milestones
                 .map(
                   (milestone) => `
                     <li class="is-${milestone.status}">
                       <span class="milestone-index">${milestone.sequence}</span>
                       <span>
-                        <strong>${escapeHtml(milestone.title)}</strong>
+                        <strong>${escapeHtml(deploymentMilestoneTitle(milestone, profile))}</strong>
                         <small>${escapeHtml(statusLabel(milestone.status))}${milestone.latestUpdate ? ` / ${escapeHtml(milestone.latestUpdate)}` : ""}</small>
                       </span>
                       <span class="milestone-progress">${milestone.progressPercentage}%</span>
@@ -1399,6 +1866,21 @@ function renderDeployment(data: BuyerWorkspace): string {
                 )
                 .join("")}
             </ol>
+            ${
+              projection
+                ? `
+                  <div class="warning-strip milestone-update-unavailable">
+                    <strong>Projected milestones are read-only</strong>
+                    <span>The deployment API must return an authoritative milestone record before the buyer can post delivery updates.</span>
+                  </div>
+                `
+                : `
+                  <details class="project-update">
+                    <summary>Record a delivery milestone update</summary>
+                    ${renderMilestoneUpdate(deployment)}
+                  </details>
+                `
+            }
           `
           : `
             <div class="warning-strip">
@@ -1409,13 +1891,18 @@ function renderDeployment(data: BuyerWorkspace): string {
       }
       <div class="primary-action-row">
         <div>
-          <strong>${deployment?.status === "completed" ? "Delivery record complete" : "Track authoritative delivery updates"}</strong>
-          <span>Payment never marks engineering milestones complete.</span>
+          <strong>${deployment?.status === "completed" ? "Delivery record complete" : "Keep Site Assessment status current"}</strong>
+          <span>Refreshes authoritative payment and deployment records. Payment never marks engineering work complete.</span>
         </div>
         ${
           deployment?.status === "completed"
             ? `<button class="button button-primary" type="button" data-start-new>Start new requirement</button>`
-            : `<button class="button button-primary" type="button" data-refresh-deployment>Refresh deployment</button>`
+            : `
+              <div class="outcome-actions">
+                <button class="button button-secondary" type="button" data-refresh-deployment>Refresh deployment</button>
+                <button class="button button-quiet" type="button" data-start-new>Start new requirement</button>
+              </div>
+            `
         }
       </div>
     </section>
@@ -1475,11 +1962,27 @@ function bindEvents() {
     void analyseRequirement();
   });
 
+  const milestoneForm = document.querySelector<HTMLFormElement>(
+    "#deployment-milestone-form"
+  );
+  milestoneForm
+    ?.querySelector<HTMLTextAreaElement>("textarea[name='latestUpdate']")
+    ?.addEventListener("input", (event) => {
+      milestoneUpdateDraft = (event.currentTarget as HTMLTextAreaElement).value;
+    });
+  milestoneForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!milestoneForm.reportValidity()) return;
+    void updateDeploymentMilestone(milestoneForm);
+  });
+
   document.querySelectorAll<HTMLButtonElement>("[data-intake-mode]").forEach(
     (button) => {
       button.addEventListener("click", () => {
         if (requirementForm) syncIntakeDraft(requirementForm);
         intakeMode = button.dataset.intakeMode === "manual" ? "manual" : "ai";
+        loadState = "idle";
+        errorMessage = "";
         render();
       });
     }
@@ -1487,6 +1990,7 @@ function bindEvents() {
 
   document.querySelectorAll<HTMLButtonElement>("[data-demo]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (!demoControlsAvailable) return;
       const robotics = button.dataset.demo === "robotics";
       loadDemo(robotics ? roboticsDemoInput : plcDemoInput, robotics);
     });
@@ -1527,18 +2031,47 @@ function bindEvents() {
     });
 
   document
-    .querySelectorAll<HTMLButtonElement>("[data-plan-outcome]")
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        if (button.dataset.planOutcome === "internal") {
-          void chooseInternalPlan();
+    .querySelectorAll<HTMLInputElement>("input[name='solution-pathway']")
+    .forEach((radio) => {
+      radio.addEventListener("change", () => {
+        selectedApproachId = radio.value;
+        persistContext();
+        render();
+      });
+    });
+
+  document
+    .querySelectorAll<HTMLInputElement>("[data-candidate-id]")
+    .forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        const supplierId = checkbox.dataset.candidateId;
+        if (!supplierId) return;
+        if (checkbox.checked) {
+          selectedCandidateIds.add(supplierId);
         } else {
-          void findSpecialist();
+          selectedCandidateIds.delete(supplierId);
+        }
+        persistContext();
+        render();
+      });
+    });
+
+  document
+    .querySelectorAll<HTMLInputElement>("input[name='outreach-mode']")
+    .forEach((radio) => {
+      radio.addEventListener("change", () => {
+        const next = radio.value as OutreachMode;
+        if (next === "email" || next === "sms" || next === "link") {
+          outreachMode = next;
+          persistContext();
+          render();
         }
       });
     });
 
   bindClick("[data-retry-research]", retryResearch);
+  bindClick("[data-download-report]", downloadReport);
+  bindClick("[data-find-suppliers]", findSpecialist);
   bindClick("[data-refresh-workspace]", refreshWorkspace);
   bindClick("[data-send-outreach]", sendOutreach);
   bindClick("[data-compare]", () => {
@@ -1621,6 +2154,10 @@ async function analyseRequirement() {
     }
     setNeedProfileUrl(needProfile.id);
     workspace = await service.researchRequirement(workspace);
+    selectedApproachId = resolveSelectedApproachId(
+      workspace.researchResult,
+      selectedApproachId
+    );
     view = "plan";
     persistContext();
     liveMessage = "Need Profile created. Review the cited plan before continuing.";
@@ -1631,33 +2168,49 @@ async function retryResearch() {
   if (!workspace) return;
   await runAction("Analysing requirement", async () => {
     workspace = await service.researchRequirement(workspace as BuyerWorkspace);
+    selectedApproachId = resolveSelectedApproachId(
+      workspace.researchResult,
+      selectedApproachId
+    );
     view = "plan";
     persistContext();
   });
 }
 
-async function chooseInternalPlan() {
-  if (!workspace) return;
-  await runAction("Recording internal plan decision", async () => {
-    workspace = await service.recordSolutionDecision(
+async function downloadReport() {
+  if (!workspace || !selectedApproachId) return;
+  await runAction("Preparing Need Profile report", async () => {
+    const report = await service.downloadNeedReport(
       workspace as BuyerWorkspace,
-      "local_trial"
+      selectedApproachId
     );
-    view = "internal";
-    persistContext();
-    liveMessage = "Internal plan recorded. No supplier outreach was sent.";
+    const objectUrl = URL.createObjectURL(report.blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = report.fileName;
+    anchor.hidden = true;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    liveMessage = "Need Profile report downloaded.";
   });
 }
 
 async function findSpecialist() {
-  if (!workspace) return;
+  if (!workspace || !selectedApproachId) return;
   await runAction("Finding relevant industrial specialists", async () => {
     let next = await service.recordSolutionDecision(
       workspace as BuyerWorkspace,
-      "outsource"
+      "outsource",
+      selectedApproachId
     );
     next = await service.discoverSuppliers(next);
     workspace = next;
+    selectedCandidateIds = new Set(
+      supplierCandidates(next).map((candidate) => candidate.supplierId)
+    );
+    candidateSelectionInitialised = true;
     view = "candidates";
     persistContext();
     liveMessage = "Supplier candidates ready for buyer review.";
@@ -1665,13 +2218,22 @@ async function findSpecialist() {
 }
 
 async function sendOutreach() {
-  if (!workspace) return;
-  await runAction("Sending approved supplier outreach", async () => {
-    workspace = await service.sendSupplierOutreach(workspace as BuyerWorkspace);
+  if (!workspace || selectedCandidateIds.size === 0) return;
+  const deliveryChannels: OutreachChannel[] =
+    outreachMode === "link" ? [] : [outreachMode];
+  const action = outreachAction(outreachMode, selectedCandidateIds.size);
+  await runAction(action.loadingLabel, async () => {
+    workspace = await service.sendSupplierOutreach(
+      workspace as BuyerWorkspace,
+      [...selectedCandidateIds],
+      deliveryChannels
+    );
     view = "outreach";
     persistContext();
     liveMessage =
-      "Outreach attempted. Delivery status reflects backend confirmation.";
+      outreachMode === "link"
+        ? "Secure supplier links are ready. Delivery records below remain authoritative."
+        : `${outreachMode === "sms" ? "SMS" : "Email"} delivery requested. Status reflects backend confirmation.`;
   });
 }
 
@@ -1695,6 +2257,18 @@ async function refreshWorkspace() {
 
 async function selectSupplier() {
   if (!workspace || !selectedResponseId) return;
+  const response = submittedResponses(workspace).find(
+    (item) => item.id === selectedResponseId
+  );
+  if (!response || !isSelectableSupplierResponse(response)) {
+    selectedResponseId = "";
+    loadState = "error";
+    errorMessage =
+      "Select a supplier response with a positive indicative price.";
+    persistContext();
+    render();
+    return;
+  }
   await runAction("Creating selected supplier engagement", async () => {
     workspace = await service.selectSupplier(
       workspace as BuyerWorkspace,
@@ -1709,13 +2283,13 @@ async function selectSupplier() {
 
 async function createPayment() {
   if (!workspace) return;
-  await runAction("Creating Pinch payment link", async () => {
+  await runAction("Creating hosted payment link", async () => {
     workspace = await service.createPaymentLink(workspace as BuyerWorkspace);
     view = "payment";
     persistContext();
-    liveMessage = workspace.engagement?.hostedCheckoutUrl
-      ? "Pinch checkout is ready."
-      : "The API did not return a hosted checkout link.";
+    liveMessage = paymentLinkPresentation(
+      workspace.engagement?.hostedCheckoutUrl
+    ).readyMessage;
   });
 }
 
@@ -1736,7 +2310,7 @@ async function refreshPayment() {
 }
 
 async function completeDemoPayment() {
-  if (!workspace?.engagement || !localDemoMode) return;
+  if (!workspace?.engagement || !localDemoPaymentAvailable) return;
   await runAction("Recording local demo payment evidence", async () => {
     workspace = await service.completeDemoPayment(workspace as BuyerWorkspace);
     view = "deployment";
@@ -1756,6 +2330,45 @@ async function refreshDeployment() {
         : "payment";
     persistContext();
   });
+}
+
+async function updateDeploymentMilestone(form: HTMLFormElement) {
+  if (!workspace?.engagement || !workspace.deployment) return;
+  const milestoneId = form.dataset.milestoneId;
+  const nextStatus = form.dataset.nextStatus;
+  const latestUpdate = formValue(new FormData(form), "latestUpdate");
+  if (
+    !milestoneId ||
+    !["in_progress", "completed"].includes(nextStatus ?? "") ||
+    !latestUpdate
+  ) {
+    loadState = "error";
+    errorMessage = "A milestone and latest delivery update are required.";
+    render();
+    return;
+  }
+  const status =
+    nextStatus as "in_progress" | "completed";
+  await runAction(
+    status === "completed"
+      ? "Completing delivery milestone"
+      : "Starting delivery milestone",
+    async () => {
+      workspace = await service.updateDeploymentMilestone(
+        workspace as BuyerWorkspace,
+        milestoneId,
+        status,
+        latestUpdate
+      );
+      milestoneUpdateDraft = "";
+      view = "deployment";
+      persistContext();
+      liveMessage =
+        status === "completed"
+          ? "Delivery milestone completed. Payment evidence was not changed."
+          : "Delivery milestone started. Payment evidence was not changed.";
+    }
+  );
 }
 
 async function runAction(label: string, action: () => Promise<void>) {
@@ -1792,15 +2405,191 @@ function configurePolling() {
   }, 4500);
 }
 
-async function pollWorkspace() {
+function configureRealtime() {
+  const needProfileId = workspace?.needProfile?.id;
+  if (!needProfileId) {
+    leaveRealtimeNeed();
+    return;
+  }
+  if (!realtimeSocket) {
+    void initialiseRealtimeSocket(needProfileId);
+    return;
+  }
+  if (joinedNeedProfileId === needProfileId) return;
+  if (joinedNeedProfileId) {
+    realtimeSocket.emit(rapidMatchSocketEvent.leaveNeedProfile, {
+      needProfileId: joinedNeedProfileId
+    });
+  }
+  realtimeSocket.emit(rapidMatchSocketEvent.joinNeedProfile, {
+    needProfileId,
+    buyerAccessToken: service.buyerAccessTokenForNeed(needProfileId)
+  });
+  joinedNeedProfileId = needProfileId;
+}
+
+async function initialiseRealtimeSocket(needProfileId: string) {
+  if (realtimeClientLoading) {
+    await realtimeClientLoading;
+  } else if (!socketWindow.io) {
+    realtimeClientLoading = loadRealtimeClient();
+    await realtimeClientLoading;
+  }
+  if (!socketWindow.io) return;
+  if (realtimeSocket) {
+    configureRealtime();
+    return;
+  }
+
+  realtimeSocket = socketWindow.io(realtimeOrigin, {
+    transports: ["websocket"],
+    reconnection: true
+  });
+  realtimeSocket.on(rapidMatchSocketEvent.invitationSent, (payload) => {
+    if (payload.needProfileId !== workspace?.needProfile?.id) return;
+    const message =
+      payload.supplierInvitation?.status === "opened"
+        ? "Live update: supplier opened the opportunity link."
+        : "Live supplier invitation status updated.";
+    void refreshRealtimeState(message);
+  });
+  realtimeSocket.on(
+    rapidMatchSocketEvent.outreachDeliveryUpdated,
+    (payload) => {
+      if (payload.needProfileId !== workspace?.needProfile?.id) return;
+      const channel =
+        payload.outreachDelivery?.channel?.toUpperCase() ?? "Outreach";
+      const status =
+        payload.outreachDelivery?.deliveryStatus?.replaceAll("_", " ") ??
+        "updated";
+      void refreshRealtimeState(
+        `Live update: ${channel} delivery ${status}.`
+      );
+    }
+  );
+  realtimeSocket.on(
+    rapidMatchSocketEvent.supplierResponseSubmitted,
+    (payload) => {
+      if (payload.needProfileId !== workspace?.needProfile?.id) return;
+      void refreshRealtimeState(
+        payload.supplierResponse?.decision === "cannot_help"
+          ? "Live update: supplier declined this opportunity."
+          : "Live update: supplier submitted a response."
+      );
+    }
+  );
+  realtimeSocket.on(rapidMatchSocketEvent.paymentStatusUpdated, (payload) => {
+    if (payload.needProfileId === workspace?.needProfile?.id) {
+      void refreshRealtimeState("Live payment status update received.");
+    }
+  });
+  realtimeSocket.on(rapidMatchSocketEvent.engagementSecured, (payload) => {
+    if (payload.needProfileId === workspace?.needProfile?.id) {
+      void refreshRealtimeState("Live update: supplier secured.");
+    }
+  });
+  realtimeSocket.on(rapidMatchSocketEvent.deploymentUpdated, (payload) => {
+    if (payload.needProfileId === workspace?.needProfile?.id) {
+      void refreshRealtimeState("Live delivery milestone update received.");
+    }
+  });
+
+  if (workspace?.needProfile?.id === needProfileId) {
+    configureRealtime();
+  }
+}
+
+async function loadRealtimeClient() {
+  await new Promise<void>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `${realtimeOrigin}/socket.io/socket.io.js`;
+    script.async = true;
+    script.addEventListener("load", () => resolve(), { once: true });
+    script.addEventListener(
+      "error",
+      () => reject(new Error("Unable to load realtime client.")),
+      { once: true }
+    );
+    document.head.append(script);
+  }).catch(() => {
+    realtimeClientLoading = undefined;
+  });
+}
+
+function leaveRealtimeNeed() {
+  if (!realtimeSocket || !joinedNeedProfileId) return;
+  realtimeSocket.emit(rapidMatchSocketEvent.leaveNeedProfile, {
+    needProfileId: joinedNeedProfileId
+  });
+  joinedNeedProfileId = "";
+}
+
+function milestoneUpdateFormHasFocus() {
+  return (
+    document.activeElement instanceof HTMLElement &&
+    Boolean(
+      document.activeElement.closest("#deployment-milestone-form")
+    )
+  );
+}
+
+async function refreshRealtimeState(message: string) {
   if (!workspace || isPolling || loadState === "loading") return;
+  const activeWorkspace = workspace;
+  const activeEpoch = workspaceEpoch;
   isPolling = true;
   try {
-    const previousResponses = submittedResponses(workspace).length;
-    const previousStatus = workspace.engagement?.status;
-    workspace = workspace.engagement
-      ? await service.refreshEngagement(workspace)
-      : await service.refreshWorkspace(workspace);
+    const refreshedWorkspace = activeWorkspace.engagement
+      ? await service.refreshEngagement(activeWorkspace)
+      : await service.refreshWorkspace(activeWorkspace);
+    if (
+      !isCurrentWorkspaceRefresh(
+        activeWorkspace,
+        activeEpoch,
+        workspace,
+        workspaceEpoch
+      )
+    ) {
+      return;
+    }
+    workspace = refreshedWorkspace;
+    selectedResponseId =
+      workspace.engagement?.supplierResponseId || selectedResponseId;
+    if (workspace.engagement?.status === "supplier_secured") {
+      view = "deployment";
+    }
+    liveMessage = message;
+    persistContext();
+    if (!milestoneUpdateFormHasFocus()) render();
+  } catch {
+    // Scheduled polling and explicit refresh remain available if realtime fails.
+  } finally {
+    isPolling = false;
+  }
+}
+
+async function pollWorkspace() {
+  if (!workspace || isPolling || loadState === "loading") return;
+  const activeWorkspace = workspace;
+  const activeEpoch = workspaceEpoch;
+  isPolling = true;
+  try {
+    const previousResponses = submittedResponses(activeWorkspace).length;
+    const previousStatus = activeWorkspace.engagement?.status;
+    const refreshedWorkspace = activeWorkspace.engagement
+      ? await service.refreshEngagement(activeWorkspace)
+      : await service.refreshWorkspace(activeWorkspace);
+    if (
+      !isCurrentWorkspaceRefresh(
+        activeWorkspace,
+        activeEpoch,
+        workspace,
+        workspaceEpoch
+      )
+    ) {
+      return;
+    }
+    workspace = refreshedWorkspace;
     const nextResponses = submittedResponses(workspace).length;
     if (workspace.engagement?.status === "supplier_secured") {
       view = "deployment";
@@ -1816,7 +2605,7 @@ async function pollWorkspace() {
       showLiveMessage("Payment confirmed. Supplier secured.");
     } else {
       persistContext();
-      render();
+      if (!milestoneUpdateFormHasFocus()) render();
     }
   } catch {
     // Polling stays silent. Explicit refresh surfaces actionable API errors.
@@ -1825,12 +2614,28 @@ async function pollWorkspace() {
   }
 }
 
+function isCurrentWorkspaceRefresh(
+  activeWorkspace: BuyerWorkspace,
+  activeEpoch: number,
+  currentWorkspace: BuyerWorkspace | undefined,
+  currentEpoch: number
+) {
+  return (
+    activeEpoch === currentEpoch &&
+    activeWorkspace === currentWorkspace
+  );
+}
+
 function loadDemo(input: BuyerRequirementInput, robotics: boolean) {
   intakeDraft = cloneInput(input);
   priority = robotics ? "technical_fit" : "speed";
   intakeMode = "ai";
   aiIntakeResult = undefined;
   intakeSourceMode = "fixture";
+  selectedApproachId = "";
+  selectedCandidateIds = new Set();
+  candidateSelectionInitialised = false;
+  outreachMode = "email";
   intakeEvidence = [
     {
       kind: "written",
@@ -2099,11 +2904,18 @@ function renderIntakeProvenance() {
 
 function readWorkspaceIdentity() {
   const url = new URL(window.location.href);
-  const needProfileId =
+  const explicitNeedProfileId =
     url.searchParams.get("needId") ??
     url.searchParams.get("needProfileId") ??
-    safeStorageGet(LAST_NEED_KEY) ??
     undefined;
+  const needProfileId = resolveRestoredNeedProfileId(
+    explicitNeedProfileId,
+    safeStorageGet(LAST_NEED_KEY) ?? undefined,
+    safeSessionStorageGet(NEW_REQUIREMENT_KEY) === "1"
+  );
+  if (explicitNeedProfileId) {
+    safeSessionStorageRemove(NEW_REQUIREMENT_KEY);
+  }
   const incomingToken =
     url.searchParams.get("buyerToken") ??
     url.searchParams.get("buyerAccessToken") ??
@@ -2139,11 +2951,23 @@ function readWorkspaceIdentity() {
   };
 }
 
+function resolveRestoredNeedProfileId(
+  explicitNeedProfileId: string | undefined,
+  lastNeedProfileId: string | undefined,
+  newRequirementRequested: boolean
+) {
+  return (
+    explicitNeedProfileId ??
+    (newRequirementRequested ? undefined : lastNeedProfileId)
+  );
+}
+
 function setNeedProfileUrl(needProfileId: string) {
   const url = new URL(window.location.href);
   url.search = "";
   url.searchParams.set("needId", needProfileId);
   window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  safeSessionStorageRemove(NEW_REQUIREMENT_KEY);
   safeStorageSet(LAST_NEED_KEY, needProfileId);
 }
 
@@ -2158,6 +2982,9 @@ function persistContext() {
   const context: PersistedContext = {
     view,
     priority,
+    selectedApproachId: selectedApproachId || undefined,
+    selectedCandidateIds: [...selectedCandidateIds],
+    outreachMode,
     selectedResponseId: selectedResponseId || undefined,
     engagementId: current.engagement?.id,
     intakeSourceMode,
@@ -2198,6 +3025,21 @@ function loadContext(needProfileId: string): PersistedContext {
     return {
       view: storedView,
       priority: storedPriority,
+      selectedApproachId:
+        typeof value.selectedApproachId === "string"
+          ? value.selectedApproachId
+          : undefined,
+      selectedCandidateIds: Array.isArray(value.selectedCandidateIds)
+        ? value.selectedCandidateIds.filter(
+            (item): item is string => typeof item === "string"
+          )
+        : undefined,
+      outreachMode:
+        value.outreachMode === "email" ||
+        value.outreachMode === "sms" ||
+        value.outreachMode === "link"
+          ? value.outreachMode
+          : undefined,
       selectedResponseId:
         typeof value.selectedResponseId === "string"
           ? value.selectedResponseId
@@ -2264,9 +3106,6 @@ function resolveRestoredView(
       ? "payment"
       : "selected";
   }
-  if (storedView === "internal" && data.solutionDecision?.decision === "local_trial") {
-    return "internal";
-  }
   if (submittedResponses(data).length >= 2) return "compare";
   if (
     storedView === "outreach" ||
@@ -2300,14 +3139,22 @@ function startNewRequirement() {
     safeStorageRemove(`${TOKEN_PREFIX}${needProfileId}`);
   }
   safeStorageRemove(LAST_NEED_KEY);
+  safeSessionStorageSet(NEW_REQUIREMENT_KEY, "1");
+  workspaceEpoch += 1;
   workspace = undefined;
   aiIntakeResult = undefined;
   intakeEvidence = [];
+  milestoneUpdateDraft = "";
   intakeDraft = cloneInput(emptyInput);
   priority = "speed";
+  selectedApproachId = "";
+  selectedCandidateIds = new Set();
+  candidateSelectionInitialised = false;
+  outreachMode = "email";
   selectedResponseId = "";
   intakeMode = "ai";
   view = "intake";
+  restoreFailed = false;
   loadState = "idle";
   errorMessage = "";
   liveMessage = "";
@@ -2344,8 +3191,38 @@ function selectedSupplier(data: BuyerWorkspace) {
   };
 }
 
+function selectableApproaches(
+  research: NonNullable<BuyerWorkspace["researchResult"]>
+) {
+  return [...research.approaches]
+    .sort((left, right) => right.confidence - left.confidence)
+    .slice(0, 3);
+}
+
+function resolveSelectedApproachId(
+  research: BuyerWorkspace["researchResult"],
+  requestedApproachId?: string
+) {
+  if (!research) return "";
+  const approaches = selectableApproaches(research);
+  if (
+    requestedApproachId &&
+    approaches.some((approach) => approach.id === requestedApproachId)
+  ) {
+    return requestedApproachId;
+  }
+  return approaches[0]?.id ?? "";
+}
+
 function submittedResponses(data: BuyerWorkspace) {
   return data.responses.filter((item) => item.status === "submitted");
+}
+
+function isSelectableSupplierResponse(response: SupplierResponse) {
+  return (
+    response.decision === "can_help" &&
+    (response.indicativePrice?.amount ?? 0) > 0
+  );
 }
 
 function supplierFor(data: BuyerWorkspace, supplierId: string) {
@@ -2365,6 +3242,99 @@ function supplierCandidates(data: BuyerWorkspace): SupplierCandidate[] {
     }));
   }
   return [...data.matches];
+}
+
+function resolveSelectedCandidateIds(
+  data: BuyerWorkspace,
+  requested: Set<string>,
+  initialised: boolean
+) {
+  const candidateIds = supplierCandidates(data).map(
+    (candidate) => candidate.supplierId
+  );
+  const available = new Set(candidateIds);
+  if (!initialised) {
+    const invited = data.invitations
+      .map((invitation) => invitation.supplierId)
+      .filter((supplierId) => available.has(supplierId));
+    return new Set(invited.length ? invited : candidateIds);
+  }
+  return new Set(
+    [...requested].filter((supplierId) => available.has(supplierId))
+  );
+}
+
+function outreachModeAvailable(
+  data: BuyerWorkspace,
+  candidates: SupplierCandidate[],
+  mode: OutreachMode
+) {
+  if (mode === "link") return true;
+  const selected = candidates
+    .filter((candidate) => selectedCandidateIds.has(candidate.supplierId))
+    .map((candidate) => supplierFor(data, candidate.supplierId));
+  if (mode === "sms") {
+    return (
+      selected.length > 0 &&
+      selected.every(
+        (supplier) =>
+          supplier &&
+          "contactPhone" in supplier &&
+          Boolean(supplier.contactPhone)
+      )
+    );
+  }
+  return (
+    selected.length > 0 &&
+    selected.every((supplier) => Boolean(supplier?.contactEmail))
+  );
+}
+
+function outreachAction(mode: OutreachMode, count: number) {
+  const supplierLabel = `${count} supplier${count === 1 ? "" : "s"}`;
+  if (mode === "link") {
+    return {
+      title: "Secure link fallback",
+      description:
+        "The request selects no provider channel. The backend delivery records remain the source of truth.",
+      label: `Create links for ${supplierLabel}`,
+      loadingLabel: "Creating secure supplier links"
+    };
+  }
+  if (mode === "sms") {
+    if (demoControlsAvailable) {
+      return {
+        title: "Prepare demo SMS invitations",
+        description:
+          "Veltact prepares the same private links and delivery records without contacting an external phone.",
+        label: `Prepare demo SMS for ${supplierLabel}`,
+        loadingLabel: "Preparing demo SMS outreach"
+      };
+    }
+    return {
+      title: "Send SMS through the configured provider",
+      description:
+        "Only backend provider acceptance can move SMS delivery to Sent. Secure links remain available for every selected supplier.",
+      label: `Send SMS to ${supplierLabel}`,
+      loadingLabel: "Requesting approved SMS outreach"
+    };
+  }
+  if (demoControlsAvailable) {
+    return {
+      title: "Prepare demo email invitations",
+      description:
+        "Veltact prepares the same private links and delivery records without contacting an external inbox.",
+      label: `Prepare demo email for ${supplierLabel}`,
+      loadingLabel: "Preparing demo email outreach"
+    };
+  }
+  return {
+    title: "Send email through the configured provider",
+    description:
+      "Only backend provider acceptance can move email delivery to Sent. Secure links remain available for every selected supplier.",
+    label: `Send email to ${supplierLabel}`,
+    loadingLabel: "Requesting approved email outreach"
+  };
 }
 
 function matchForSupplier(
@@ -2472,7 +3442,7 @@ function priorityButton(
   description: string
 ) {
   return `
-    <button class="priority-option ${priority === value ? "is-selected" : ""}" type="button" data-priority="${value}">
+    <button class="priority-option ${priority === value ? "is-selected" : ""}" type="button" data-priority="${value}" aria-pressed="${priority === value}">
       <span class="priority-radio" aria-hidden="true"></span>
       <strong>${escapeHtml(label)}</strong>
       <small>${escapeHtml(description)}</small>
@@ -2633,6 +3603,25 @@ function supplierRecordLabel(supplier: SupplierReference | undefined) {
   return supplier.verified ? "Verified supplier record" : "Supplier record";
 }
 
+function supplierLocation(supplier: SupplierReference | undefined) {
+  if (!supplier) return "Location unavailable";
+  if ("location" in supplier) return supplier.location;
+  return supplier.serviceRegions[0] ?? "Service region unavailable";
+}
+
+function candidateContactReadiness(
+  supplier: SupplierReference | undefined
+) {
+  if (!supplier) return "Secure link only";
+  const channels = [
+    supplier.contactEmail ? "email" : "",
+    "contactPhone" in supplier && supplier.contactPhone ? "SMS" : ""
+  ].filter(Boolean);
+  return channels.length
+    ? `${channels.join(" + ")} available`
+    : "Secure link only";
+}
+
 function shortId(value: string) {
   return value.length > 10 ? `${value.slice(0, 8)}...` : value;
 }
@@ -2769,10 +3758,47 @@ function safeStorageRemove(key: string) {
   }
 }
 
+function safeSessionStorageGet(key: string) {
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSessionStorageSet(key: string, value: string) {
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // Session storage may be unavailable; the current in-memory reset still works.
+  }
+}
+
+function safeSessionStorageRemove(key: string) {
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch {
+    // Session storage may be unavailable in a hardened browser.
+  }
+}
+
 function errorText(error: unknown) {
   return error instanceof Error
     ? error.message
     : "Unexpected RapidMatch error.";
+}
+
+function renderCompanyIdentity(companyName: string, compact = false) {
+  const logo = companyLogoFor(companyName);
+  if (!logo) return escapeHtml(companyName);
+  return `
+    <span class="company-identity ${compact ? "is-compact" : ""}">
+      <span class="company-logo-shell" aria-hidden="true">
+        <img class="company-logo" src="${logo}" alt="" />
+      </span>
+      <span class="company-name-text">${escapeHtml(companyName)}</span>
+    </span>
+  `;
 }
 
 function escapeHtml(value: string) {

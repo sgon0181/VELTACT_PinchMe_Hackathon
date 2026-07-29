@@ -7,8 +7,22 @@ export type PinchWebhookPaymentEvent = {
   eventId: string;
   eventType: "realtime-payment" | "payment-created";
   engagementId: string;
+  needProfileId?: string;
+  supplierId?: string;
+  milestoneId?: string;
   paymentId: string;
+  amountMinor?: number;
+  currency?: string;
   status: "approved";
+};
+
+export type ExpectedPinchCommitment = {
+  engagementId: string;
+  needProfileId: string;
+  supplierId: string;
+  milestoneId: string;
+  amountMinor: number;
+  currency: string;
 };
 
 export interface PinchWebhookAuthorityAdapter {
@@ -88,7 +102,52 @@ export function extractApprovedPinchPaymentEvent(
     getString(metadata.engagementId) ??
     getString(metadata.EngagementId) ??
     getString(metadata.engagement_id);
-  if (!paymentId || !engagementId) {
+  const needProfileId =
+    getString(metadata.needId) ??
+    getString(metadata.NeedId) ??
+    getString(metadata.need_id);
+  const supplierId =
+    getString(metadata.supplierId) ??
+    getString(metadata.SupplierId) ??
+    getString(metadata.supplier_id);
+  const milestoneId =
+    getString(metadata.milestoneId) ??
+    getString(metadata.MilestoneId) ??
+    getString(metadata.milestone_id);
+  const commitmentType =
+    getString(metadata.commitmentType) ??
+    getString(metadata.CommitmentType) ??
+    getString(metadata.commitment_type);
+  const amountMinor =
+    getInteger(getNestedValue(payment, ["Amount"])) ??
+    getInteger(getNestedValue(payment, ["amount"]));
+  const metadataAmountMinor =
+    getInteger(metadata.commitmentAmountMinor) ??
+    getInteger(metadata.CommitmentAmountMinor) ??
+    getInteger(metadata.commitment_amount_minor);
+  const currency = (
+    getNestedString(payment, ["Currency"]) ??
+    getNestedString(payment, ["currency"]) ??
+    ""
+  ).toUpperCase();
+  const metadataCurrency = (
+    getString(metadata.commitmentCurrency) ??
+    getString(metadata.CommitmentCurrency) ??
+    getString(metadata.commitment_currency) ??
+    ""
+  ).toUpperCase();
+  const commitmentMetadataIsConsistent =
+    (commitmentType === undefined ||
+      commitmentType === "commercial_commitment") &&
+    (amountMinor === undefined || amountMinor > 0) &&
+    (metadataAmountMinor === undefined ||
+      amountMinor === undefined ||
+      metadataAmountMinor === amountMinor) &&
+    (currency === "" || currency.length === 3) &&
+    (metadataCurrency === "" ||
+      currency === "" ||
+      metadataCurrency === currency);
+  if (!paymentId || !engagementId || !commitmentMetadataIsConsistent) {
     return undefined;
   }
 
@@ -96,27 +155,59 @@ export function extractApprovedPinchPaymentEvent(
     eventId,
     eventType,
     engagementId,
+    ...(needProfileId ? { needProfileId } : {}),
+    ...(supplierId ? { supplierId } : {}),
+    ...(milestoneId ? { milestoneId } : {}),
     paymentId,
+    ...(amountMinor === undefined ? {} : { amountMinor }),
+    ...(currency === "" ? {} : { currency }),
     status: "approved"
   };
 }
 
+export function matchesExpectedPinchCommitment(
+  event: PinchWebhookPaymentEvent,
+  expected: ExpectedPinchCommitment
+) {
+  return (
+    event.engagementId === expected.engagementId &&
+    (event.needProfileId === undefined ||
+      event.needProfileId === expected.needProfileId) &&
+    (event.supplierId === undefined ||
+      event.supplierId === expected.supplierId) &&
+    (event.milestoneId === undefined ||
+      event.milestoneId === expected.milestoneId) &&
+    (event.amountMinor === undefined ||
+      event.amountMinor === expected.amountMinor) &&
+    (event.currency === undefined ||
+      event.currency === expected.currency.toUpperCase())
+  );
+}
+
 function parseMetadata(value: unknown): Record<string, unknown> {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
+  const parsed = parseJson(value);
+  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+    return parsed as Record<string, unknown>;
   }
-  if (typeof value !== "string") {
+  if (!Array.isArray(parsed)) {
     return {};
+  }
+  return parsed.reduce<Record<string, unknown>>((metadata, item) => {
+    if (typeof item === "object" && item !== null && !Array.isArray(item)) {
+      Object.assign(metadata, item);
+    }
+    return metadata;
+  }, {});
+}
+
+function parseJson(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
   }
   try {
-    const parsed = JSON.parse(value) as unknown;
-    return typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
+    return JSON.parse(value) as unknown;
   } catch {
-    return {};
+    return undefined;
   }
 }
 
@@ -145,4 +236,15 @@ function getNestedValue(payload: unknown, path: string[]): unknown {
 
 function getString(value: unknown) {
   return typeof value === "string" ? value : undefined;
+}
+
+function getInteger(value: unknown) {
+  if (typeof value === "number" && Number.isSafeInteger(value)) {
+    return value;
+  }
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : undefined;
+  }
+  return undefined;
 }

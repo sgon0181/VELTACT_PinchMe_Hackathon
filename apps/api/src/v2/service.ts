@@ -26,6 +26,7 @@ import type {
   NeedRecord,
   SupplierInvitation as LegacySupplierInvitation
 } from "../marketplace/types.js";
+import { isLocalDemoHostedPaymentLink } from "../payments/localDemoPaymentProvider.js";
 import { getPaymentProvider } from "../payments/providerRegistry.js";
 import { createFixtureResearch, createFixtureSupplierLeads } from "./fixtures.js";
 import { createIndustrialProject } from "./projectTemplates.js";
@@ -35,6 +36,42 @@ import {
   type VeltactV2Snapshot
 } from "./repository.js";
 import { discoverSuppliers, researchSolutions } from "./providers.js";
+
+type SupplierCommercialResponseInput =
+  | Omit<
+      Extract<SupplierCommercialResponse, { decision: "can_help" }>,
+      | "id"
+      | "needProfileId"
+      | "supplierLeadId"
+      | "supplierProfileId"
+      | "submittedAt"
+    >
+  | Omit<
+      Extract<SupplierCommercialResponse, { decision: "cannot_help" }>,
+      | "id"
+      | "needProfileId"
+      | "supplierLeadId"
+      | "supplierProfileId"
+      | "submittedAt"
+    >;
+
+type PaymentRecordInput = {
+  projectId: string;
+  milestoneId: string;
+  eventId: string;
+  eventType: string;
+  paymentId?: string;
+};
+
+type PaymentAuthority =
+  | {
+      provider: "pinch";
+      authoritative: true;
+    }
+  | {
+      provider: "local_demo";
+      authoritative: false;
+    };
 
 export class V2ServiceError extends Error {
   constructor(
@@ -82,13 +119,35 @@ export class VeltactV2Service {
     return { need, buyerAccessToken };
   }
 
-  getWorkspace(needId: string, buyerAccessToken: string | undefined) {
+  async getWorkspace(needId: string, buyerAccessToken: string | undefined) {
+    await this.expireStaleSupplierClaimsForNeed(
+      needId,
+      buyerAccessToken
+    );
     const snapshot = this.repository.snapshot();
     const need = this.requireBuyer(snapshot, needId, buyerAccessToken);
     const leadIds = new Set(
       snapshot.supplierLeads
         .filter((lead) => lead.needProfileId === needId)
         .map((lead) => lead.id)
+    );
+    const supplierInvitations = snapshot.supplierInvitations
+      .filter((invitation) => leadIds.has(invitation.supplierId))
+      .reverse()
+      .sort(
+        (left, right) =>
+          Date.parse(right.createdAt) - Date.parse(left.createdAt)
+      );
+    const currentSupplierIds = new Set<string>();
+    const currentSupplierInvitations = supplierInvitations.filter(
+      (invitation) => {
+        if (currentSupplierIds.has(invitation.supplierId)) return false;
+        currentSupplierIds.add(invitation.supplierId);
+        return true;
+      }
+    );
+    const currentInvitationIds = new Set(
+      currentSupplierInvitations.map((invitation) => invitation.id)
     );
     return {
       need: publicNeed(need),
@@ -101,11 +160,12 @@ export class VeltactV2Service {
       supplierLeads: snapshot.supplierLeads.filter(
         (lead) => lead.needProfileId === needId
       ),
-      supplierInvitations: snapshot.supplierInvitations
-        .filter((invitation) => leadIds.has(invitation.supplierId))
+      supplierInvitations: currentSupplierInvitations
         .map(({ token: _token, ...invitation }) => invitation),
-      outreachDeliveries: snapshot.outreachDeliveries.filter((delivery) =>
-        leadIds.has(delivery.supplierId)
+      outreachDeliveries: snapshot.outreachDeliveries.filter(
+        (delivery) =>
+          leadIds.has(delivery.supplierId) &&
+          currentInvitationIds.has(delivery.invitationId)
       ),
       supplierProfiles: snapshot.supplierProfiles.filter((profile) =>
         leadIds.has(profile.supplierLeadId)
@@ -300,6 +360,10 @@ export class VeltactV2Service {
     buyerAccessToken: string | undefined,
     supplierLeadIds: string[]
   ) {
+    await this.expireStaleSupplierClaimsForNeed(
+      needId,
+      buyerAccessToken
+    );
     const prepared = await this.repository.mutate((draft) => {
       const need = this.requireBuyer(draft, needId, buyerAccessToken);
       const leads = draft.supplierLeads.filter(
@@ -319,12 +383,37 @@ export class VeltactV2Service {
             409
           );
         }
-        let invitation = draft.supplierInvitations.find(
-          (candidate) => candidate.supplierId === lead.id
-        );
+        let invitation = draft.supplierInvitations
+          .filter(
+            (candidate) =>
+              candidate.supplierId === lead.id &&
+              ["pending", "sent", "opened"].includes(candidate.status) &&
+              Date.parse(candidate.expiresAt) > now.getTime()
+          )
+          .reverse()
+          .sort(
+            (left, right) =>
+              Date.parse(right.createdAt) - Date.parse(left.createdAt)
+          )[0];
         if (!invitation) {
           const token = secureToken();
           const createdAt = now.toISOString();
+          const previousClaim = draft.supplierClaims
+            .filter(
+              (candidate) =>
+                candidate.supplierLeadId === lead.id &&
+                candidate.status === "expired"
+            )
+            .reverse()
+            .sort(
+              (left, right) =>
+                Date.parse(right.updatedAt) - Date.parse(left.updatedAt)
+            )[0];
+          const resumeClaim = Boolean(
+            previousClaim?.claimedAt &&
+              previousClaim.claimantName &&
+              previousClaim.claimantEmail
+          );
           invitation = {
             id: randomUUID(),
             needProfileId: needId,
@@ -348,7 +437,14 @@ export class VeltactV2Service {
             supplierLeadId: lead.id,
             invitationId: invitation.id,
             token,
-            status: "pending",
+            status: resumeClaim ? "claimed" : "pending",
+            claimantName: resumeClaim
+              ? previousClaim?.claimantName
+              : undefined,
+            claimantEmail: resumeClaim
+              ? previousClaim?.claimantEmail
+              : undefined,
+            claimedAt: resumeClaim ? previousClaim?.claimedAt : undefined,
             expiresAt: invitation.expiresAt,
             createdAt,
             updatedAt: createdAt
@@ -368,7 +464,7 @@ export class VeltactV2Service {
     for (const item of prepared) {
       await this.deliverInvitation(item.need, item.lead, item.invitation.id);
     }
-    const workspace = this.getWorkspace(needId, buyerAccessToken);
+    const workspace = await this.getWorkspace(needId, buyerAccessToken);
     return {
       supplierInvitations: workspace.supplierInvitations,
       outreachDeliveries: workspace.outreachDeliveries,
@@ -390,10 +486,11 @@ export class VeltactV2Service {
         const expiredClaim = draft.supplierClaims.find(
           (candidate) => candidate.token === token
         );
-        if (expiredClaim) {
-          expiredClaim.status = "expired";
-          expiredClaim.updatedAt = new Date().toISOString();
-        }
+        if (expiredClaim) expireSupplierClaimAccess(
+          draft,
+          expiredClaim,
+          new Date().toISOString()
+        );
       });
       throw new V2ServiceError("Supplier claim has expired", 409);
     }
@@ -450,6 +547,35 @@ export class VeltactV2Service {
       supplierProfile: profile,
       supplierResponse: response
     };
+  }
+
+  async claimSupplierInvitation(
+    token: string,
+    input: {
+      claimantName: string;
+      claimantEmail: string;
+    }
+  ) {
+    return this.repository.mutate((draft) => {
+      const claim = requireLiveClaim(draft, token);
+      const lead = requireLead(draft, claim.supplierLeadId);
+      if (!["invited", "claimed"].includes(lead.lifecycleStatus)) {
+        throw new V2ServiceError(
+          `Supplier invitation cannot be claimed from ${lead.lifecycleStatus}`,
+          409
+        );
+      }
+      const now = new Date().toISOString();
+      if (lead.lifecycleStatus === "invited") transitionLead(lead, "claimed");
+      lead.claimedAt = lead.claimedAt ?? now;
+      lead.updatedAt = now;
+      claim.status = "claimed";
+      claim.claimantName = input.claimantName;
+      claim.claimantEmail = input.claimantEmail;
+      claim.claimedAt = claim.claimedAt ?? now;
+      claim.updatedAt = now;
+      return withoutClaimToken(claim);
+    });
   }
 
   async submitSupplierProfile(
@@ -574,43 +700,76 @@ export class VeltactV2Service {
 
   async submitSupplierResponse(
     token: string,
-    input: Omit<
-      SupplierCommercialResponse,
-      | "id"
-      | "needProfileId"
-      | "supplierLeadId"
-      | "supplierProfileId"
-      | "submittedAt"
-    >
+    input: SupplierCommercialResponseInput
   ) {
     return this.repository.mutate((draft) => {
       const claim = requireLiveClaim(draft, token);
       const lead = requireLead(draft, claim.supplierLeadId);
-      if (
-        ![
-          "supplier_profile_approved",
-          "buyer_approved",
-          "active_supplier"
-        ].includes(lead.lifecycleStatus)
-      ) {
+      if (claim.status !== "claimed") {
         throw new V2ServiceError(
-          "The supplier must confirm its profile before a commercial response",
+          "Claim the supplier invitation before submitting a response",
           409
         );
       }
-      const profile = requireProfile(draft, lead.id);
       const now = new Date().toISOString();
       const existing = draft.supplierResponses.find(
         (candidate) => candidate.supplierLeadId === lead.id
       );
-      const supplierResponse: SupplierCommercialResponse = {
-        id: existing?.id ?? randomUUID(),
-        needProfileId: lead.needProfileId,
-        supplierLeadId: lead.id,
-        supplierProfileId: profile.id,
-        ...input,
-        submittedAt: now
-      };
+      let supplierResponse: SupplierCommercialResponse;
+      if (input.decision === "can_help") {
+        if (
+          ![
+            "supplier_profile_approved",
+            "buyer_approved",
+            "active_supplier"
+          ].includes(lead.lifecycleStatus)
+        ) {
+          throw new V2ServiceError(
+            "The supplier must confirm its profile before a commercial response",
+            409
+          );
+        }
+        if (input.indicativePrice.amount <= 0) {
+          throw new V2ServiceError(
+            "Enter an indicative price greater than AUD 0."
+          );
+        }
+        const profile = requireProfile(draft, lead.id);
+        supplierResponse = {
+          id: existing?.id ?? randomUUID(),
+          needProfileId: lead.needProfileId,
+          supplierLeadId: lead.id,
+          supplierProfileId: profile.id,
+          ...input,
+          submittedAt: now
+        };
+      } else {
+        if (
+          ![
+            "claimed",
+            "supplier_profile_approved",
+            "buyer_approved"
+          ].includes(lead.lifecycleStatus)
+        ) {
+          throw new V2ServiceError(
+            `Supplier response cannot be declined from ${lead.lifecycleStatus}`,
+            409
+          );
+        }
+        const profile = draft.supplierProfiles.find(
+          (candidate) => candidate.supplierLeadId === lead.id
+        );
+        supplierResponse = {
+          id: existing?.id ?? randomUUID(),
+          needProfileId: lead.needProfileId,
+          supplierLeadId: lead.id,
+          supplierProfileId: profile?.id,
+          ...input,
+          submittedAt: now
+        };
+        transitionLead(lead, "declined");
+        lead.updatedAt = now;
+      }
       draft.supplierResponses = draft.supplierResponses.filter(
         (candidate) => candidate.supplierLeadId !== lead.id
       );
@@ -852,7 +1011,6 @@ export class VeltactV2Service {
     await this.recordAuthoritativePayment({
       projectId,
       milestoneId,
-      provider: "pinch",
       eventId: `pinch-api:${approved.paymentId}`,
       eventType: "payment-api-reconciliation",
       paymentId: approved.paymentId
@@ -868,19 +1026,38 @@ export class VeltactV2Service {
     buyerAccessToken: string | undefined,
     milestoneId: string
   ) {
-    if (env.NODE_ENV === "production") {
+    if (
+      env.NODE_ENV === "production" ||
+      env.PAYMENT_PROVIDER !== "local_demo"
+    ) {
       throw new V2ServiceError(
-        "Local demo payment is unavailable in production",
+        "Local demo payment is unavailable for this payment provider",
         404
       );
     }
     const snapshot = this.repository.snapshot();
     const project = requireProject(snapshot, projectId);
     this.requireBuyer(snapshot, project.needProfileId, buyerAccessToken);
-    return this.recordAuthoritativePayment({
+    const milestone = requireMilestone(project.milestones, milestoneId);
+    if (
+      milestone.paymentStatus !== "awaiting_payment" ||
+      !milestone.pinchPayerId ||
+      !milestone.paymentLinkId ||
+      !milestone.hostedCheckoutUrl ||
+      !isLocalDemoHostedPaymentLink({
+        payerId: milestone.pinchPayerId,
+        paymentLinkId: milestone.paymentLinkId,
+        hostedCheckoutUrl: milestone.hostedCheckoutUrl
+      })
+    ) {
+      throw new V2ServiceError(
+        "Create a local demo payment link before recording demo evidence",
+        409
+      );
+    }
+    return this.recordDemoPaymentEvidence({
       projectId,
       milestoneId,
-      provider: "local_demo",
       eventId: `local-demo:${projectId}:${milestoneId}`,
       eventType: "local-demo-payment",
       paymentId: `demo_${milestoneId}`
@@ -894,10 +1071,7 @@ export class VeltactV2Service {
     eventType: string;
     paymentId?: string;
   }) {
-    return this.recordAuthoritativePayment({
-      ...input,
-      provider: "pinch"
-    });
+    return this.recordAuthoritativePayment(input);
   }
 
   async createChangeRequest(
@@ -1029,6 +1203,7 @@ export class VeltactV2Service {
       supplierName: lead.companyName
     };
 
+    let localDemoPrepared = false;
     for (const delivery of deliveries) {
       const readiness = getOutreachDeliveryReadiness(delivery);
       if (readiness.available && readiness.provider !== "local_demo") {
@@ -1049,6 +1224,9 @@ export class VeltactV2Service {
         legacyInvitation,
         legacyNeed
       );
+      if (result.outcome === "local_demo") {
+        localDemoPrepared = true;
+      }
       await this.repository.mutate((draft) => {
         const current = draft.outreachDeliveries.find(
           (candidate) =>
@@ -1091,22 +1269,85 @@ export class VeltactV2Service {
         currentInvitation.sentAt = currentInvitation.sentAt ?? now;
         currentInvitation.updatedAt = now;
       }
-      if (currentLead.lifecycleStatus === "approved_for_outreach") {
+      if (
+        (delivered || localDemoPrepared) &&
+        currentLead.lifecycleStatus === "approved_for_outreach"
+      ) {
         transitionLead(currentLead, "invited");
       }
-      currentLead.invitedAt = currentLead.invitedAt ?? now;
+      if (
+        delivered ||
+        localDemoPrepared ||
+        currentLead.lifecycleStatus !== "approved_for_outreach"
+      ) {
+        restoreRenewedLeadLifecycle(draft, currentLead, invitationId, now);
+      }
+      if (delivered || localDemoPrepared) {
+        currentLead.invitedAt = currentLead.invitedAt ?? now;
+      }
       currentLead.updatedAt = now;
     });
   }
 
-  private async recordAuthoritativePayment(input: {
-    projectId: string;
-    milestoneId: string;
-    provider: "pinch" | "local_demo";
-    eventId: string;
-    eventType: string;
-    paymentId?: string;
-  }) {
+  private async expireStaleSupplierClaimsForNeed(
+    needId: string,
+    buyerAccessToken: string | undefined
+  ) {
+    const snapshot = this.repository.snapshot();
+    this.requireBuyer(snapshot, needId, buyerAccessToken);
+    const leadIds = new Set(
+      snapshot.supplierLeads
+        .filter((lead) => lead.needProfileId === needId)
+        .map((lead) => lead.id)
+    );
+    const now = new Date();
+    const hasExpiredClaims = snapshot.supplierClaims.some(
+      (claim) =>
+        leadIds.has(claim.supplierLeadId) &&
+        !["expired", "revoked"].includes(claim.status) &&
+        Date.parse(claim.expiresAt) <= now.getTime()
+    );
+    if (!hasExpiredClaims) return;
+
+    await this.repository.mutate((draft) => {
+      this.requireBuyer(draft, needId, buyerAccessToken);
+      const currentLeadIds = new Set(
+        draft.supplierLeads
+          .filter((lead) => lead.needProfileId === needId)
+          .map((lead) => lead.id)
+      );
+      const expiredAt = now.toISOString();
+      for (const claim of draft.supplierClaims) {
+        if (
+          currentLeadIds.has(claim.supplierLeadId) &&
+          !["expired", "revoked"].includes(claim.status) &&
+          Date.parse(claim.expiresAt) <= now.getTime()
+        ) {
+          expireSupplierClaimAccess(draft, claim, expiredAt);
+        }
+      }
+    });
+  }
+
+  private async recordAuthoritativePayment(input: PaymentRecordInput) {
+    return this.recordPaymentEvidence({
+      ...input,
+      provider: "pinch",
+      authoritative: true
+    });
+  }
+
+  private async recordDemoPaymentEvidence(input: PaymentRecordInput) {
+    return this.recordPaymentEvidence({
+      ...input,
+      provider: "local_demo",
+      authoritative: false
+    });
+  }
+
+  private async recordPaymentEvidence(
+    input: PaymentRecordInput & PaymentAuthority
+  ) {
     return this.repository.mutate((draft) => {
       const duplicate = draft.paymentEvidence.find(
         (evidence) => evidence.eventId === input.eventId
@@ -1125,21 +1366,31 @@ export class VeltactV2Service {
         };
       }
       const now = new Date().toISOString();
-      const evidence: PaymentEvidence = {
+      const evidenceBase = {
         id: randomUUID(),
         projectId: input.projectId,
         milestoneId: input.milestoneId,
-        provider: input.provider,
         eventId: input.eventId,
         eventType: input.eventType,
-        paymentStatus: "paid",
-        authoritative: true,
+        paymentStatus: "paid" as const,
         receivedAt: now,
         metadata: {
           paymentId: input.paymentId ?? null,
           sourceMode: input.provider === "pinch" ? "live" : "fixture"
         }
       };
+      const evidence: PaymentEvidence =
+        input.provider === "pinch"
+          ? {
+              ...evidenceBase,
+              provider: "pinch",
+              authoritative: true
+            }
+          : {
+              ...evidenceBase,
+              provider: "local_demo",
+              authoritative: false
+            };
       draft.paymentEvidence.push(evidence);
       milestone.paymentStatus = "paid";
       milestone.status = "funded";
@@ -1155,7 +1406,7 @@ export class VeltactV2Service {
         summary:
           input.provider === "pinch"
             ? `${milestone.title} funded after authoritative Pinch payment evidence.`
-            : `${milestone.title} funded with an explicitly labelled local demo payment.`,
+            : `${milestone.title} advanced in demo mode with explicitly non-authoritative local payment evidence.`,
         actor: input.provider === "pinch" ? "Pinch" : "Veltact demo",
         occurredAt: now
       });
@@ -1166,6 +1417,81 @@ export class VeltactV2Service {
         needProfileId: project.needProfileId
       };
     });
+  }
+}
+
+function expireSupplierClaimAccess(
+  snapshot: VeltactV2Snapshot,
+  claim: VeltactV2Snapshot["supplierClaims"][number],
+  expiredAt: string
+) {
+  claim.status = "expired";
+  claim.updatedAt = expiredAt;
+
+  const invitation = snapshot.supplierInvitations.find(
+    (candidate) => candidate.id === claim.invitationId
+  );
+  if (
+    invitation &&
+    !["responded", "cancelled"].includes(invitation.status)
+  ) {
+    invitation.status = "expired";
+    invitation.updatedAt = expiredAt;
+  }
+
+  const lead = snapshot.supplierLeads.find(
+    (candidate) => candidate.id === claim.supplierLeadId
+  );
+  const hasResponse = snapshot.supplierResponses.some(
+    (candidate) => candidate.supplierLeadId === claim.supplierLeadId
+  );
+  if (
+    lead &&
+    !hasResponse &&
+    [
+      "invited",
+      "claimed",
+      "supplier_profile_approved",
+      "buyer_approved"
+    ].includes(lead.lifecycleStatus)
+  ) {
+    lead.lifecycleStatus = "approved_for_outreach";
+    lead.invitedAt = undefined;
+    lead.claimedAt = undefined;
+    lead.updatedAt = expiredAt;
+  }
+}
+
+function restoreRenewedLeadLifecycle(
+  snapshot: VeltactV2Snapshot,
+  lead: SupplierLead,
+  invitationId: string,
+  updatedAt: string
+) {
+  const claim = snapshot.supplierClaims.find(
+    (candidate) => candidate.invitationId === invitationId
+  );
+  if (!claim || claim.status !== "claimed") return;
+
+  if (lead.lifecycleStatus === "invited") {
+    transitionLead(lead, "claimed");
+  }
+  lead.claimedAt = claim.claimedAt ?? lead.claimedAt ?? updatedAt;
+
+  const profile = snapshot.supplierProfiles.find(
+    (candidate) => candidate.supplierLeadId === lead.id
+  );
+  if (
+    profile?.supplierApprovedAt &&
+    lead.lifecycleStatus === "claimed"
+  ) {
+    transitionLead(lead, "supplier_profile_approved");
+  }
+  if (
+    profile?.buyerApprovedAt &&
+    lead.lifecycleStatus === "supplier_profile_approved"
+  ) {
+    transitionLead(lead, "buyer_approved");
   }
 }
 

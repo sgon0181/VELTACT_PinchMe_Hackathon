@@ -1,10 +1,16 @@
-import { demoResponsesForRequirement } from "./supplierDemoResponses.js";
+import { demoControlsEnabled } from "./assets/apiBase.js";
+import { companyLogoFor } from "./assets/companyLogos.js";
+import {
+  supplierClaimComplete,
+  supplierDocumentUrl
+} from "./supplierFlow.js";
 
+const isFrontendDevServer =
+  ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+  ["4173", "5173"].includes(window.location.port);
 const API_BASE =
   window.API_BASE_URL ||
-  (["localhost", "127.0.0.1"].includes(window.location.hostname) &&
-  window.location.port &&
-  window.location.port !== "4000"
+  (isFrontendDevServer
     ? "http://localhost:4000/api"
     : `${window.location.origin}/api`);
 
@@ -14,11 +20,17 @@ const statusEl = document.querySelector("#form-status");
 const summary = document.querySelector("#opportunity-summary");
 const receipt = document.querySelector("#submitted-receipt");
 const submitButton = document.querySelector("#submit-button");
+const demoTools = document.querySelector("#demo-tools");
 const demoSelect = document.querySelector("#demo-response-select");
+const demoFillButton = document.querySelector("#demo-fill-button");
 const helpFields = document.querySelector("#help-response-fields");
 const declineReasonField = document.querySelector("#decline-reason-field");
+const rfqDownload = document.querySelector("#download-rfq");
+const quoteDownload = document.querySelector("#download-quote");
 let claimComplete = false;
 let demoResponses = [];
+let demoResponsesForRequirement;
+let demoRequirementText = "";
 
 form.addEventListener("submit", (event) => submitResponse(event, token));
 form.addEventListener("change", (event) => {
@@ -26,7 +38,7 @@ form.addEventListener("change", (event) => {
     updateDecisionFields();
   }
 });
-document.querySelector("#demo-fill-button").addEventListener("click", fillDemoResponse);
+void configureDemoControls();
 
 if (!token) {
   showTerminalState(
@@ -61,6 +73,7 @@ async function loadOpportunity(invitationToken) {
     }
 
     renderOpportunity(payload, need, invitation);
+    configureDocumentLinks(invitationToken);
     const existingResponse = payload.response || payload.supplierResponse;
     if (existingResponse) {
       showSubmittedReceipt(existingResponse, true);
@@ -99,10 +112,7 @@ async function loadOpportunity(invitationToken) {
 
     const claim = payload.claim || payload.supplierClaim;
     const profile = payload.supplierProfile || payload.supplierLead;
-    claimComplete = Boolean(
-      claim?.status === "claimed" ||
-        claim?.status === "supplier_profile_approved"
-    );
+    claimComplete = supplierClaimComplete(claim);
     renderIdentity(profile, claim, invitation);
     form.hidden = false;
     setFormStatus(
@@ -133,7 +143,9 @@ function renderOpportunity(payload, need, invitation) {
 
   document.title = `${invitation.supplierName || "Supplier"} | Veltact opportunity`;
   text("#need-title", profile.title || "Supplier opportunity");
-  text("#supplier-name", invitation.supplierName || payload.supplierProfile?.companyName);
+  renderSupplierIdentity(
+    invitation.supplierName || payload.supplierProfile?.companyName || "Supplier"
+  );
   text("#invitation-expiry", `Respond by ${formatDateTime(invitation.expiresAt)}`);
   text("#need-location", profile.location || "Not specified");
   text(
@@ -180,7 +192,40 @@ function renderOpportunity(payload, need, invitation) {
   text("#source-disclosure", sourceDisclosure(payload));
   summary.setAttribute("aria-busy", "false");
 
-  demoResponses = demoResponsesForRequirement(requirementText);
+  demoRequirementText = requirementText;
+  populateDemoResponses();
+}
+
+function configureDocumentLinks(invitationToken) {
+  rfqDownload.href = supplierDocumentUrl(
+    API_BASE,
+    invitationToken,
+    "rfq"
+  );
+  rfqDownload.hidden = false;
+  quoteDownload.href = supplierDocumentUrl(
+    API_BASE,
+    invitationToken,
+    "quote"
+  );
+}
+
+async function configureDemoControls() {
+  if (!(await demoControlsEnabled(API_BASE))) return;
+  try {
+    const demoModule = await import("./supplierDemoResponses.js");
+    demoResponsesForRequirement = demoModule.demoResponsesForRequirement;
+  } catch {
+    return;
+  }
+  demoTools.hidden = false;
+  demoFillButton.addEventListener("click", fillDemoResponse);
+  populateDemoResponses();
+}
+
+function populateDemoResponses() {
+  if (!demoResponsesForRequirement || !demoRequirementText) return;
+  demoResponses = demoResponsesForRequirement(demoRequirementText);
   demoSelect.replaceChildren(
     ...demoResponses.map((preset) => {
       const option = document.createElement("option");
@@ -214,6 +259,22 @@ function renderIdentity(profile, claim, invitation) {
       "#claim-status",
       "This private token has already confirmed the supplier identity. You can review and submit the response."
     );
+  }
+}
+
+function renderSupplierIdentity(companyName) {
+  text("#supplier-name", companyName);
+  const logo = companyLogoFor(companyName);
+  const logoShell = document.querySelector("#supplier-logo-shell");
+  const logoImage = document.querySelector("#supplier-logo");
+  if (!(logoShell instanceof HTMLElement) || !(logoImage instanceof HTMLImageElement)) {
+    return;
+  }
+  logoShell.hidden = !logo;
+  if (logo) {
+    logoImage.src = logo;
+  } else {
+    logoImage.removeAttribute("src");
   }
 }
 
@@ -483,6 +544,7 @@ function showSubmittedReceipt(supplierResponse, alreadySubmitted) {
       : ""
   );
   receipt.hidden = false;
+  quoteDownload.hidden = false;
   setFormStatus("");
 }
 

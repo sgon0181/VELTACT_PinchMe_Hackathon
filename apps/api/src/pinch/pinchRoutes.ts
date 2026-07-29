@@ -6,6 +6,7 @@ import { verifyPinchWebhookSignature, PinchWebhookError } from "./webhookVerifie
 import { listWebhookEvents, recordWebhookEvent } from "./webhookStore.js";
 import {
   getDeployment,
+  getEngagement,
   recordAuthoritativePinchPayment
 } from "../marketplace/store.js";
 import {
@@ -17,7 +18,10 @@ import { env } from "../env.js";
 import { v2Service } from "../v2/service.js";
 import { veltactV2SocketEvent } from "@veltact/contracts";
 import { emitV2Update } from "../realtime.js";
-import { extractApprovedPinchPaymentEvent } from "./authoritativePaymentEvent.js";
+import {
+  extractApprovedPinchPaymentEvent,
+  matchesExpectedPinchCommitment
+} from "./authoritativePaymentEvent.js";
 
 export const pinchRouter = Router();
 
@@ -100,6 +104,21 @@ pinchRouter.post("/payment-link", async (request, response) => {
 });
 
 pinchRouter.get("/return/:engagementId?", (request, response) => {
+  const localDemoReturn =
+    request.query.payment_provider === "local_demo" &&
+    env.PAYMENT_PROVIDER === "local_demo" &&
+    env.NODE_ENV !== "production";
+  if (
+    request.query.payment_provider === "local_demo" &&
+    !localDemoReturn
+  ) {
+    response.status(404).json({
+      status: "error",
+      message: "Local demo payment return is unavailable"
+    });
+    return;
+  }
+
   response
     .status(200)
     .type("html")
@@ -108,13 +127,19 @@ pinchRouter.get("/return/:engagementId?", (request, response) => {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Payment awaiting confirmation</title>
+    <title>${localDemoReturn ? "Local demo commitment" : "Payment awaiting confirmation"}</title>
   </head>
   <body>
     <main>
-      <h1>Payment awaiting confirmation</h1>
+      ${
+        localDemoReturn
+          ? `<h1>Local demo commitment</h1>
+      <p>No Pinch transaction or external payment was created.</p>
+      <p>Return to Veltact and use the clearly labelled local demo action to record non-authoritative demo evidence.</p>`
+          : `<h1>Payment awaiting confirmation</h1>
       <p>Pinch redirected you back to Veltact. This page does not confirm payment success.</p>
-      <p>Return to Veltact and refresh the payment status. The engagement is secured only after the backend verifies payment with Pinch.</p>
+      <p>Return to Veltact and refresh the payment status. The engagement is secured only after the backend verifies payment with Pinch.</p>`
+      }
     </main>
   </body>
 </html>`);
@@ -130,7 +155,29 @@ pinchRouter.post("/webhooks", async (request, response) => {
     const event = recordWebhookEvent(request.body);
     const rapidMatchPayment = extractApprovedPinchPaymentEvent(request.body);
     const paymentEvent = extractSuccessfulPaymentEvent(request.body);
-    if (rapidMatchPayment) {
+    const engagement = rapidMatchPayment
+      ? getEngagement(rapidMatchPayment.engagementId)
+      : undefined;
+    const deployment = engagement
+      ? getDeployment(engagement.id)
+      : undefined;
+    const commitment = deployment?.milestones[0];
+    const matchesCommitment = Boolean(
+      rapidMatchPayment &&
+      engagement?.paymentLinkId &&
+      engagement.pinchPayerId &&
+      engagement.hostedCheckoutUrl &&
+      commitment?.amount &&
+      matchesExpectedPinchCommitment(rapidMatchPayment, {
+        engagementId: engagement.id,
+        needProfileId: engagement.needId,
+        supplierId: engagement.supplierId,
+        milestoneId: commitment.id,
+        amountMinor: commitment.amount.amount,
+        currency: commitment.amount.currency
+      })
+    );
+    if (rapidMatchPayment && matchesCommitment) {
       const result = recordAuthoritativePinchPayment({
         eventId: rapidMatchPayment.eventId,
         eventType: rapidMatchPayment.eventType,
@@ -144,12 +191,12 @@ pinchRouter.post("/webhooks", async (request, response) => {
         if (result.engagement.status === "supplier_secured") {
           emitEngagementSecured(result.engagement);
         }
-        const deployment = getDeployment(result.engagement.id);
-        if (deployment) {
+        const updatedDeployment = getDeployment(result.engagement.id);
+        if (updatedDeployment) {
           emitDeploymentUpdated({
             needProfileId: result.engagement.needId,
             engagementId: result.engagement.id,
-            deployment
+            deployment: updatedDeployment
           });
         }
       }

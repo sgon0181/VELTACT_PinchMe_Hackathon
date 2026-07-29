@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Veltact turns a factory requirement into researched options, qualified supplier responses, Pinch-funded milestones and accountable deployment."
+      content="Veltact turns industrial evidence into a researched action plan, comparable supplier responses and a Pinch-backed commitment."
     />
     <title>Veltact | Find, connect and deploy industrial expertise</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -15,329 +15,195 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./landing.css" />
+    <link rel="stylesheet" href="./alloy.css?v=alloy-1" />
+    <noscript>
+      <style>
+        .landing-loader {
+          display: none;
+        }
+      </style>
+    </noscript>
   </head>
-  <body>
+  <body data-theme="landing">
+    <div class="landing-loader" data-landing-loader role="status" aria-live="polite">
+      <div class="loader-assembly">
+        <div class="loader-plate" aria-hidden="true">
+          <span class="loader-notch"></span>
+          <span class="loader-wordmark">Veltact</span>
+          <span class="loader-index">01 / 03</span>
+        </div>
+        <div class="loader-track" aria-hidden="true"><span></span></div>
+        <p>Preparing industrial workflow</p>
+      </div>
+    </div>
+
     <a class="skip-link" href="#main-content">Skip to content</a>
 
     <header class="site-header">
-      <a class="wordmark" href="./landing.html" aria-label="Veltact home">
-        <span class="wordmark-notch" aria-hidden="true"></span>
-        <span>Veltact</span>
-      </a>
-      <nav class="site-nav" aria-label="Main navigation">
-        <a href="#workflow">Find / Connect / Deploy</a>
-        <a href="#participants">Buyer + supplier</a>
-        <a href="#commitment">Milestones + Pinch</a>
-        <a href="./index.html">Buyer workspace</a>
-      </nav>
-      <a class="header-cta" href="./index.html">Start a requirement</a>
+      <div class="header-inner">
+        <a class="wordmark" href="./landing.html" aria-label="Veltact home">
+          <span class="wordmark-notch" aria-hidden="true"></span>
+          <span>Veltact</span>
+        </a>
+        <nav class="public-actions" aria-label="Account and demo actions">
+          <a class="header-link" href="./signin.html">Sign in</a>
+          <a class="header-link" href="./create-account.html">Create account</a>
+          <a class="button button-primary header-demo" href="./index.html">Try demo</a>
+        </nav>
+      </div>
     </header>
 
     <main id="main-content">
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-material" aria-hidden="true"></div>
-        <div class="hero-grid">
+        <div class="hero-inner">
           <div class="hero-copy" data-reveal>
-            <p class="eyebrow"><span>Find / Connect / Deploy</span> Industrial procurement workspace</p>
-            <h1 id="hero-title"><span>Veltact</span></h1>
-            <p class="hero-promise">From factory need to accountable deployment, in one workflow.</p>
+            <p class="eyebrow"><span>Industrial procurement</span> Evidence to engagement</p>
+            <h1 id="hero-title">Veltact</h1>
+            <p class="hero-promise">From line stop to committed specialist, in one workflow.</p>
             <p class="hero-summary">
-              Structure the requirement, research the solution space, activate relevant suppliers and
-              carry the selected response into funded, visible delivery.
+              Structure the need, evaluate current solution pathways and compare supplier responses
+              before opening a Pinch-hosted commitment.
             </p>
             <div class="hero-actions">
-              <a class="button button-primary" href="./index.html">Start a requirement</a>
-              <a id="guided-demo-link" class="text-link" href="#guided-demo" hidden>Launch guided demo <span aria-hidden="true">↓</span></a>
-            </div>
-            <dl class="hero-signals" aria-label="Veltact outcomes">
-              <div>
-                <dt>01</dt>
-                <dd>Research-backed Need Profile</dd>
-              </div>
-              <div>
-                <dt>02</dt>
-                <dd>Approved supplier response</dd>
-              </div>
-              <div>
-                <dt>03</dt>
-                <dd>Milestone-controlled delivery</dd>
-              </div>
-            </dl>
-          </div>
-
-          <div class="hero-system" data-reveal data-delay="1" aria-label="Veltact workflow preview">
-            <div class="system-topbar">
-              <span>Veltact industrial workflow</span>
-              <span class="system-online"><i aria-hidden="true"></i> Demo ready</span>
-            </div>
-            <div class="incident-strip">
-              <span class="incident-marker" aria-hidden="true"></span>
-              <div>
-                <span class="micro-label">Factory requirement</span>
-                <strong>Robotic palletising cell integration</strong>
-              </div>
-              <span class="incident-location">Western Sydney</span>
-            </div>
-            <div class="system-body">
-              <article class="process-stage need-profile">
-                <div class="module-heading">
-                  <span class="module-index">01</span>
-                  <div>
-                    <span class="micro-label">Find / Need Profile + research</span>
-                    <strong>Integration scope structured</strong>
-                  </div>
-                  <span class="status status-ready">Reviewed</span>
-                </div>
-                <div class="profile-data">
-                  <span>Industrial robotics</span>
-                  <span>60-day target</span>
-                  <span>Technical fit</span>
-                </div>
-              </article>
-
-              <div class="signal-rail" aria-hidden="true">
-                <span></span><small>Buyer-approved invitation</small>
-              </div>
-
-              <article class="process-stage supplier-network">
-                <div class="module-heading">
-                  <span class="module-index">02</span>
-                  <div>
-                    <span class="micro-label">Connect / Supplier response</span>
-                    <strong>Claimed, approved and comparable</strong>
-                  </div>
-                </div>
-                <div class="response-band is-responded">
-                  <span class="node-mark" aria-hidden="true">A</span>
-                  <div><strong>Robotics integration team</strong><small>Workshop in 5 days · $78,000 indicative</small></div>
-                  <span class="status status-response">Selected</span>
-                </div>
-                <div class="response-band">
-                  <span class="node-mark" aria-hidden="true">B</span>
-                  <div><strong>Machine safety specialist</strong><small>Evidence retained for comparison</small></div>
-                  <span class="status status-viewed">Reviewed</span>
-                </div>
-              </article>
-
-              <div class="commitment-row">
-                <span class="commitment-lock" aria-hidden="true"></span>
-                <div>
-                  <span class="micro-label">Deploy / Billable milestone</span>
-                  <strong>Site survey funding ready through Pinch</strong>
-                </div>
-                <span class="status status-pinch">Payment evidence pending</span>
-              </div>
+              <a class="button button-primary" href="./index.html">Try the buyer demo</a>
+              <a class="text-link" href="#workflow">See the workflow <span aria-hidden="true">↓</span></a>
             </div>
           </div>
+
+          <ol class="hero-rail" aria-label="Veltact operating workflow" data-reveal data-delay="1">
+            <li>
+              <span>01</span>
+              <div><strong>Find</strong><small>Evidence becomes a Need Profile</small></div>
+            </li>
+            <li>
+              <span>02</span>
+              <div><strong>Connect</strong><small>Suppliers return comparable intent</small></div>
+            </li>
+            <li>
+              <span>03</span>
+              <div><strong>Deploy</strong><small>Commitment and delivery stay visible</small></div>
+            </li>
+          </ol>
         </div>
-        <div class="hero-footer" aria-hidden="true">
-          <span>Find</span><i></i><span>Connect</span><i></i><span>Deploy</span>
-        </div>
-      </section>
-
-      <section id="guided-demo" class="guided-demo" hidden aria-labelledby="guided-demo-title">
-        <div class="guided-demo-inner section-shell">
-          <div class="guided-demo-copy" data-reveal>
-            <p class="eyebrow"><span>Development demo</span> Two roles, one requirement</p>
-            <h2 id="guided-demo-title">Launch both sides of the same workflow.</h2>
-            <p>
-              Choose a scenario, start with the buyer workspace, then open the private supplier invitation
-              in a second tab when the handoff reaches Connect.
-            </p>
-            <p class="demo-safety-note">Launching a scenario resets canonical demonstration state. These controls are unavailable in production.</p>
-          </div>
-          <div class="demo-launch-controls" data-reveal data-delay="1">
-            <span class="demo-control-label">Choose a repeatable scenario</span>
-            <div class="demo-scenario-actions">
-              <button class="button demo-scenario-button" type="button" data-demo-scenario="plc">
-                Demo: PLC
-              </button>
-              <button class="button demo-scenario-button" type="button" data-demo-scenario="robotics">
-                Demo: Robotic integration
-              </button>
-            </div>
-            <p id="demo-launch-status" class="demo-launch-status" role="status" aria-live="polite">
-              Select a scenario to generate one buyer workspace and two scoped supplier invitations.
-            </p>
-            <div id="demo-role-links" class="demo-role-links" hidden>
-              <a id="demo-buyer-link" class="button button-primary" target="_blank" rel="noreferrer">Open buyer workspace</a>
-              <a id="demo-supplier-one-link" class="button button-secondary" target="_blank" rel="noreferrer">Open supplier A invitation</a>
-              <a id="demo-supplier-two-link" class="button button-secondary" target="_blank" rel="noreferrer">Open supplier B invitation</a>
-            </div>
-          </div>
-        </div>
+        <a class="hero-scroll" href="#workflow">
+          <span>Follow the workflow</span>
+          <i aria-hidden="true"></i>
+        </a>
       </section>
 
       <section id="workflow" class="workflow section-shell" aria-labelledby="workflow-title">
-        <div class="section-intro" data-reveal>
-          <p class="eyebrow"><span>01</span> One visible operating journey</p>
-          <h2 id="workflow-title">One need becomes a controlled deployment.</h2>
+        <span class="section-index" aria-hidden="true">01 / Workflow</span>
+        <header class="section-heading" data-reveal>
+          <p class="eyebrow"><span>01</span> One requirement, no broken handoffs</p>
+          <h2 id="workflow-title">Find the path. Connect the response. Deploy with control.</h2>
           <p>
-            Veltact keeps the buyer on one workspace while research, supplier activation, commercial
-            response, payment evidence and delivery state move forward.
+            Veltact keeps industrial evidence, buyer decisions, supplier intent and commitment state
+            attached to the same requirement.
           </p>
-        </div>
+        </header>
 
-        <ol class="workflow-acts" aria-label="Veltact Find Connect Deploy workflow">
-          <li class="workflow-act" data-reveal>
-            <div class="act-heading">
-              <span class="act-number">Phase 01</span>
-              <div>
-                <strong>Find</strong>
-                <p>Turn factory context into an approved, research-backed requirement.</p>
-              </div>
-            </div>
-            <div class="act-steps">
-              <span><i>01</i>Industrial need</span>
-              <b aria-hidden="true"></b>
-              <span><i>02</i>Need Profile</span>
-              <b aria-hidden="true"></b>
-              <span><i>03</i>Solution research</span>
-            </div>
+        <ol class="phase-grid" aria-label="Find Connect Deploy phases">
+          <li data-reveal>
+            <span class="phase-number">01 / Find</span>
+            <h3>Make the need decision-ready.</h3>
+            <p>
+              Written context, reports and photos become a buyer-reviewed Need Profile with cited
+              pathways, missing information and safe preparation steps.
+            </p>
+            <span class="phase-output">Output: selected solution scope</span>
           </li>
-          <li class="workflow-act" data-reveal>
-            <div class="act-heading">
-              <span class="act-number">Phase 02</span>
-              <div>
-                <strong>Connect</strong>
-                <p>Approve relevant suppliers and compare real commercial responses.</p>
-              </div>
-            </div>
-            <div class="act-steps">
-              <span><i>04</i>Supplier discovery</span>
-              <b aria-hidden="true"></b>
-              <span><i>05</i>Controlled outreach</span>
-              <b aria-hidden="true"></b>
-              <span><i>06</i>Response + selection</span>
-            </div>
+          <li data-reveal data-delay="1">
+            <span class="phase-number">02 / Connect</span>
+            <h3>Turn relevance into response.</h3>
+            <p>
+              Explainable matches receive buyer-approved outreach. Suppliers return availability,
+              indicative price, experience, approach and conditions in one format.
+            </p>
+            <span class="phase-output">Output: selected supplier response</span>
           </li>
-          <li class="workflow-act is-commit" data-reveal>
-            <div class="act-heading">
-              <span class="act-number">Phase 03</span>
-              <div>
-                <strong>Deploy</strong>
-                <p>Fund accepted milestones and keep delivery evidence visible.</p>
-              </div>
-            </div>
-            <div class="act-steps">
-              <span><i>07</i>Project milestones</span>
-              <b aria-hidden="true"></b>
-              <span><i>08</i>Pinch payment</span>
-              <b aria-hidden="true"></b>
-              <span><i>09</i>Handover</span>
-            </div>
+          <li data-reveal data-delay="2">
+            <span class="phase-number">03 / Deploy</span>
+            <h3>Secure attention, then track delivery.</h3>
+            <p>
+              A hosted Pinch checkout funds the agreed commitment. Backend payment evidence and
+              delivery progress remain distinct and visible.
+            </p>
+            <span class="phase-output">Output: secured engagement</span>
           </li>
         </ol>
       </section>
 
-      <section id="participants" class="participants" aria-labelledby="participants-title">
-        <div class="participants-inner section-shell">
-          <div class="section-intro" data-reveal>
-            <p class="eyebrow"><span>02</span> Two sides, one workflow</p>
-            <h2 id="participants-title">Separate permissions. One shared commercial record.</h2>
-            <p>
-              The buyer controls sourcing and selection. Each supplier receives one scoped invitation and
-              can only approve its own profile and response.
-            </p>
-          </div>
-
-          <div class="participant-lanes">
-            <article class="participant-lane buyer-lane" data-reveal>
-              <header>
-                <span class="persona-label">Buyer workspace</span>
-                <span class="lane-state">Brief + decision</span>
-              </header>
-              <h3>Define the need once.</h3>
-              <p>
-                Stay in one workspace from Need Profile and research through supplier comparison,
-                milestone funding and delivery.
-              </p>
-              <div class="interface-fragment buyer-fragment" aria-label="Example supplier comparison">
-                <div class="fragment-header"><span>Supplier comparison</span><span>2 responses</span></div>
-                <div class="comparison-row is-selected">
-                  <span>A</span><strong>Today</strong><small>$2,400 indicative</small><i>Fastest</i>
-                </div>
-                <div class="comparison-row">
-                  <span>B</span><strong>Tomorrow</strong><small>$1,950 indicative</small><i>Lowest price</i>
-                </div>
-              </div>
-              <a class="text-link" href="./index.html">Start the buyer workflow <span aria-hidden="true">→</span></a>
-            </article>
-
-            <div class="lane-bridge" aria-hidden="true">
-              <span></span>
-              <small>One secure opportunity link</small>
-              <span></span>
-            </div>
-
-            <article class="participant-lane supplier-lane" data-reveal data-delay="1">
-              <header>
-                <span class="persona-label">Private supplier invitation</span>
-                <span class="lane-state">One need only</span>
-              </header>
-              <h3>Claim, correct and respond.</h3>
-              <p>
-                The invited supplier reviews why it matched, corrects its generated profile and submits
-                comparable availability, pricing and delivery assumptions.
-              </p>
-              <div class="interface-fragment supplier-fragment" aria-label="Example supplier response">
-                <div><span class="field-light"></span><span>Can help</span><strong>Yes</strong></div>
-                <div><span class="field-light"></span><span>Earliest availability</span><strong>Today</strong></div>
-                <div><span class="field-light"></span><span>Response</span><strong>Ready to submit</strong></div>
-              </div>
-              <span class="context-note">The private token does not expose other suppliers or buyer controls.</span>
-            </article>
-          </div>
+      <section class="role-band" aria-labelledby="role-title">
+        <div class="role-intro section-shell" data-reveal>
+          <p class="eyebrow"><span>02</span> Buyer and supplier</p>
+          <h2 id="role-title">Separate controls. One commercial record.</h2>
+          <p>
+            Buyers control the scope, outreach and selection. Each supplier sees one private
+            opportunity and submits one standard response.
+          </p>
+        </div>
+        <div class="role-lanes">
+          <article class="role-lane buyer-lane" data-reveal>
+            <span class="role-label">Buyer workspace</span>
+            <h3>Review evidence and choose the next move.</h3>
+            <ul>
+              <li>Approve one Need Profile</li>
+              <li>Compare supplier responses</li>
+              <li>Open the commitment milestone</li>
+            </ul>
+            <a class="text-link" href="./index.html">Enter buyer demo <span aria-hidden="true">→</span></a>
+          </article>
+          <article class="role-lane supplier-lane" data-reveal data-delay="1">
+            <span class="role-label">Private supplier opportunity</span>
+            <h3>Confirm fit and return commercial intent.</h3>
+            <ul>
+              <li>See why the requirement matched</li>
+              <li>Confirm availability and approach</li>
+              <li>Submit assumptions and conditions</li>
+            </ul>
+            <p class="role-boundary">No competing supplier data. No buyer controls.</p>
+          </article>
         </div>
       </section>
 
-      <section id="commitment" class="commitment section-shell" aria-labelledby="commitment-title">
+      <section class="commitment section-shell" aria-labelledby="commitment-title">
         <div class="commitment-copy" data-reveal>
-          <p class="eyebrow"><span>03</span> From selection to delivery</p>
-          <h2 id="commitment-title">Fund milestones through Pinch. Track the work in Veltact.</h2>
+          <p class="eyebrow"><span>03</span> Commitment without ambiguity</p>
+          <h2 id="commitment-title">Pinch secures the commitment. Veltact keeps the work visible.</h2>
           <p>
-            Selection creates a focused industrial project. Billable milestones can open Pinch-hosted
-            checkout while tasks, acceptance criteria, risks and evidence remain separate from payment.
+            The selected supplier moves into one engagement. A real hosted checkout can reserve a
+            diagnosis, emergency callout or site assessment while Veltact shows the current delivery
+            milestone.
           </p>
-          <div class="truth-note">
-            <span class="truth-marker" aria-hidden="true"></span>
-            <p>Funding requires backend-verified payment evidence. Payment never marks engineering work complete.</p>
-          </div>
+          <p class="truth-note">
+            Payment is confirmed only by backend evidence. It never marks engineering work complete.
+          </p>
         </div>
 
-        <div class="payment-module" data-reveal data-delay="1" aria-label="Pinch payment integration preview">
-          <div class="payment-topline">
-            <span>Engagement state</span>
-            <span class="status status-awaiting">Awaiting payment</span>
-          </div>
-          <div class="payment-amount">
-            <span>Site survey and feasibility</span>
-            <strong>$7,500<small> AUD</small></strong>
-          </div>
-          <div class="payment-sequence">
-            <div class="is-complete"><span>01</span><p>Supplier selected</p></div>
-            <div class="is-active"><span>02</span><p>Hosted checkout ready</p></div>
-            <div><span>03</span><p>Verify funding evidence</p></div>
-          </div>
-          <div class="pinch-line"><span>Powered by Pinch</span><i></i><span>Real sandbox integration</span></div>
-        </div>
+        <ol class="commitment-sequence" aria-label="Commitment sequence" data-reveal data-delay="1">
+          <li><span>01</span><strong>Supplier selected</strong><small>Comparable response approved</small></li>
+          <li class="is-active"><span>02</span><strong>Commitment opened</strong><small>Pinch-hosted checkout</small></li>
+          <li><span>03</span><strong>Delivery visible</strong><small>Milestones remain evidence-based</small></li>
+        </ol>
       </section>
 
       <section class="final-cta">
         <div class="final-material" aria-hidden="true"></div>
-        <div class="final-cta-inner section-shell" data-reveal>
+        <div class="final-inner section-shell" data-reveal>
           <p class="eyebrow"><span>Veltact</span> Find / Connect / Deploy</p>
-          <h2>Start with the factory need. Keep control through deployment.</h2>
-          <div class="final-actions">
-            <a class="button button-primary" href="./index.html">Start a requirement</a>
-          </div>
+          <h2>Start with the industrial need. Keep control through commitment.</h2>
+          <a class="button button-primary" href="./index.html">Try demo</a>
         </div>
       </section>
     </main>
 
     <footer class="site-footer">
-      <a class="wordmark" href="./landing.html"><span class="wordmark-notch" aria-hidden="true"></span>Veltact</a>
-      <p>Industrial procurement from requirement to deployment.</p>
+      <a class="wordmark" href="./landing.html" aria-label="Veltact home">
+        <span class="wordmark-notch" aria-hidden="true"></span>
+        <span>Veltact</span>
+      </a>
+      <p>Industrial procurement from evidence to deployment.</p>
       <span>Find / Connect / Deploy · <span id="year">2026</span></span>
     </footer>
 

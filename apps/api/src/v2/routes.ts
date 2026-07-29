@@ -4,7 +4,6 @@ import {
   marketplaceNeedProfileSchema,
   projectTaskStatusSchema,
   solutionDecisionTypeSchema,
-  supplierResponseDecisionSchema,
   veltactV2SocketEvent
 } from "@veltact/contracts";
 import { z, ZodError } from "zod";
@@ -46,15 +45,37 @@ const supplierProfileInputSchema = z.object({
   profileSummary: z.string().trim().min(1)
 });
 
-const supplierResponseInputSchema = z.object({
-  decision: supplierResponseDecisionSchema,
-  availability: z.string().trim().min(1),
-  indicativePriceAud: z.coerce.number().positive(),
-  proposedApproach: z.string().trim().min(1),
-  relevantExperience: z.string().trim().min(1),
+const supplierClaimInputSchema = z.object({
+  claimantName: z.string().trim().min(1, "Enter your name."),
+  claimantEmail: z.string().trim().email("Enter a valid email address.")
+});
+
+const canHelpResponseInputSchema = z.object({
+  decision: z.literal("can_help"),
+  availability: z.string().trim().min(1, "Enter your availability."),
+  indicativePriceAud: z.coerce
+    .number()
+    .positive("Enter an indicative price greater than AUD 0."),
+  proposedApproach: z.string().trim().min(1, "Enter your proposed approach."),
+  relevantExperience: z
+    .string()
+    .trim()
+    .min(1, "Enter your relevant experience."),
   assumptions: z.array(z.string().trim().min(1)).default([]),
   conditions: z.array(z.string().trim().min(1)).default([])
 });
+
+const cannotHelpResponseInputSchema = z.object({
+  decision: z.literal("cannot_help"),
+  declineReason: z.string().trim().min(1).optional(),
+  assumptions: z.array(z.string().trim().min(1)).default([]),
+  conditions: z.array(z.string().trim().min(1)).default([])
+});
+
+const supplierResponseInputSchema = z.discriminatedUnion("decision", [
+  canHelpResponseInputSchema,
+  cannotHelpResponseInputSchema
+]);
 
 const taskUpdateSchema = z.object({
   status: projectTaskStatusSchema
@@ -85,7 +106,7 @@ v2Router.get(
   "/needs/:needId",
   asyncRoute(async (request, response) => {
     response.json(
-      v2Service.getWorkspace(
+      await v2Service.getWorkspace(
         request.params.needId,
         buyerAccessToken(request)
       )
@@ -181,6 +202,23 @@ v2Router.get(
 );
 
 v2Router.post(
+  "/supplier-claims/:token/claim",
+  asyncRoute(async (request, response) => {
+    const claim = await v2Service.claimSupplierInvitation(
+      request.params.token,
+      supplierClaimInputSchema.parse(request.body)
+    );
+    const claimState = v2Service.getSupplierClaim(request.params.token);
+    emitV2Update(
+      claimState.need.id,
+      veltactV2SocketEvent.supplierLifecycleUpdated,
+      { claim, supplierLead: claimState.lead }
+    );
+    response.json({ claim });
+  })
+);
+
+v2Router.post(
   "/supplier-claims/:token/profile",
   asyncRoute(async (request, response) => {
     const supplierProfile = await v2Service.submitSupplierProfile(
@@ -237,18 +275,25 @@ v2Router.post(
     const parsed = supplierResponseInputSchema.parse(request.body);
     const supplierResponse = await v2Service.submitSupplierResponse(
       request.params.token,
-      {
-        decision: parsed.decision,
-        availability: parsed.availability,
-        indicativePrice: {
-          amount: Math.round(parsed.indicativePriceAud * 100),
-          currency: "AUD"
-        },
-        proposedApproach: parsed.proposedApproach,
-        relevantExperience: parsed.relevantExperience,
-        assumptions: parsed.assumptions,
-        conditions: parsed.conditions
-      }
+      parsed.decision === "can_help"
+        ? {
+            decision: parsed.decision,
+            availability: parsed.availability,
+            indicativePrice: {
+              amount: Math.round(parsed.indicativePriceAud * 100),
+              currency: "AUD"
+            },
+            proposedApproach: parsed.proposedApproach,
+            relevantExperience: parsed.relevantExperience,
+            assumptions: parsed.assumptions,
+            conditions: parsed.conditions
+          }
+        : {
+            decision: parsed.decision,
+            declineReason: parsed.declineReason,
+            assumptions: parsed.assumptions,
+            conditions: parsed.conditions
+          }
     );
     emitV2Update(
       supplierResponse.needProfileId,
@@ -407,7 +452,8 @@ function asyncRoute(
       if (error instanceof ZodError) {
         response.status(400).json({
           status: "error",
-          message: "Invalid Veltact V2 request",
+          message:
+            error.issues[0]?.message ?? "Invalid Veltact V2 request",
           issues: error.flatten().fieldErrors
         });
         return;

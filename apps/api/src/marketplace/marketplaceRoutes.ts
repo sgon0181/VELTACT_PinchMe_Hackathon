@@ -3,7 +3,9 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import {
   marketplaceNeedProfileSchema,
+  needReportRequestSchema,
   rapidMatchBuyerWorkspaceSchema,
+  sendSupplierInvitationsRequestSchema,
   solutionDecisionTypeSchema
 } from "@veltact/contracts";
 import {
@@ -18,6 +20,7 @@ import {
   getEngagementForNeed,
   getDeployment,
   getNeed,
+  getOrCreateNeedReport,
   getProviderWarningsForNeed,
   getResearchResultForNeed,
   getResponseForInvitation,
@@ -30,6 +33,7 @@ import {
   markInvitationViewed,
   prepareSupplierLeadInvitationsForNeed,
   recordAuthoritativePinchPayment,
+  recordLocalDemoPayment,
   researchNeed,
   resetMarketplaceStore,
   seedMarketplaceDemoFindState,
@@ -52,8 +56,16 @@ import {
   createLocalDemoPaymentEvidence
 } from "../payments/commitmentPaymentService.js";
 import { marketplaceCommitmentPaymentService } from "../payments/marketplaceCommitment.js";
+import { isLocalDemoHostedPaymentLink } from "../payments/localDemoPaymentProvider.js";
 import { getPaymentProvider } from "../payments/providerRegistry.js";
-import type { SupplierResponse } from "./types.js";
+import {
+  getSupplierDemoResponses,
+  type SupplierDemoResponse
+} from "./supplierDemoResponses.js";
+import type {
+  SupplierInvitation,
+  SupplierResponse
+} from "./types.js";
 
 export const marketplaceRouter = Router();
 
@@ -81,6 +93,8 @@ const supplierResponseSchema = z.object({
     )
 })
   .superRefine((value, context) => {
+    const canHelp =
+      value.canHelp ?? (value.decision === "can_help" ? true : undefined);
     if (value.canHelp === undefined && value.decision === undefined) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -97,6 +111,13 @@ const supplierResponseSchema = z.object({
         code: z.ZodIssueCode.custom,
         path: ["decision"],
         message: "decision must agree with canHelp"
+      });
+    }
+    if (canHelp && value.indicativePriceAud <= 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["indicativePriceAud"],
+        message: "indicativePriceAud must be greater than zero when the supplier can help"
       });
     }
   })
@@ -117,7 +138,9 @@ const supplierClaimSchema = z.object({
 
 const solutionDecisionSchema = z.object({
   decision: solutionDecisionTypeSchema,
-  selectedApproachIds: z.array(z.string().trim().min(1)).min(1),
+  selectedApproachIds: z
+    .array(z.string().trim().min(1))
+    .length(1, "Select exactly one solution pathway"),
   buyerNote: z.string().trim().min(1).optional()
 });
 
@@ -129,10 +152,6 @@ const demoResetSchema = z.object({
 
 const createEngagementSchema = z.object({
   supplierResponseId: z.string().trim().min(1)
-});
-
-const sendInvitationsSchema = z.object({
-  supplierLeadIds: z.array(z.string().trim().min(1)).min(1).optional()
 });
 
 marketplaceRouter.post("/needs", (request, response) => {
@@ -311,6 +330,13 @@ marketplaceRouter.post(
       });
       return;
     }
+    if (result.status === "single_solution_required") {
+      response.status(400).json({
+        status: "error",
+        message: "Select exactly one solution pathway"
+      });
+      return;
+    }
     if (result.status === "invalid_approaches") {
       response.status(400).json({
         status: "error",
@@ -340,6 +366,88 @@ marketplaceRouter.post(
   }
 );
 
+marketplaceRouter.get(
+  "/need-profiles/:needProfileId/report.pdf",
+  (request, response) => {
+    const need = getNeed(request.params.needProfileId);
+    if (!need) {
+      response.status(404).json({
+        status: "error",
+        message: "Need profile not found"
+      });
+      return;
+    }
+    if (!requireBuyerAccess(request, response, need.id)) return;
+
+    const parsedQuery = needReportRequestSchema.safeParse(request.query);
+    if (!parsedQuery.success) {
+      response.status(400).json({
+        status: "error",
+        message: "Invalid report pathway selection",
+        issues: parsedQuery.error.flatten().fieldErrors
+      });
+      return;
+    }
+
+    try {
+      const result = getOrCreateNeedReport(
+        need.id,
+        parsedQuery.data.selectedApproachId
+      );
+      if (result.status === "research_required") {
+        response.status(409).json({
+          status: "error",
+          message: "Research must be completed before downloading the report"
+        });
+        return;
+      }
+      if (result.status === "selection_required") {
+        response.status(400).json({
+          status: "error",
+          message:
+            "selectedApproachId is required before an execution decision exists"
+        });
+        return;
+      }
+      if (result.status === "invalid_selection") {
+        response.status(400).json({
+          status: "error",
+          message:
+            "The selected approach does not belong to the current research result"
+        });
+        return;
+      }
+      if (result.status === "not_found") {
+        response.status(404).json({
+          status: "error",
+          message: "Need profile not found"
+        });
+        return;
+      }
+
+      response
+        .status(200)
+        .set({
+          "Content-Type": result.report.contentType,
+          "Content-Disposition": `attachment; filename="${result.report.fileName}"`,
+          "Content-Length": result.report.byteLength.toString(),
+          "Cache-Control": "private, no-store",
+          "X-Veltact-Report-Id": result.report.id,
+          "X-Veltact-Report-Source": result.report.sourceMode
+        })
+        .send(result.pdf);
+    } catch (error) {
+      response.status(500).json({
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Need report could not be rendered"
+      });
+    }
+  }
+);
+
 marketplaceRouter.post(
   "/need-profiles/:needProfileId/suppliers/discover",
   async (request, response) => {
@@ -366,6 +474,14 @@ marketplaceRouter.post(
         response.status(409).json({
           status: "error",
           message: "Approve a solution decision before supplier discovery"
+        });
+        return;
+      }
+      if (result.status === "single_solution_required") {
+        response.status(409).json({
+          status: "error",
+          message:
+            "Select exactly one solution pathway before supplier discovery"
         });
         return;
       }
@@ -474,7 +590,9 @@ marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", async (
     });
     return;
   }
-  const parsed = sendInvitationsSchema.safeParse(request.body ?? {});
+  const parsed = sendSupplierInvitationsRequestSchema.safeParse(
+    request.body ?? {}
+  );
   if (!parsed.success) {
     response.status(400).json({
       status: "error",
@@ -519,7 +637,8 @@ marketplaceRouter.post("/need-profiles/:needProfileId/invitations/send", async (
     },
     prepared.supplierLeadIds.length > 0
       ? new Set(prepared.supplierLeadIds)
-      : undefined
+      : undefined,
+    parsed.data.deliveryChannels
   );
   if (!updatedDeliveries) {
     response.status(404).json({
@@ -576,7 +695,8 @@ marketplaceRouter.post("/need-profiles/:needProfileId/engagements", (request, re
   if (result.status === "not_selectable") {
     response.status(409).json({
       status: "error",
-      message: "Only a submitted response from a supplier who can help may be selected"
+      message:
+        "Only a submitted can-help response with a positive indicative price may be selected"
     });
     return;
   }
@@ -690,10 +810,13 @@ marketplaceRouter.post("/engagements/:engagementId/payment-link", async (request
 });
 
 marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, response) => {
-  if (env.NODE_ENV === "production") {
+  if (
+    env.NODE_ENV === "production" ||
+    env.PAYMENT_PROVIDER !== "local_demo"
+  ) {
     response.status(404).json({
       status: "error",
-      message: "Demo payment is unavailable in production"
+      message: "Demo payment is unavailable for this payment provider"
     });
     return;
   }
@@ -715,12 +838,29 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
     });
     return;
   }
+  if (
+    !engagement.pinchPayerId ||
+    !engagement.hostedCheckoutUrl ||
+    !isLocalDemoHostedPaymentLink({
+      payerId: engagement.pinchPayerId,
+      paymentLinkId: engagement.paymentLinkId,
+      hostedCheckoutUrl: engagement.hostedCheckoutUrl
+    })
+  ) {
+    response.status(409).json({
+      status: "error",
+      message: "Create a local demo payment link before recording demo evidence"
+    });
+    return;
+  }
 
-  const result = recordAuthoritativePinchPayment({
-    eventId: `demo-payment:${engagement.id}`,
-    eventType: "demo-sandbox-payment",
+  const eventId = `demo-payment:${engagement.id}`;
+  const paymentId = `demo_${engagement.paymentLinkId}`;
+  const result = recordLocalDemoPayment({
+    eventId,
+    eventType: "local-demo-payment",
     engagementId: engagement.id,
-    paymentId: `demo_${engagement.paymentLinkId}`,
+    paymentId,
     payload: {
       paymentLinkId: engagement.paymentLinkId,
       status: "approved",
@@ -743,7 +883,11 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
   }
   response.json({
     engagement: serialiseEngagement(result.engagement),
-    paymentEvidence: createLocalDemoPaymentEvidence(env.NODE_ENV)
+    paymentEvidence: {
+      ...createLocalDemoPaymentEvidence(env.NODE_ENV),
+      eventId,
+      paymentId
+    }
   });
 });
 
@@ -897,23 +1041,35 @@ marketplaceRouter.post("/demo/reset", (request, response) => {
   const seeded = seedMarketplaceDemoFindState(createdNeed.id);
   const prepared = prepareSupplierLeadInvitationsForNeed(createdNeed.id);
   approveSupplierOutreachForNeed(createdNeed.id);
+  const demoSubmissions =
+    prepared.status === "prepared"
+      ? submitSupplierDemoFixtures(
+          prepared.invitations,
+          getSupplierDemoResponses(scenario)
+        )
+      : undefined;
   const workspace = serialiseBuyerWorkspace(createdNeed);
   const supplierPaths =
-    prepared.status === "prepared"
-      ? prepared.invitations.slice(0, 2).map((invitation) => ({
-          invitationId: invitation.id,
-          supplierId: invitation.supplierId,
-          supplierName: invitation.supplierName,
-          token: invitation.token,
-          responseUrl: invitation.responseUrl,
-          sourceMode: "fixture" as const,
-          deliveryStatus: "not_sent" as const
-        }))
-      : [];
+    demoSubmissions?.map(({ fixture, invitation, supplierResponse }) => ({
+      invitationId: invitation.id,
+      supplierId: invitation.supplierId,
+      supplierName: invitation.supplierName,
+      token: invitation.token,
+      responseUrl: invitation.responseUrl,
+      sourceMode: "fixture" as const,
+      deliveryStatus: "not_sent" as const,
+      fixtureKey: fixture.key,
+      fixtureLabel: fixture.label,
+      fixtureCompanyName: fixture.company.companyName,
+      evidenceLabel: fixture.evidenceLabel,
+      tradeOff: fixture.tradeOff,
+      supplierResponseId: supplierResponse.id
+    })) ?? [];
 
   if (
     !seeded ||
     prepared.status !== "prepared" ||
+    !demoSubmissions ||
     !buyerAccessToken ||
     supplierPaths.length < 2
   ) {
@@ -939,6 +1095,51 @@ marketplaceRouter.post("/demo/reset", (request, response) => {
     supplierInvitationPaths: supplierPaths
   });
 });
+
+function submitSupplierDemoFixtures(
+  invitations: SupplierInvitation[],
+  fixtures: SupplierDemoResponse[]
+):
+  | Array<{
+      fixture: SupplierDemoResponse;
+      invitation: SupplierInvitation;
+      supplierResponse: SupplierResponse;
+    }>
+  | undefined {
+  if (invitations.length < fixtures.length) {
+    return undefined;
+  }
+
+  const submissions: Array<{
+    fixture: SupplierDemoResponse;
+    invitation: SupplierInvitation;
+    supplierResponse: SupplierResponse;
+  }> = [];
+  for (const [index, fixture] of fixtures.entries()) {
+    const invitation = invitations[index];
+    const claim = claimSupplierInvitation(invitation.token, {
+      claimantName: fixture.company.contactName,
+      claimantEmail: fixture.company.contactEmail
+    });
+    if (claim.status !== "claimed") {
+      return undefined;
+    }
+
+    const submission = submitSupplierResponse(
+      invitation.token,
+      fixture.response
+    );
+    if (submission.status !== "submitted") {
+      return undefined;
+    }
+    submissions.push({
+      fixture,
+      invitation,
+      supplierResponse: submission.supplierResponse
+    });
+  }
+  return submissions;
+}
 
 function requireBuyerAccess(request: Request, response: Response, needId: string) {
   if (isBuyerAuthorised(needId, request.header("x-veltact-buyer-token"))) {
@@ -981,6 +1182,7 @@ function serialiseNeed(need: NonNullable<ReturnType<typeof getNeed>>) {
     suppliers: need.matches.map((match) => ({
       id: match.supplier.id,
       companyName: match.supplier.companyName,
+      logoUrl: match.supplier.logoUrl,
       contactEmail: match.supplier.contactEmail,
       categories: match.supplier.categories,
       serviceRegions: match.supplier.serviceRegions,
@@ -1039,6 +1241,7 @@ function serialiseBuyerWorkspace(
     suppliers: need.matches.map((match) => ({
       id: match.supplier.id,
       companyName: match.supplier.companyName,
+      logoUrl: match.supplier.logoUrl,
       contactName: match.supplier.contactName,
       contactEmail: match.supplier.contactEmail,
       categories: match.supplier.categories,

@@ -32,12 +32,27 @@ describe("marketplace persistence", () => {
       needs: [],
       researchResults: [],
       solutionDecisions: [],
+      needReports: [],
       supplierLeads: [],
       invitations: [],
       supplierClaims: [],
       outreachDeliveries: [],
       responses: [],
       engagements: [],
+      commitmentNotifications: [
+        {
+          id: "commitment-notification-eng_123",
+          engagementId: "eng_123",
+          supplierId: "supplier_123",
+          notificationType: "commitment_confirmed",
+          channel: "email",
+          destination: "supplier@example.com",
+          deliveryStatus: "sent",
+          sentAt: "2026-07-26T00:00:00.000Z",
+          createdAt: "2026-07-26T00:00:00.000Z",
+          updatedAt: "2026-07-26T00:00:00.000Z"
+        }
+      ],
       deployments: [
         {
           engagementId: "eng_123",
@@ -70,6 +85,21 @@ describe("marketplace persistence", () => {
       ],
       processedPinchEventIds: ["evt_123"],
       pinchWebhookEvidence: [],
+      localDemoPaymentEvidence: [
+        {
+          provider: "local_demo",
+          source: "local_demo",
+          authoritative: false,
+          eventId: "demo-payment:eng_123",
+          eventType: "local-demo-payment",
+          engagementId: "eng_123",
+          paymentId: "demo_local_demo_link_eng_123",
+          receivedAt: "2026-07-26T00:00:00.000Z",
+          payload: {
+            source: "local_demo"
+          }
+        }
+      ],
       auditEvents: [
         {
           id: "audit_123",
@@ -115,8 +145,11 @@ describe("marketplace persistence", () => {
     assert.equal(loaded?.version, 2);
     assert.deepEqual(loaded?.researchResults, []);
     assert.deepEqual(loaded?.solutionDecisions, []);
+    assert.deepEqual(loaded?.needReports, []);
     assert.deepEqual(loaded?.supplierLeads, []);
     assert.deepEqual(loaded?.supplierClaims, []);
+    assert.deepEqual(loaded?.commitmentNotifications, []);
     assert.deepEqual(loaded?.deployments, []);
+    assert.deepEqual(loaded?.localDemoPaymentEvidence, []);
   });
 });

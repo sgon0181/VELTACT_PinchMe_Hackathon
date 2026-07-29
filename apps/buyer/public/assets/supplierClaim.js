@@ -1,9 +1,7 @@
-const runtimeWindow = window;
-const apiRoot = runtimeWindow.API_BASE_URL ??
-    (["localhost", "127.0.0.1"].includes(window.location.hostname) &&
-        window.location.port !== "4000"
-        ? "http://localhost:4000/api"
-        : `${window.location.origin}/api`);
+import { apiBaseUrl, demoControlsEnabled } from "./apiBase.js";
+import { companyLogoFor } from "./companyLogos.js";
+import { demoCommercialDraftForAction, demoCommercialFillAction, emptySupplierCommercialDraft } from "./supplierClaimCommercialDraft.js";
+const apiRoot = apiBaseUrl();
 const v2Api = `${apiRoot.replace(/\/$/, "")}/v2`;
 const app = document.querySelector("#claim-app");
 const token = new URLSearchParams(window.location.search).get("token") ?? "";
@@ -11,10 +9,18 @@ let claimState;
 let busyAction = "";
 let errorText = "";
 let successText = "";
+let formDirty = false;
+let demoControlsAvailable = false;
 void loadClaim();
+void demoControlsEnabled(apiRoot).then((enabled) => {
+    demoControlsAvailable = enabled;
+    if (!formDirty)
+        render();
+});
 window.setInterval(() => {
     if (claimState &&
         !busyAction &&
+        !formDirty &&
         !claimState.supplierResponse &&
         !document.activeElement?.closest("form") &&
         document.visibilityState === "visible") {
@@ -60,7 +66,11 @@ function render() {
     <div class="claim-stack">
       ${renderOpportunity()}
       ${renderLifecycle()}
-      ${!supplierProfile ? renderProfileForm() : renderApprovedProfile(supplierProfile)}
+      ${supplierProfile
+        ? renderApprovedProfile(supplierProfile)
+        : !supplierResponse
+            ? renderProfileForm()
+            : ""}
       ${supplierProfile &&
         [
             "supplier_profile_approved",
@@ -74,6 +84,7 @@ function render() {
     </div>
     <p class="footer-note">Secure capability link / No general Veltact account created / Independent verification not implied</p>
   `;
+    syncConditionalForms();
 }
 function renderShell(content) {
     return `
@@ -96,7 +107,7 @@ function renderOpportunity() {
       <div class="panel-header">
         <div>
           <span class="micro-label">Why Veltact contacted you</span>
-          <h2>${escapeHtml(lead.companyName)}</h2>
+          <h2>${renderCompanyIdentity(lead.companyName)}</h2>
           <p>A buyer reviewed this discovery evidence and approved one direct invitation. No supplier profile is activated unless you claim and approve it.</p>
         </div>
         <span class="mode-badge ${lead.sourceMode}">${lead.sourceMode}</span>
@@ -129,12 +140,8 @@ function renderLifecycle() {
         },
         {
             title: "Supplier approves profile",
-            detail: "You correct the generated business profile and explicitly claim it.",
-            complete: [
-                "supplier_profile_approved",
-                "buyer_approved",
-                "active_supplier"
-            ].includes(status)
+            detail: "Can-help suppliers correct and approve the generated business profile.",
+            complete: Boolean(claimState.supplierProfile)
         },
         {
             title: "Commercial response",
@@ -166,30 +173,42 @@ function renderProfileForm() {
     return `
     <form id="profile-form" class="panel claim-form">
       <div class="panel-header">
-        <div><span class="micro-label">Supplier-controlled profile</span><h2>Review, correct and claim</h2><p>Every field below becomes supplier-approved evidence, not a Veltact verification claim.</p></div>
+        <div><span class="micro-label">Supplier-controlled response</span><h2>Review and respond</h2><p>Confirm who is responding, then choose whether this opportunity is a fit.</p></div>
       </div>
       <div class="field-grid">
-        ${inputField("Company name", "companyName", lead.companyName, true)}
-        ${inputField("Website", "website", lead.website, true, "url")}
+        <label class="field">Decision
+          <select name="decision" data-response-decision><option value="can_help">Can help</option><option value="cannot_help">Cannot help</option></select>
+        </label>
         ${inputField("Your name", "contactName", lead.contactName ?? "", true)}
         ${inputField("Your email", "contactEmail", lead.contactEmail ?? "", true, "email")}
         ${inputField("Phone", "contactPhone", lead.contactPhone ?? "", false, "tel")}
-        ${inputField("Location", "location", lead.location, true)}
-        ${inputField("Service regions", "serviceRegions", lead.serviceRegions.join(", "), true)}
-        ${inputField("Industries", "industries", "Manufacturing, Industrial", true)}
-        ${inputField("Categories", "categories", "Industrial services", true)}
-        ${inputField("Capabilities", "capabilities", lead.capabilities.join(", "), true)}
-        ${inputField("Certifications", "certifications", "", false, "text", "Supplier-declared only")}
-        <label class="field is-wide">Profile summary<textarea name="profileSummary" rows="4" required>${escapeHtml(`${lead.companyName} provides ${lead.capabilities.join(", ")} for industrial sites across ${lead.serviceRegions.join(", ")}.`)}</textarea></label>
+      </div>
+      <div data-can-help-fields>
+        <div class="provenance-note">Review and correct the generated profile before submitting commercial terms. These fields become supplier-approved evidence, not a Veltact verification claim.</div>
+        <div class="field-grid" style="margin-top: 16px">
+          ${inputField("Company name", "companyName", lead.companyName, true)}
+          ${inputField("Website", "website", lead.website, true, "url")}
+          ${inputField("Location", "location", lead.location, true)}
+          ${inputField("Service regions", "serviceRegions", lead.serviceRegions.join(", "), true)}
+          ${inputField("Industries", "industries", "Manufacturing, Industrial", true)}
+          ${inputField("Categories", "categories", "Industrial services", true)}
+          ${inputField("Capabilities", "capabilities", lead.capabilities.join(", "), true)}
+          ${inputField("Certifications", "certifications", "", false, "text", "Supplier-declared only")}
+          <label class="field is-wide">Profile summary<textarea name="profileSummary" rows="4" required>${escapeHtml(`${lead.companyName} provides ${lead.capabilities.join(", ")} for industrial sites across ${lead.serviceRegions.join(", ")}.`)}</textarea></label>
+        </div>
+      </div>
+      <div data-decline-fields hidden>
+        <label class="field is-wide">Reason (optional)<textarea name="declineReason" rows="3" placeholder="For example: unavailable in the required window or outside our service scope"></textarea></label>
       </div>
       <label class="selection-box">
-        <input name="confirmProfile" type="checkbox" required />
-        <span>I am authorised to review this business profile and confirm the submitted information is accurate to the best of my knowledge.</span>
+        <input name="confirmAuthority" type="checkbox" required />
+        <span>I am authorised to respond for this business and confirm the information I submit is accurate to the best of my knowledge.</span>
       </label>
       <div class="claim-actions">
-        <button class="button ${busyAction === "profile" ? "is-loading" : ""}" type="submit" ${busyAction ? "disabled" : ""}>Approve profile and claim opportunity</button>
+        <button class="button ${busyAction === "profile" ? "is-loading" : ""}" type="submit" data-submit-label ${busyAction ? "disabled" : ""}>Approve profile and continue</button>
         <span class="micro-label">No subscription or marketplace fee</span>
       </div>
+      <div class="banner" data-form-status role="status" hidden></div>
     </form>
   `;
 }
@@ -197,65 +216,78 @@ function renderApprovedProfile(profile) {
     if (!claimState)
         return "";
     const active = claimState.lead.lifecycleStatus === "active_supplier";
+    const declined = claimState.lead.lifecycleStatus === "declined";
     return `
     <section class="panel">
       <div class="panel-header">
-        <div><span class="micro-label">Supplier-approved profile</span><h2>${escapeHtml(profile.companyName)}</h2><p>${escapeHtml(profile.profileSummary)}</p></div>
+        <div><span class="micro-label">Supplier-approved profile</span><h2>${renderCompanyIdentity(profile.companyName)}</h2><p>${escapeHtml(profile.profileSummary)}</p></div>
         <span class="status-badge ${claimState.lead.lifecycleStatus}">${formatStatus(claimState.lead.lifecycleStatus)}</span>
       </div>
       <div class="chip-row">${profile.capabilities.map((item) => `<span class="chip">${escapeHtml(item)}</span>`).join("")}</div>
       ${active
         ? `<div class="banner success" style="margin-top: 16px">The buyer selected and activated this supplier for the requirement.</div>`
-        : `<div class="banner success" style="margin-top: 16px">Profile confirmed. Submit the commercial response below; buyer selection activates the supplier.</div>`}
+        : declined
+            ? `<div class="banner" style="margin-top: 16px">Profile confirmed. This invitation was subsequently declined.</div>`
+            : `<div class="banner success" style="margin-top: 16px">Profile confirmed. Submit the commercial response below; buyer selection activates the supplier.</div>`}
       <button class="button secondary small" data-action="refresh" type="button" style="margin-top: 12px">Refresh status</button>
     </section>
   `;
 }
 function renderResponseForm() {
-    const robotics = /robot|cobot|palletis/i.test([
-        claimState?.need.profile.title,
-        claimState?.need.profile.description,
-        claimState?.need.profile.category
-    ].join(" "));
-    const availability = robotics
-        ? "Discovery workshop within five business days"
-        : "Site review within four hours";
-    const indicativePrice = robotics ? "78000" : "6500";
-    const experience = robotics
-        ? "Comparable robotic cell feasibility, tooling, safety and commissioning delivery."
-        : "Comparable industrial controls and packaging-line recovery.";
-    const approach = robotics
-        ? "Validate the process and safety concept, prove the highest-risk handling assumptions, then deliver design, build, factory acceptance, commissioning and handover as separately accepted milestones."
-        : "Review the supplied evidence, verify scope and safety controls, then execute the buyer-approved recovery plan with milestone acceptance evidence.";
-    const assumptions = robotics
-        ? "Representative products available, site services and access window to be confirmed"
-        : "Site representative available, access window confirmed";
-    const conditions = robotics
-        ? "Final equipment selection subject to feasibility and machinery risk assessment"
-        : "Work subject to site isolation and permit procedures";
+    const draft = emptySupplierCommercialDraft();
     return `
     <form id="response-form" class="panel claim-form">
       <div class="panel-header">
-        <div><span class="micro-label">Standardised response</span><h2>Return comparable commercial intent</h2><p>This private invitation submits availability, price and delivery assumptions directly into the buyer comparison.</p></div>
+        <div><span class="micro-label">Standardised response</span><h2>Return your decision</h2><p>Commercial detail is required only when you can help.</p></div>
       </div>
+      ${demoControlsAvailable
+        ? `<div class="banner warning" data-demo-commercial-fill>
+              <strong>Demo-only commercial fixture</strong>
+              <p>These synthetic values are not supplier evidence. Use them only to exercise the local demo, then review every field before submission.</p>
+              <button class="button tertiary small" data-action="${demoCommercialFillAction}" type="button">Demo only: fill sample commercial response</button>
+            </div>`
+        : ""}
       <div class="field-grid">
         <label class="field">Decision
-          <select name="decision"><option value="can_help">Can help</option><option value="cannot_help">Cannot help</option></select>
+          <select name="decision" data-response-decision><option value="can_help">Can help</option><option value="cannot_help">Cannot help</option></select>
         </label>
-        ${inputField("Availability", "availability", availability, true)}
-        ${inputField("Indicative price (AUD)", "indicativePriceAud", indicativePrice, true, "number")}
-        ${inputField("Relevant experience", "relevantExperience", experience, true)}
-        <label class="field is-wide">Proposed approach<textarea name="proposedApproach" rows="4" required>${escapeHtml(approach)}</textarea></label>
-        ${inputField("Assumptions", "assumptions", assumptions, false)}
-        ${inputField("Conditions", "conditions", conditions, false)}
+      </div>
+      <div data-can-help-fields>
+        <div class="field-grid">
+          ${inputField("Availability", "availability", draft.availability, true, "text", "State confirmed availability")}
+          <label class="field">Indicative price (AUD)<input name="indicativePriceAud" type="number" min="1" step="1" value="${escapeHtml(draft.indicativePriceAud)}" placeholder="Enter an indicative amount" required /></label>
+          ${inputField("Relevant experience", "relevantExperience", draft.relevantExperience, true, "text", "Describe comparable supplier experience")}
+          <label class="field is-wide">Proposed approach<textarea name="proposedApproach" rows="4" placeholder="Describe your proposed delivery approach" required>${escapeHtml(draft.proposedApproach)}</textarea></label>
+          ${inputField("Assumptions", "assumptions", draft.assumptions, false, "text", "Comma separated")}
+          ${inputField("Conditions", "conditions", draft.conditions, false, "text", "Comma separated")}
+        </div>
+      </div>
+      <div data-decline-fields hidden>
+        <label class="field is-wide">Reason (optional)<textarea name="declineReason" rows="3" placeholder="For example: unavailable in the required window or outside our service scope"></textarea></label>
       </div>
       <div class="claim-actions">
-        <button class="button ${busyAction === "response" ? "is-loading" : ""}" type="submit" ${busyAction ? "disabled" : ""}>Submit response to buyer</button>
+        <button class="button ${busyAction === "response" ? "is-loading" : ""}" type="submit" data-submit-label ${busyAction ? "disabled" : ""}>Submit response to buyer</button>
       </div>
+      <div class="banner" data-form-status role="status" hidden></div>
     </form>
   `;
 }
 function renderReceipt(response) {
+    if (response.decision === "cannot_help") {
+        return `
+      <section class="panel">
+        <div class="panel-header">
+          <div><span class="micro-label">Response received</span><h2>Buyer notified</h2><p>Thanks for closing the loop. No supplier profile or commercial detail was required.</p></div>
+          <span class="status-badge failed">${formatStatus(response.decision)}</span>
+        </div>
+        <dl class="data-grid">
+          <div><dt>Reason</dt><dd>${escapeHtml(response.declineReason ?? "No reason provided")}</dd></div>
+          <div><dt>Submitted</dt><dd>${formatDateTime(response.submittedAt)}</dd></div>
+          <div><dt>Engagement</dt><dd>Invitation declined</dd></div>
+        </dl>
+      </section>
+    `;
+    }
     return `
     <section class="panel">
       <div class="panel-header">
@@ -281,11 +313,32 @@ if (app) {
             void submitResponse(form);
     });
     app.addEventListener("click", (event) => {
-        const action = event.target
-            .closest("[data-action]")
-            ?.dataset.action;
+        const actionTarget = event.target.closest("[data-action]");
+        const action = actionTarget?.dataset.action;
         if (action === "refresh")
             void loadClaim();
+        if (action === demoCommercialFillAction) {
+            const form = actionTarget?.closest("#response-form");
+            const draft = demoCommercialDraftForAction(action, demoControlsAvailable, responseIsRobotics());
+            if (!form || !draft)
+                return;
+            applyCommercialDraft(form, draft);
+            formDirty = true;
+            setFormStatus(form, "Demo-only synthetic commercial values filled locally. Review and replace them before submitting supplier evidence.", "warning");
+        }
+    });
+    app.addEventListener("change", (event) => {
+        const decision = event.target.closest("[data-response-decision]");
+        const form = decision?.closest("form");
+        if (form) {
+            formDirty = true;
+            updateConditionalFields(form);
+        }
+    });
+    app.addEventListener("input", (event) => {
+        if (event.target.closest("form")) {
+            formDirty = true;
+        }
     });
 }
 async function loadClaim(showLoading = true) {
@@ -307,7 +360,28 @@ async function loadClaim(showLoading = true) {
 }
 async function submitProfile(form) {
     const values = new FormData(form);
-    await runAction("profile", async () => {
+    await runFormAction(form, "profile", async () => {
+        const decision = requiredValue(values, "decision");
+        if (decision === "cannot_help") {
+            await api(`/supplier-claims/${encodeURIComponent(token)}/claim`, {
+                method: "POST",
+                body: JSON.stringify({
+                    claimantName: requiredValue(values, "contactName"),
+                    claimantEmail: requiredValue(values, "contactEmail")
+                })
+            });
+            await api(`/supplier-claims/${encodeURIComponent(token)}/response`, {
+                method: "POST",
+                body: JSON.stringify({
+                    decision,
+                    declineReason: optionalValue(values, "declineReason")
+                })
+            });
+            successText = "Your decline response was submitted to the buyer.";
+            formDirty = false;
+            await loadClaim(false);
+            return;
+        }
         await api(`/supplier-claims/${encodeURIComponent(token)}/profile`, {
             method: "POST",
             body: JSON.stringify({
@@ -325,46 +399,102 @@ async function submitProfile(form) {
                 profileSummary: requiredValue(values, "profileSummary")
             })
         });
-        await loadClaim(false);
         successText =
             "Profile confirmed. Submit the commercial response below.";
+        formDirty = false;
+        await loadClaim(false);
     });
 }
 async function submitResponse(form) {
     const values = new FormData(form);
-    await runAction("response", async () => {
+    await runFormAction(form, "response", async () => {
+        const decision = requiredValue(values, "decision");
+        const payload = decision === "cannot_help"
+            ? {
+                decision,
+                declineReason: optionalValue(values, "declineReason")
+            }
+            : canHelpResponsePayload(values);
         await api(`/supplier-claims/${encodeURIComponent(token)}/response`, {
             method: "POST",
-            body: JSON.stringify({
-                decision: requiredValue(values, "decision"),
-                availability: requiredValue(values, "availability"),
-                indicativePriceAud: Number(requiredValue(values, "indicativePriceAud")),
-                proposedApproach: requiredValue(values, "proposedApproach"),
-                relevantExperience: requiredValue(values, "relevantExperience"),
-                assumptions: listValue(values, "assumptions"),
-                conditions: listValue(values, "conditions")
-            })
+            body: JSON.stringify(payload)
         });
+        successText =
+            decision === "can_help"
+                ? "Commercial response submitted to the buyer."
+                : "Your decline response was submitted to the buyer.";
+        formDirty = false;
         await loadClaim(false);
-        successText = "Commercial response submitted to the buyer.";
     });
 }
-async function runAction(action, operation) {
+function canHelpResponsePayload(values) {
+    const indicativePriceAud = Number(requiredValue(values, "indicativePriceAud"));
+    if (!Number.isFinite(indicativePriceAud) || indicativePriceAud <= 0) {
+        throw new Error("Enter an indicative price greater than AUD 0.");
+    }
+    return {
+        decision: "can_help",
+        availability: requiredValue(values, "availability"),
+        indicativePriceAud,
+        proposedApproach: requiredValue(values, "proposedApproach"),
+        relevantExperience: requiredValue(values, "relevantExperience"),
+        assumptions: listValue(values, "assumptions"),
+        conditions: listValue(values, "conditions")
+    };
+}
+function responseIsRobotics() {
+    return /robot|cobot|palletis/i.test([
+        claimState?.need.profile.title,
+        claimState?.need.profile.description,
+        claimState?.need.profile.category
+    ].join(" "));
+}
+function applyCommercialDraft(form, draft) {
+    const values = {
+        availability: draft.availability,
+        indicativePriceAud: draft.indicativePriceAud,
+        relevantExperience: draft.relevantExperience,
+        proposedApproach: draft.proposedApproach,
+        assumptions: draft.assumptions,
+        conditions: draft.conditions
+    };
+    for (const [name, value] of Object.entries(values)) {
+        const field = form.elements.namedItem(name);
+        if (field instanceof HTMLInputElement ||
+            field instanceof HTMLTextAreaElement) {
+            field.value = value;
+        }
+    }
+}
+async function runFormAction(form, action, operation) {
     if (busyAction)
         return;
     busyAction = action;
     errorText = "";
     successText = "";
-    render();
+    setFormStatus(form);
+    const submitButtons = Array.from(form.querySelectorAll('button[type="submit"]'));
+    for (const button of submitButtons) {
+        button.disabled = true;
+        button.classList.add("is-loading");
+    }
     try {
         await operation();
     }
     catch (error) {
-        errorText = errorMessage(error);
+        setFormStatus(form, errorMessage(error), "error");
     }
     finally {
         busyAction = "";
-        render();
+        if (form.isConnected) {
+            for (const button of submitButtons) {
+                button.disabled = false;
+                button.classList.remove("is-loading");
+            }
+        }
+        else {
+            render();
+        }
     }
 }
 async function api(path, init = {}) {
@@ -377,9 +507,53 @@ async function api(path, init = {}) {
     });
     const payload = (await response.json().catch(() => ({})));
     if (!response.ok) {
-        throw new Error(payload.message ?? `Request failed (${response.status})`);
+        const issue = Object.values(payload.issues ?? {})
+            .flatMap((messages) => messages ?? [])
+            .find(Boolean);
+        const message = payload.message && payload.message !== "Invalid Veltact V2 request"
+            ? payload.message
+            : issue;
+        throw new Error(message ?? `Request failed (${response.status})`);
     }
     return payload;
+}
+function syncConditionalForms() {
+    app
+        ?.querySelectorAll("#profile-form, #response-form")
+        .forEach(updateConditionalFields);
+}
+function updateConditionalFields(form) {
+    const canHelp = form.querySelector("[data-response-decision]")?.value !==
+        "cannot_help";
+    toggleFieldGroup(form, "[data-can-help-fields]", canHelp);
+    toggleFieldGroup(form, "[data-decline-fields]", !canHelp);
+    const submit = form.querySelector("[data-submit-label]");
+    if (submit) {
+        submit.textContent =
+            form.id === "profile-form"
+                ? canHelp
+                    ? "Approve profile and continue"
+                    : "Submit decline to buyer"
+                : canHelp
+                    ? "Submit response to buyer"
+                    : "Submit decline to buyer";
+    }
+}
+function toggleFieldGroup(form, selector, enabled) {
+    for (const group of Array.from(form.querySelectorAll(selector))) {
+        group.hidden = !enabled;
+        for (const field of Array.from(group.querySelectorAll("input, select, textarea"))) {
+            field.disabled = !enabled;
+        }
+    }
+}
+function setFormStatus(form, message = "", kind = "success") {
+    const status = form.querySelector("[data-form-status]");
+    if (!status)
+        return;
+    status.hidden = !message;
+    status.className = `banner ${kind}`;
+    status.textContent = message;
 }
 function inputField(label, name, value, required, type = "text", placeholder = "") {
     return `<label class="field">${escapeHtml(label)}<input name="${escapeHtml(name)}" type="${escapeHtml(type)}" value="${escapeHtml(value)}" ${required ? "required" : ""} placeholder="${escapeHtml(placeholder)}" /></label>`;
@@ -423,7 +597,19 @@ function escapeHtml(value) {
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
 }
+function renderCompanyIdentity(companyName) {
+    const logo = companyLogoFor(companyName);
+    if (!logo)
+        return escapeHtml(companyName);
+    return `
+    <span class="company-identity">
+      <span class="company-logo-shell" aria-hidden="true">
+        <img class="company-logo" src="${logo}" alt="" />
+      </span>
+      <span class="company-name-text">${escapeHtml(companyName)}</span>
+    </span>
+  `;
+}
 function errorMessage(error) {
     return error instanceof Error ? error.message : "Unexpected Veltact error";
 }
-export {};

@@ -24,11 +24,23 @@ import {
   createMarketplaceFixtureSupplierLeads,
   inferMarketplaceDemoScenario
 } from "./findFixtures.js";
-import type { DeploymentSummary } from "@veltact/contracts";
+import { rankDiscoveredSupplierLeads } from "./candidateDiscovery.js";
+import {
+  createNeedReportRecord,
+  readNeedReportPdf
+} from "./needReport.js";
+import {
+  supplierCommitmentNotificationSchema,
+  type DeploymentSummary,
+  type SupplierCommitmentNotification,
+  type OutreachChannel
+} from "@veltact/contracts";
 import { syncCommitmentPayment } from "../deployment/templates.js";
 import type {
   Engagement,
+  LocalDemoPaymentEvidence,
   MarketplaceAuditEvent,
+  NeedReportRecord,
   NeedProfile,
   NeedRecord,
   PinchWebhookEvidence,
@@ -57,6 +69,12 @@ const solutionDecisions = new Map<string, SolutionDecision>(
     decision
   ]) ?? []
 );
+const needReports = new Map<string, NeedReportRecord>(
+  initialSnapshot?.needReports.map((report) => [
+    report.needProfileId,
+    report
+  ]) ?? []
+);
 const supplierLeads = new Map<string, SupplierLead>(
   initialSnapshot?.supplierLeads.map((lead) => [lead.id, lead]) ?? []
 );
@@ -81,6 +99,15 @@ const responses = new Map<string, SupplierResponse>(
 const engagements = new Map<string, Engagement>(
   initialSnapshot?.engagements.map((engagement) => [engagement.id, engagement]) ?? []
 );
+const commitmentNotifications = new Map<
+  string,
+  SupplierCommitmentNotification
+>(
+  initialSnapshot?.commitmentNotifications.map((notification) => [
+    notification.engagementId,
+    notification
+  ]) ?? []
+);
 const deployments = new Map<string, DeploymentSummary>(
   initialSnapshot?.deployments.map((deployment) => [
     deployment.engagementId,
@@ -92,6 +119,12 @@ const processedPinchEventIds = new Set<string>(
 );
 const pinchWebhookEvidence = new Map<string, PinchWebhookEvidence>(
   initialSnapshot?.pinchWebhookEvidence.map((evidence) => [
+    evidence.eventId,
+    evidence
+  ]) ?? []
+);
+const localDemoPaymentEvidence = new Map<string, LocalDemoPaymentEvidence>(
+  initialSnapshot?.localDemoPaymentEvidence.map((evidence) => [
     evidence.eventId,
     evidence
   ]) ?? []
@@ -112,8 +145,20 @@ export type SolutionDecisionCreationResult =
   | { status: "created"; solutionDecision: SolutionDecision }
   | { status: "not_found" }
   | { status: "research_required" }
+  | { status: "single_solution_required" }
   | { status: "invalid_approaches" }
   | { status: "discovery_started" };
+
+export type NeedReportResult =
+  | {
+      status: "ready";
+      report: NeedReportRecord;
+      pdf: Buffer;
+    }
+  | { status: "not_found" }
+  | { status: "research_required" }
+  | { status: "selection_required" }
+  | { status: "invalid_selection" };
 
 export type SupplierDiscoveryResult =
   | {
@@ -124,6 +169,7 @@ export type SupplierDiscoveryResult =
   | { status: "not_found" }
   | { status: "research_required" }
   | { status: "decision_required" }
+  | { status: "single_solution_required" }
   | { status: "external_path_required" };
 
 export type SupplierClaimResult =
@@ -263,6 +309,14 @@ export function listMarketplaceAuditEvents() {
   return [...auditEvents];
 }
 
+export function listPinchWebhookEvidence() {
+  return [...pinchWebhookEvidence.values()];
+}
+
+export function listLocalDemoPaymentEvidence() {
+  return [...localDemoPaymentEvidence.values()];
+}
+
 export function getNeed(id: string): NeedRecord | undefined {
   return needs.get(id);
 }
@@ -277,6 +331,148 @@ export function getSolutionDecisionForNeed(
   needId: string
 ): SolutionDecision | undefined {
   return solutionDecisions.get(needId);
+}
+
+export function getNeedReportForNeed(
+  needId: string
+): NeedReportRecord | undefined {
+  return needReports.get(needId);
+}
+
+export function getOrCreateNeedReport(
+  needId: string,
+  selectedApproachId?: string,
+  currentTime = new Date()
+): NeedReportResult {
+  const need = needs.get(needId);
+  if (!need) {
+    return { status: "not_found" };
+  }
+  const researchResult = researchResults.get(needId);
+  if (!researchResult) {
+    return { status: "research_required" };
+  }
+  const solutionDecision = solutionDecisions.get(needId);
+  const hasExplicitSelection = selectedApproachId !== undefined;
+  const requestedApproachId = selectedApproachId?.trim();
+  if (hasExplicitSelection && !requestedApproachId) {
+    return { status: "invalid_selection" };
+  }
+  const decisionApproachId =
+    solutionDecision?.selectedApproachIds.length === 1
+      ? solutionDecision.selectedApproachIds[0]
+      : undefined;
+  const resolvedApproachId = requestedApproachId ?? decisionApproachId;
+  if (!resolvedApproachId) {
+    return { status: "selection_required" };
+  }
+  if (
+    !researchResult.approaches.some(
+      (approach) => approach.id === resolvedApproachId
+    )
+  ) {
+    return { status: "invalid_selection" };
+  }
+  const matchingDecision =
+    solutionDecision?.researchResultId === researchResult.id &&
+    decisionApproachId === resolvedApproachId
+      ? solutionDecision
+      : undefined;
+  const selectionProvenance: NeedReportRecord["selectionProvenance"] =
+    hasExplicitSelection
+      ? {
+          source: "report_request",
+          selectedBy: need.buyerEmail,
+          selectedAt: currentTime.toISOString()
+        }
+      : {
+          source: "solution_decision",
+          selectedBy: matchingDecision?.approvedBy ?? need.buyerEmail,
+          selectedAt:
+            matchingDecision?.approvedAt ?? currentTime.toISOString()
+        };
+
+  const existing = needReports.get(needId);
+  let report =
+    existing &&
+    existing.researchResultId === researchResult.id &&
+    existing.selectedApproachId === resolvedApproachId
+      ? withNeedReportSelectionProvenance(
+          existing,
+          need.buyerEmail,
+          matchingDecision
+        )
+      : createNeedReportRecord({
+          needProfileId: needId,
+          profile: need.profile,
+          researchResult,
+          selectedApproachId: resolvedApproachId,
+          selectionProvenance,
+          solutionDecision: matchingDecision
+        });
+  let pdf: Buffer;
+  try {
+    pdf = readNeedReportPdf(report);
+  } catch {
+    report = createNeedReportRecord({
+      needProfileId: needId,
+      profile: need.profile,
+      researchResult,
+      selectedApproachId: resolvedApproachId,
+      selectionProvenance: report.selectionProvenance,
+      solutionDecision:
+        report.solutionDecisionId === matchingDecision?.id
+          ? matchingDecision
+          : undefined
+    });
+    pdf = readNeedReportPdf(report);
+  }
+
+  if (report !== existing) {
+    needReports.set(needId, report);
+    commitMarketplaceMutation({
+      eventType: "need_report.generated",
+      actorType: "buyer",
+      actorId: need.buyerEmail,
+      entityType: "need",
+      entityId: needId,
+      metadata: {
+        reportId: report.id,
+        selectedApproachId: report.selectedApproachId,
+        selectionSource: report.selectionProvenance.source,
+        ...(report.solutionDecisionId
+          ? { solutionDecisionId: report.solutionDecisionId }
+          : {}),
+        sourceMode: report.sourceMode
+      }
+    });
+  }
+
+  return {
+    status: "ready",
+    report,
+    pdf
+  };
+}
+
+function withNeedReportSelectionProvenance(
+  report: NeedReportRecord,
+  buyerEmail: string,
+  solutionDecision: SolutionDecision | undefined
+): NeedReportRecord {
+  if (report.selectionProvenance) {
+    return report;
+  }
+  return {
+    ...report,
+    selectionProvenance: {
+      source: report.solutionDecisionId
+        ? "solution_decision"
+        : "report_request",
+      selectedBy: solutionDecision?.approvedBy ?? buyerEmail,
+      selectedAt: report.generatedAt
+    }
+  };
 }
 
 export function listSupplierLeadsForNeed(needId: string): SupplierLead[] {
@@ -364,12 +560,16 @@ export function createSolutionDecision(
   }
 
   const selectedIds = new Set(input.selectedApproachIds);
+  if (
+    input.selectedApproachIds.length !== 1 ||
+    selectedIds.size !== 1
+  ) {
+    return { status: "single_solution_required" };
+  }
   const validApproachIds = new Set(
     researchResult.approaches.map((approach) => approach.id)
   );
   if (
-    selectedIds.size === 0 ||
-    selectedIds.size !== input.selectedApproachIds.length ||
     [...selectedIds].some((id) => !validApproachIds.has(id))
   ) {
     return { status: "invalid_approaches" };
@@ -398,6 +598,27 @@ export function createSolutionDecision(
     approvedAt
   };
   solutionDecisions.set(needId, solutionDecision);
+  const existingReport = needReports.get(needId);
+  const report =
+    existingReport?.researchResultId === researchResult.id &&
+    existingReport.selectedApproachId ===
+      solutionDecision.selectedApproachIds[0] &&
+    existingReport.selectionProvenance?.source === "report_request"
+      ? existingReport
+      : createNeedReportRecord({
+          needProfileId: needId,
+          profile: need.profile,
+          researchResult,
+          selectedApproachId:
+            solutionDecision.selectedApproachIds[0],
+          selectionProvenance: {
+            source: "solution_decision",
+            selectedBy: solutionDecision.approvedBy,
+            selectedAt: solutionDecision.approvedAt
+          },
+          solutionDecision
+        });
+  needReports.set(needId, report);
   need.updatedAt = approvedAt;
   commitMarketplaceMutation({
     eventType: "solution_decision.recorded",
@@ -407,7 +628,8 @@ export function createSolutionDecision(
     entityId: needId,
     metadata: {
       decision: solutionDecision.decision,
-      selectedApproachCount: solutionDecision.selectedApproachIds.length
+      selectedApproachCount: solutionDecision.selectedApproachIds.length,
+      reportId: report.id
     }
   });
   return { status: "created", solutionDecision };
@@ -428,8 +650,18 @@ export async function discoverNeedSuppliers(
   if (!solutionDecision) {
     return { status: "decision_required" };
   }
+  if (solutionDecision.selectedApproachIds.length !== 1) {
+    return { status: "single_solution_required" };
+  }
   if (solutionDecision.decision === "local_trial") {
     return { status: "external_path_required" };
+  }
+  const selectedApproach = researchResult.approaches.find(
+    (approach) =>
+      approach.id === solutionDecision.selectedApproachIds[0]
+  );
+  if (!selectedApproach) {
+    return { status: "single_solution_required" };
   }
 
   const existing = listSupplierLeadsForNeed(needId);
@@ -441,24 +673,10 @@ export async function discoverNeedSuppliers(
     };
   }
 
-  const selectedApproachIds = new Set(
-    solutionDecision.selectedApproachIds
-  );
-  const requiredCapabilities = [
-    ...new Set(
-      researchResult.approaches
-        .filter((approach) => selectedApproachIds.has(approach.id))
-        .flatMap((approach) => approach.requiredCapabilities)
-    )
-  ];
   const execution = await runSupplierDiscovery(
     needId,
     need.profile,
-    requiredCapabilities.length > 0
-      ? requiredCapabilities
-      : need.profile.requiredCapabilities ??
-          need.profile.requiredCapability ??
-          []
+    selectedApproach
   );
   if (needs.get(needId) !== need) {
     return { status: "not_found" };
@@ -509,19 +727,20 @@ export function seedMarketplaceDemoFindState(
     need.profile,
     currentTime
   );
-  const discoveredLeads = createMarketplaceFixtureSupplierLeads(
-    needId,
-    need.profile,
-    currentTime
-  ).slice(0, 2);
+  const selectedApproach = researchResult.approaches.find((approach) =>
+    approach.id.endsWith(
+      scenario === "robotics" ? ":integration" : ":recovery"
+    )
+  );
+  if (!selectedApproach) {
+    return undefined;
+  }
   const solutionDecision: SolutionDecision = {
     id: `${needId}:decision:${scenario}`,
     needProfileId: needId,
     researchResultId: researchResult.id,
     decision: scenario === "robotics" ? "outsource" : "hybrid",
-    selectedApproachIds: researchResult.approaches.map(
-      (approach) => approach.id
-    ),
+    selectedApproachIds: [selectedApproach.id],
     buyerNote:
       scenario === "robotics"
         ? "Use a specialist integrator for feasibility, safety, proof of process and staged commissioning."
@@ -529,9 +748,32 @@ export function seedMarketplaceDemoFindState(
     approvedBy: need.buyerEmail,
     approvedAt: currentTime.toISOString()
   };
+  const discoveredLeads = rankDiscoveredSupplierLeads({
+    profile: need.profile,
+    selectedApproach,
+    candidates: createMarketplaceFixtureSupplierLeads(
+      needId,
+      need.profile,
+      currentTime
+    ),
+    publicBaseUrl: env.PUBLIC_BASE_URL
+  });
+  const report = createNeedReportRecord({
+    needProfileId: needId,
+    profile: need.profile,
+    researchResult,
+    selectedApproachId: selectedApproach.id,
+    selectionProvenance: {
+      source: "solution_decision",
+      selectedBy: solutionDecision.approvedBy,
+      selectedAt: solutionDecision.approvedAt
+    },
+    solutionDecision
+  });
 
   researchResults.set(needId, researchResult);
   solutionDecisions.set(needId, solutionDecision);
+  needReports.set(needId, report);
   for (const lead of discoveredLeads) {
     supplierLeads.set(lead.id, lead);
   }
@@ -544,7 +786,9 @@ export function seedMarketplaceDemoFindState(
     entityId: needId,
     metadata: {
       scenario,
-      leadCount: discoveredLeads.length
+      leadCount: discoveredLeads.length,
+      reportId: report.id,
+      selectedApproachId: selectedApproach.id
     }
   });
   return {
@@ -736,7 +980,8 @@ export function approveSupplierOutreachForNeed(
 export async function sendSupplierOutreachForNeed(
   needId: string,
   onDeliveryUpdated?: (delivery: SupplierOutreachDelivery) => void,
-  supplierIds?: Set<string>
+  supplierIds?: Set<string>,
+  deliveryChannels?: readonly OutreachChannel[]
 ): Promise<SupplierOutreachDelivery[] | undefined> {
   const need = needs.get(needId);
   if (!need) {
@@ -747,11 +992,12 @@ export async function sendSupplierOutreachForNeed(
   }
 
   const updatedDeliveries: SupplierOutreachDelivery[] = [];
+  const selectedChannels = deliveryChannels ?? ["email", "sms"];
   for (const invitation of need.invitations) {
     if (supplierIds && !supplierIds.has(invitation.supplierId)) {
       continue;
     }
-    for (const channel of ["email", "sms"] as const) {
+    for (const channel of selectedChannels) {
       const delivery = outreachDeliveries.get(deliveryKey(invitation.id, channel));
       if (!delivery) {
         continue;
@@ -893,7 +1139,10 @@ export function claimSupplierInvitation(
   }
 
   const lead = supplierLeads.get(invitation.supplierId);
-  if (lead?.lifecycleStatus === "invited") {
+  if (
+    lead?.lifecycleStatus === "invited" ||
+    lead?.lifecycleStatus === "approved_for_outreach"
+  ) {
     lead.lifecycleStatus = "claimed";
     lead.claimedAt = lead.claimedAt ?? claimedAt;
     lead.updatedAt = claimedAt;
@@ -1122,7 +1371,10 @@ async function sendOutreachDelivery(
       metadata: {
         channel: delivery.channel,
         supplierId: delivery.supplierId,
-        status: delivery.deliveryStatus
+        status: delivery.deliveryStatus,
+        outcome: result.outcome,
+        provider: result.provider,
+        attempted: result.attempted
       }
     });
     onDeliveryUpdated?.(update);
@@ -1178,7 +1430,10 @@ async function sendOutreachDelivery(
     metadata: {
       channel: delivery.channel,
       supplierId: delivery.supplierId,
-      status: delivery.deliveryStatus
+      status: delivery.deliveryStatus,
+      outcome: result.outcome,
+      provider: result.provider,
+      attempted: result.attempted
     }
   });
   onDeliveryUpdated?.(updates[1]);
@@ -1240,7 +1495,9 @@ export function createEngagement(input: {
   if (
     supplierResponse.status !== "submitted" ||
     supplierResponse.decision !== "can_help" ||
-    !supplierResponse.canHelp
+    !supplierResponse.canHelp ||
+    supplierResponse.indicativePriceAud <= 0 ||
+    supplierResponse.indicativePrice.amount <= 0
   ) {
     return { status: "not_selectable" };
   }
@@ -1286,6 +1543,33 @@ export function getEngagementForNeed(needId: string): Engagement | undefined {
   return [...engagements.values()].find(
     (engagement) => engagement.needId === needId
   );
+}
+
+export function getSupplierCommitmentNotification(
+  engagementId: string
+): SupplierCommitmentNotification | undefined {
+  const notification = commitmentNotifications.get(engagementId);
+  return notification ? structuredClone(notification) : undefined;
+}
+
+export function saveSupplierCommitmentNotification(
+  notification: SupplierCommitmentNotification
+): SupplierCommitmentNotification {
+  const saved = supplierCommitmentNotificationSchema.parse(
+    structuredClone(notification)
+  );
+  commitmentNotifications.set(saved.engagementId, saved);
+  commitMarketplaceMutation({
+    eventType: "commitment.notification_updated",
+    actorType: "system",
+    entityType: "engagement",
+    entityId: saved.engagementId,
+    metadata: {
+      channel: saved.channel,
+      status: saved.deliveryStatus
+    }
+  });
+  return structuredClone(saved);
 }
 
 export function getDeployment(
@@ -1387,6 +1671,13 @@ export function recordAuthoritativePinchPayment(input: {
   engagement.status = "supplier_secured";
   engagement.paymentStatus = "paid";
   engagement.pinchPaymentId = input.paymentId ?? engagement.pinchPaymentId;
+  engagement.localDemoPaymentId = undefined;
+  engagement.paymentEvidenceProvider = "pinch";
+  engagement.paymentEvidenceSource =
+    input.eventType === "payment-api-reconciliation"
+      ? "pinch_reconciliation"
+      : "pinch_webhook";
+  engagement.paymentEvidenceAuthoritative = true;
   engagement.securedAt = receivedAt;
   engagement.updatedAt = receivedAt;
 
@@ -1420,19 +1711,108 @@ export function recordAuthoritativePinchPayment(input: {
   return { engagement, duplicate: false };
 }
 
+export function recordLocalDemoPayment(input: {
+  eventId: string;
+  eventType: string;
+  engagementId: string;
+  paymentId: string;
+  payload: unknown;
+}): { engagement?: Engagement; duplicate: boolean } {
+  if (localDemoPaymentEvidence.has(input.eventId)) {
+    return {
+      engagement: engagements.get(input.engagementId),
+      duplicate: true
+    };
+  }
+
+  const receivedAt = new Date().toISOString();
+  localDemoPaymentEvidence.set(input.eventId, {
+    provider: "local_demo",
+    source: "local_demo",
+    authoritative: false,
+    ...input,
+    receivedAt
+  });
+
+  const engagement = engagements.get(input.engagementId);
+  if (!engagement) {
+    commitMarketplaceMutation({
+      eventType: "payment.local_demo_unmatched",
+      actorType: "system",
+      actorId: "local_demo",
+      entityType: "payment",
+      entityId: input.engagementId,
+      metadata: {
+        provider: "local_demo",
+        source: "local_demo",
+        authoritative: false,
+        eventType: input.eventType
+      }
+    });
+    return { duplicate: false };
+  }
+
+  const need = needs.get(engagement.needId);
+  engagement.status = "supplier_secured";
+  engagement.paymentStatus = "paid";
+  engagement.pinchPaymentId = undefined;
+  engagement.localDemoPaymentId = input.paymentId;
+  engagement.paymentEvidenceProvider = "local_demo";
+  engagement.paymentEvidenceSource = "local_demo";
+  engagement.paymentEvidenceAuthoritative = false;
+  engagement.securedAt = receivedAt;
+  engagement.updatedAt = receivedAt;
+
+  const deployment = deployments.get(engagement.id);
+  if (deployment) {
+    const synced = syncCommitmentPayment(
+      deployment,
+      engagement.paymentStatus,
+      receivedAt
+    );
+    if (synced.changed) {
+      deployments.set(engagement.id, synced.deployment);
+    }
+  }
+
+  if (need) {
+    need.status = "secured";
+    need.updatedAt = receivedAt;
+  }
+
+  commitMarketplaceMutation({
+    eventType: "payment.local_demo_secured",
+    actorType: "system",
+    actorId: "local_demo",
+    entityType: "payment",
+    entityId: engagement.id,
+    metadata: {
+      provider: "local_demo",
+      source: "local_demo",
+      authoritative: false,
+      eventType: input.eventType,
+      paymentStatus: engagement.paymentStatus
+    }
+  });
+  return { engagement, duplicate: false };
+}
+
 export function resetMarketplaceStore(options: { preserveAudit?: boolean } = {}) {
   needs.clear();
   researchResults.clear();
   solutionDecisions.clear();
+  needReports.clear();
   supplierLeads.clear();
   invitations.clear();
   supplierClaims.clear();
   outreachDeliveries.clear();
   responses.clear();
   engagements.clear();
+  commitmentNotifications.clear();
   deployments.clear();
   processedPinchEventIds.clear();
   pinchWebhookEvidence.clear();
+  localDemoPaymentEvidence.clear();
   issuedBuyerAccessTokens.clear();
   if (!options.preserveAudit) {
     auditEvents.splice(0);
@@ -1473,6 +1853,13 @@ export function reloadMarketplaceStore(
     ])
   );
   replaceMap(
+    needReports,
+    snapshot.needReports.map((report) => [
+      report.needProfileId,
+      report
+    ])
+  );
+  replaceMap(
     supplierLeads,
     snapshot.supplierLeads.map((lead) => [lead.id, lead])
   );
@@ -1507,6 +1894,13 @@ export function reloadMarketplaceStore(
     ])
   );
   replaceMap(
+    commitmentNotifications,
+    snapshot.commitmentNotifications.map((notification) => [
+      notification.engagementId,
+      notification
+    ])
+  );
+  replaceMap(
     deployments,
     snapshot.deployments.map((deployment) => [
       deployment.engagementId,
@@ -1520,6 +1914,13 @@ export function reloadMarketplaceStore(
   replaceMap(
     pinchWebhookEvidence,
     snapshot.pinchWebhookEvidence.map((evidence) => [
+      evidence.eventId,
+      evidence
+    ])
+  );
+  replaceMap(
+    localDemoPaymentEvidence,
+    snapshot.localDemoPaymentEvidence.map((evidence) => [
       evidence.eventId,
       evidence
     ])
@@ -1557,15 +1958,18 @@ function persistMarketplaceState() {
     needs: [...needs.values()],
     researchResults: [...researchResults.values()],
     solutionDecisions: [...solutionDecisions.values()],
+    needReports: [...needReports.values()],
     supplierLeads: [...supplierLeads.values()],
     invitations: [...invitations.values()],
     supplierClaims: [...supplierClaims.values()],
     outreachDeliveries: [...outreachDeliveries.values()],
     responses: [...responses.values()],
     engagements: [...engagements.values()],
+    commitmentNotifications: [...commitmentNotifications.values()],
     deployments: [...deployments.values()],
     processedPinchEventIds: [...processedPinchEventIds],
     pinchWebhookEvidence: [...pinchWebhookEvidence.values()],
+    localDemoPaymentEvidence: [...localDemoPaymentEvidence.values()],
     auditEvents
   });
 }

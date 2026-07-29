@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: veltact
+    runtime: node
+    plan: free
+    region: singapore
+    branch: Recurssion
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    domains:
+      - veltact.com
+    envVars:
+      - key: NODE_ENV
+        value: development
+      - key: NODE_VERSION
+        value: "22"
+      - key: WEB_ORIGIN
+        value: https://veltact.com
+      - key: PUBLIC_BASE_URL
+        value: https://veltact.com
+      - key: API_PUBLIC_URL
+        value: https://veltact.com
+      - key: BUYER_CAPABILITY_AUTH_REQUIRED
+        value: "false"
+      - key: PAYMENT_PROVIDER
+        value: local_demo
+      - key: PINCH_RETURN_URL
+        value: https://veltact.com/api/pinch/return
+      - key: VELTACT_RESEARCH_PROVIDER
+        value: fixture
+      - key: EMAIL_PROVIDER
+        value: local_demo
+      - key: SMS_PROVIDER
+        value: local_demo

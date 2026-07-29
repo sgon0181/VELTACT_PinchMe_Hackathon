@@ -54,6 +54,17 @@ aiIntakeRouter.post("/structure", async (request, response) => {
   try {
     const forceLocalDemo = request.headers["x-veltact-ai-intake-source"] === "local_demo";
     const source = env.OPENAI_API_KEY && env.NODE_ENV !== "test" && !forceLocalDemo ? "openai" : "local_demo";
+    const hasLocallyReadableText =
+      parsed.data.rawRequirement.length > 0 ||
+      parsed.data.evidence.some((item) => Boolean(item.extractedText?.trim()));
+    if (source === "local_demo" && !hasLocallyReadableText) {
+      response.status(422).json({
+        error: "binary_evidence_requires_live_ai",
+        message:
+          "Local intake cannot read binary-only PDF or photo evidence. Add a written factory description or extracted text."
+      });
+      return;
+    }
     const aiIntakeResult =
       source === "openai"
         ? await structureRequirementWithOpenAi(parsed.data)

@@ -2,9 +2,14 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { env } from "../env.js";
 import {
+  commitmentConfirmedEmailMessage,
   getOutreachDeliveryReadiness,
   redactOutreachError,
+  sendCommitmentConfirmedEmail,
   sendSupplierOpportunity,
+  sendSupplierOpportunitiesForChannels,
+  supplierEmailHtml,
+  supplierRfqUrl,
   supplierSmsMessage
 } from "./outreachDelivery.js";
 import {
@@ -63,6 +68,37 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
     );
   });
 
+  test("keeps local demo SMS explicitly unsent outside production", async () => {
+    Object.assign(env, {
+      NODE_ENV: "test",
+      SMS_PROVIDER: "local_demo"
+    });
+
+    assert.deepEqual(
+      await sendSupplierOpportunity(smsDelivery(), invitation(), need()),
+      {
+        ok: false,
+        outcome: "local_demo",
+        attempted: false,
+        provider: "local_demo",
+        errorMessage:
+          "Local demo only: secure invitation generated; no external SMS was sent."
+      }
+    );
+
+    Object.assign(env, { NODE_ENV: "production" });
+    assert.deepEqual(
+      await sendSupplierOpportunity(smsDelivery(), invitation(), need()),
+      {
+        ok: false,
+        outcome: "not_configured",
+        attempted: false,
+        provider: "local_demo",
+        errorMessage: "Production SMS provider is not configured."
+      }
+    );
+  });
+
   test("sends the secure opportunity link through Resend", async () => {
     Object.assign(env, {
       EMAIL_PROVIDER: "resend",
@@ -92,6 +128,14 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
     assert.equal(body.from, "Veltact <opportunities@veltact.test>");
     assert.deepEqual(body.to, ["supplier@example.com"]);
     assert.match(body.text, /https:\/\/demo\.veltact\.test\/supplier\.html\?token=token-123/);
+    assert.match(body.text, /Download RFQ:/);
+    assert.match(body.html, /Download RFQ PDF/);
+    assert.match(body.html, /Review and respond/);
+    assert.equal(
+      supplierRfqUrl(invitation()),
+      "https://demo.veltact.test/api/supplier-invitations/token-123/rfq.pdf"
+    );
+    assert.match(supplierEmailHtml(invitation(), need()), /RapidMatch/);
   });
 
   test("sends the secure link through SendGrid when configured", async () => {
@@ -154,6 +198,48 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
     );
     assert.equal(body.get("Body"), supplierSmsMessage(invitation()));
     assert.ok((body.get("Body") ?? "").length <= 160);
+  });
+
+  test("attempts only buyer-selected channels and treats copy-link as no delivery", async () => {
+    Object.assign(env, {
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key",
+      SMS_PROVIDER: "twilio",
+      TWILIO_ACCOUNT_SID: "AC123",
+      TWILIO_AUTH_TOKEN: "twilio_test_token",
+      TWILIO_FROM_NUMBER: "+61400000000"
+    });
+    const providerUrls: string[] = [];
+    globalThis.fetch = async (input) => {
+      providerUrls.push(String(input));
+      return String(input).includes("twilio")
+        ? new Response(JSON.stringify({ sid: "SM123" }), { status: 201 })
+        : new Response(JSON.stringify({ id: "email-123" }), { status: 200 });
+    };
+    const deliveries = [emailDelivery(), smsDelivery()];
+
+    const smsOnly = await sendSupplierOpportunitiesForChannels(
+      deliveries,
+      invitation(),
+      need(),
+      ["sms"]
+    );
+    const copyLinkOnly = await sendSupplierOpportunitiesForChannels(
+      deliveries,
+      invitation(),
+      need(),
+      []
+    );
+
+    assert.deepEqual(
+      smsOnly.map((item) => item.delivery.channel),
+      ["sms"]
+    );
+    assert.equal(copyLinkOnly.length, 0);
+    assert.deepEqual(providerUrls, [
+      "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json"
+    ]);
   });
 
   test("sends the secure opportunity link through the Twilio WhatsApp Sandbox", async () => {
@@ -321,6 +407,53 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
         "https://example.test/supplier.html?token=another-private-token"
       ),
       "https://example.test/supplier.html?token=[redacted]"
+    );
+  });
+
+  test("sends commitment confirmation with provider idempotency and no payout claim", async () => {
+    Object.assign(env, {
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key"
+    });
+    let request: { init?: RequestInit } | undefined;
+    globalThis.fetch = async (_input, init) => {
+      request = { init };
+      return new Response(JSON.stringify({ id: "email-commitment" }), {
+        status: 200
+      });
+    };
+
+    const result = await sendCommitmentConfirmedEmail({
+      destination: "supplier@example.com",
+      supplierName: "Test Supplier",
+      requirementTitle: "Packaging conveyor PLC recovery",
+      responseUrl:
+        "https://demo.veltact.test/supplier.html?token=token-123",
+      securedAt: "2026-07-28T00:00:00.000Z",
+      idempotencyKey: "commitment-engagement-123"
+    });
+
+    assert.equal(result.ok, true);
+    const headers = new Headers(request?.init?.headers);
+    assert.equal(
+      headers.get("idempotency-key"),
+      "commitment-engagement-123"
+    );
+    const body = JSON.parse(String(request?.init?.body));
+    assert.match(body.text, /buyer commitment/i);
+    assert.doesNotMatch(
+      body.text,
+      /supplier has been paid|payout complete/i
+    );
+    assert.doesNotMatch(
+      commitmentConfirmedEmailMessage({
+        supplierName: "Test Supplier",
+        requirementTitle: "PLC recovery",
+        responseUrl: "https://demo.veltact.test/supplier.html?token=token-123",
+        securedAt: "2026-07-28T00:00:00.000Z"
+      }),
+      /supplier has been paid|payout complete/i
     );
   });
 });

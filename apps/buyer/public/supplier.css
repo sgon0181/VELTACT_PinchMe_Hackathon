@@ -309,6 +309,51 @@ dd {
   margin-top: 5px;
 }
 
+.document-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.document-actions strong,
+.document-actions span {
+  display: block;
+}
+
+.document-actions span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.document-button {
+  display: inline-flex;
+  width: auto;
+  min-height: 42px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--technical);
+  border-radius: 4px;
+  padding: 10px 14px;
+  color: var(--ink);
+  background: #13211f;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.document-button:hover {
+  background: #1a2c29;
+}
+
 .form-heading {
   margin-bottom: 24px;
 }
@@ -639,10 +684,18 @@ summary:focus-visible {
 }
 
 .receipt-reference {
-  margin: 18px 0 0;
+  margin: 0;
   color: var(--faint);
   font-family: var(--font-mono);
   font-size: 0.7rem;
+}
+
+.receipt-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 18px;
 }
 
 .state-panel {
@@ -666,7 +719,9 @@ summary:focus-visible {
   }
 
   .brand-header,
-  .summary-heading {
+  .summary-heading,
+  .document-actions,
+  .receipt-footer {
     align-items: flex-start;
     grid-template-columns: 1fr;
     flex-direction: column;
@@ -723,6 +778,10 @@ summary:focus-visible {
   .receipt-check {
     position: static;
     margin-bottom: 14px;
+  }
+
+  .document-button {
+    width: 100%;
   }
 }
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 import {
+  assertPinchHostedCheckoutUrl,
   assertPinchSandboxConfiguration,
   PinchApiError,
   PinchClient
@@ -43,10 +44,10 @@ describe("PinchClient", () => {
       buyerEmail: "buyer@example.com",
       buyerName: "Factory Buyer",
       amount: 750_000,
-      description: "Veltact Site assessment commitment",
+      description: "Veltact Site Assessment / Scoping Visit commitment",
       returnUrl: "https://veltact.example/api/pinch/return/eng-123",
       metadata: {
-        milestoneId: "eng-123-m1-site-assessment"
+        milestoneId: "eng-123-m1-site-assessment-scoping-visit"
       }
     });
 
@@ -80,7 +81,7 @@ describe("PinchClient", () => {
       engagementId: "eng-123",
       needId: "need-123",
       supplierId: "supplier-123",
-      milestoneId: "eng-123-m1-site-assessment"
+      milestoneId: "eng-123-m1-site-assessment-scoping-visit"
     });
   });
 
@@ -128,7 +129,7 @@ describe("PinchClient", () => {
         supplierId: "supplier-invalid",
         buyerEmail: "buyer@example.com",
         amount: 750_000,
-        description: "Veltact Site assessment commitment",
+        description: "Veltact Site Assessment / Scoping Visit commitment",
         returnUrl: "https://veltact.example/api/pinch/return/eng-invalid"
       }),
       (error: unknown) =>
@@ -158,6 +159,23 @@ describe("PinchClient", () => {
     assert.throws(
       () =>
         assertPinchSandboxConfiguration({
+          authUrl: "https://credentials.example/connect/token",
+          apiBaseUrl: "https://api.getpinch.com.au/test",
+          secretKey: "sk_test_not-a-real-key"
+        }),
+      /Untrusted Pinch authentication configuration/
+    );
+    assert.throws(
+      () =>
+        assertPinchSandboxConfiguration({
+          apiBaseUrl: "https://payments-proxy.example/test",
+          secretKey: "sk_test_not-a-real-key"
+        }),
+      /Live Pinch configuration is not permitted/
+    );
+    assert.throws(
+      () =>
+        assertPinchSandboxConfiguration({
           apiBaseUrl: "https://api.getpinch.com.au/test",
           secretKey: ["sk", "live", "not-a-real-key"].join("_")
         }),
@@ -165,9 +183,34 @@ describe("PinchClient", () => {
     );
     assert.doesNotThrow(() =>
       assertPinchSandboxConfiguration({
+        authUrl: "https://auth.getpinch.com.au/connect/token",
         apiBaseUrl: "https://api.getpinch.com.au/test",
         secretKey: "sk_test_not-a-real-key"
       })
+    );
+  });
+
+  test("accepts only the official Pinch hosted checkout origin", () => {
+    assert.doesNotThrow(() =>
+      assertPinchHostedCheckoutUrl(
+        "https://pay.getpinch.com.au/pay/plk_sandbox"
+      )
+    );
+    assert.doesNotThrow(() =>
+      assertPinchHostedCheckoutUrl(
+        "https://sandbox.getpinch.com.au/pay/plk_sandbox"
+      )
+    );
+    assert.throws(
+      () =>
+        assertPinchHostedCheckoutUrl(
+          "https://pay.getpinch.com.au.example/pay/plk_sandbox"
+        ),
+      /untrusted URL/
+    );
+    assert.throws(
+      () => assertPinchHostedCheckoutUrl("not-a-url"),
+      (error: unknown) => error instanceof PinchApiError
     );
   });
 });

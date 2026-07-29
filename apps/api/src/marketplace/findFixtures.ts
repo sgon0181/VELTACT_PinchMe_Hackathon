@@ -81,7 +81,10 @@ export function createMarketplaceFixtureSupplierLeads(
   currentTime = new Date()
 ): SupplierLead[] {
   const scenario = inferMarketplaceDemoScenario(profile);
-  const candidates = scenario === "robotics" ? roboticsLeads() : plcLeads();
+  const candidates =
+    scenario === "robotics"
+      ? roboticsLeads(profile.budgetAud)
+      : plcLeads(profile.budgetAud);
 
   return supplierLeadSchema.array().parse(
     candidates.map((candidate, index) => {
@@ -317,25 +320,26 @@ function fixtureCitations(
     scenario === "robotics"
       ? [
           {
-            title: "Guide to machinery and equipment safety",
-            url: "https://www.safeworkaustralia.gov.au/doc/guide-machinery-and-equipment-safety",
+            title: "Guide for safe design of plant",
+            url: "https://www.safeworkaustralia.gov.au/doc/guide-safe-design-plant",
             sourceType: "standards" as const,
             evidenceNote:
-              "Safe Work Australia guidance supports identifying machinery hazards and controlling risk across design, operation and maintenance."
+              "Safe Work Australia guidance supports integrating risk controls early in plant design and considering safety across the plant lifecycle."
           },
           {
-            title: "ISO 10218-2:2025 Robotics - Safety requirements",
+            title:
+              "ISO 10218-2:2025 — Robotics — Safety requirements — Part 2: Industrial robot applications and robot cells",
             url: "https://www.iso.org/standard/73934.html",
             sourceType: "standards" as const,
             evidenceNote:
               "The standard identifies safety requirements for industrial robot applications and robot cells."
           },
           {
-            title: "ABB robotics application engineering",
-            url: "https://new.abb.com/products/robotics",
+            title: "ABB Robotics",
+            url: "https://www.abb.com/global/en/areas/robotics",
             sourceType: "manufacturer" as const,
             evidenceNote:
-              "Manufacturer material illustrates the tooling, software, safety and service disciplines involved in robot integration."
+              "ABB's official robotics portfolio covers industrial robots, controllers, software, application solutions, services and equipment relevant to integration."
           }
         ]
       : [
@@ -370,7 +374,15 @@ function fixtureCitations(
   }));
 }
 
-function plcLeads() {
+function formatAudBudget(budgetAud: number | undefined): string | undefined {
+  return budgetAud === undefined
+    ? undefined
+    : `AUD ${budgetAud.toLocaleString("en-AU")}`;
+}
+
+function plcLeads(budgetAud: number | undefined) {
+  const budget = formatAudBudget(budgetAud);
+
   return [
     {
       slug: "controlline-response-demo",
@@ -394,7 +406,9 @@ function plcLeads() {
       ],
       risks: [
         "Current same-day crew availability must be confirmed by the supplier.",
-        "The supplier response must confirm that the indicative scope can fit the AUD 20,000 budget."
+        budget
+          ? `The supplier response must confirm that the indicative scope can fit the ${budget} budget.`
+          : "Commercial fit is unknown until the supplier responds."
       ]
     },
     {
@@ -418,7 +432,9 @@ function plcLeads() {
       ],
       risks: [
         "Same-day callout timing and Siemens engineering-tool compatibility require confirmation.",
-        "Commercial fit against the AUD 20,000 budget is unknown until the supplier responds."
+        budget
+          ? `Commercial fit against the ${budget} budget is unknown until the supplier responds.`
+          : "Commercial fit is unknown until the supplier responds."
       ]
     },
     {
@@ -448,7 +464,9 @@ function plcLeads() {
   ];
 }
 
-function roboticsLeads() {
+function roboticsLeads(budgetAud: number | undefined) {
+  const budget = formatAudBudget(budgetAud);
+
   return [
     {
       slug: "axisforge-robotics-demo",
@@ -471,7 +489,9 @@ function roboticsLeads() {
       ],
       risks: [
         "Cycle-time and carton-variation capability must be proven with representative samples.",
-        "Commercial fit against the AUD 120,000 budget requires a supplier response."
+        budget
+          ? `Commercial fit against the ${budget} budget requires a supplier response.`
+          : "Commercial fit requires a supplier response."
       ]
     },
     {

@@ -7,10 +7,15 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { DeploymentSummary } from "@veltact/contracts";
+import type {
+  DeploymentSummary,
+  SupplierCommitmentNotification
+} from "@veltact/contracts";
 import type {
   Engagement,
+  LocalDemoPaymentEvidence,
   MarketplaceAuditEvent,
+  NeedReportRecord,
   NeedRecord,
   PinchWebhookEvidence,
   SolutionDecision,
@@ -27,15 +32,18 @@ export type MarketplaceSnapshot = {
   needs: NeedRecord[];
   researchResults: SolutionResearchResult[];
   solutionDecisions: SolutionDecision[];
+  needReports: NeedReportRecord[];
   supplierLeads: SupplierLead[];
   invitations: SupplierInvitation[];
   supplierClaims: SupplierClaim[];
   outreachDeliveries: SupplierOutreachDelivery[];
   responses: SupplierResponse[];
   engagements: Engagement[];
+  commitmentNotifications: SupplierCommitmentNotification[];
   deployments: DeploymentSummary[];
   processedPinchEventIds: string[];
   pinchWebhookEvidence: PinchWebhookEvidence[];
+  localDemoPaymentEvidence: LocalDemoPaymentEvidence[];
   auditEvents: MarketplaceAuditEvent[];
 };
 
@@ -72,15 +80,20 @@ export function loadMarketplaceSnapshot(
     needs: parsed.needs,
     researchResults: arrayOrEmpty(parsed.researchResults),
     solutionDecisions: arrayOrEmpty(parsed.solutionDecisions),
+    needReports: arrayOrEmpty(parsed.needReports),
     supplierLeads: arrayOrEmpty(parsed.supplierLeads),
     invitations: parsed.invitations,
     supplierClaims: arrayOrEmpty(parsed.supplierClaims),
     outreachDeliveries: parsed.outreachDeliveries,
     responses: parsed.responses,
     engagements: parsed.engagements,
+    commitmentNotifications: arrayOrEmpty(
+      parsed.commitmentNotifications
+    ),
     deployments: arrayOrEmpty(parsed.deployments),
     processedPinchEventIds: parsed.processedPinchEventIds,
     pinchWebhookEvidence: parsed.pinchWebhookEvidence,
+    localDemoPaymentEvidence: arrayOrEmpty(parsed.localDemoPaymentEvidence),
     auditEvents: parsed.auditEvents
   } as MarketplaceSnapshot;
 }

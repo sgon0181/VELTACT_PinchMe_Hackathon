@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1600" viewBox="0 0 1600 1600" role="img" aria-labelledby="title desc">
+  <title id="title">Southern Cell Automation logo</title>
+  <desc id="desc">Circular robotic work-cell emblem with a stylised S-shaped automation path and articulated gripper.</desc>
+
+  <!-- Cell boundary -->
+  <circle cx="800" cy="590" r="420" fill="none" stroke="#102A43" stroke-width="64"/>
+  <path d="M480 325 A420 420 0 0 1 1115 330"
+        fill="none" stroke="#F28C28" stroke-width="76" stroke-linecap="round"/>
+  <path d="M470 850 A420 420 0 0 0 1125 855"
+        fill="none" stroke="#F28C28" stroke-width="76" stroke-linecap="round"/>
+
+  <!-- S-shaped automation line -->
+  <path d="M1030 360
+           C920 270 650 280 570 410
+           C490 545 640 630 800 630
+           C955 630 1080 720 1015 855
+           C945 1000 675 1005 560 900"
+        fill="none" stroke="#1F2933" stroke-width="96" stroke-linecap="round"/>
+
+  <!-- Robotic joints -->
+  <circle cx="595" cy="432" r="78" fill="#F28C28"/>
+  <circle cx="595" cy="432" r="31" fill="#FFFFFF"/>
+  <circle cx="1000" cy="820" r="78" fill="#F28C28"/>
+  <circle cx="1000" cy="820" r="31" fill="#FFFFFF"/>
+
+  <!-- End effector -->
+  <g fill="none" stroke="#102A43" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M1040 338 L1110 275"/>
+    <path d="M1110 275 L1160 315"/>
+    <path d="M1110 275 L1070 225"/>
+    <path d="M1040 338 L990 305"/>
+  </g>
+
+  <!-- Cell nodes -->
+  <g fill="#102A43">
+    <rect x="356" y="550" width="92" height="92" rx="20"/>
+    <rect x="1152" y="550" width="92" height="92" rx="20"/>
+    <rect x="754" y="106" width="92" height="92" rx="20"/>
+    <rect x="754" y="982" width="92" height="92" rx="20"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="800" y="1280" text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif" font-size="132" font-weight="800"
+        letter-spacing="-2" fill="#1F2933">Southern Cell</text>
+  <text x="800" y="1390" text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif" font-size="52" font-weight="700"
+        letter-spacing="13" fill="#F28C28">AUTOMATION</text>
+</svg>
