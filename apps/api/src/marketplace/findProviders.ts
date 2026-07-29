@@ -110,6 +110,18 @@ export async function runSupplierDiscovery(
       candidates,
       publicBaseUrl: env.PUBLIC_BASE_URL
     });
+  const requireCompleteShortlist = (
+    provider: string,
+    candidates: SupplierLead[]
+  ) => {
+    const rankedCandidates = rankCandidates(candidates);
+    if (rankedCandidates.length !== 3) {
+      throw new Error(
+        `${provider} returned fewer than three distinct supplier candidates.`
+      );
+    }
+    return rankedCandidates;
+  };
 
   if (shouldUseFixture()) {
     return {
@@ -121,7 +133,8 @@ export async function runSupplierDiscovery(
 
   try {
     return {
-      value: rankCandidates(
+      value: requireCompleteShortlist(
+        "OpenAI supplier discovery",
         await discoverWithOpenAi(
           needProfileId,
           profile,
@@ -137,9 +150,10 @@ export async function runSupplierDiscovery(
           profile,
           selectedApproach.requiredCapabilities
         );
-        if (firecrawlLeads.length > 0) {
+        const rankedFirecrawlLeads = rankCandidates(firecrawlLeads);
+        if (rankedFirecrawlLeads.length === 3) {
           return {
-            value: rankCandidates(firecrawlLeads),
+            value: rankedFirecrawlLeads,
             warning:
               "OpenAI discovery was unavailable; Firecrawl search evidence was used. Candidate identity and contact details require buyer review."
           };
@@ -226,7 +240,7 @@ async function discoverWithOpenAi(
       name: "rapidmatch_supplier_discovery",
       schema: discoveryJsonSchema,
       system:
-        "You are Veltact's Australian industrial supplier discovery assistant. Find up to 10 relevant real supplier businesses using public web evidence for the single buyer-selected solution pathway. Prefer official supplier websites. Provide an official logo URL only when that exact image URL is supported by the cited supplier website; otherwise return null. Do not infer certifications, availability, consent, verification, enrolment or contact details. Return contact fields only when explicitly published on a cited source; otherwise return null. Return public discovery evidence only; the buyer must review every candidate before outreach. Return only the requested JSON.",
+        "You are Veltact's Australian industrial supplier discovery assistant. Find at least 3 and up to 10 relevant real supplier businesses using public web evidence for the single buyer-selected solution pathway. Prefer official supplier websites. Provide an official logo URL only when that exact image URL is supported by the cited supplier website; otherwise return null. Do not infer certifications, availability, consent, verification, enrolment or contact details. Return contact fields only when explicitly published on a cited source; otherwise return null. Return public discovery evidence only; the buyer must review every candidate before outreach. Return only the requested JSON.",
       user: JSON.stringify({ profile, selectedApproach })
     })
   );
@@ -295,10 +309,14 @@ async function discoverWithFirecrawl(
       website: result.url,
       location: "Australia - location requires review",
       serviceRegions: ["Australia - requires review"],
-      capabilities: requiredCapabilities,
+      capabilities: [
+        result.description ||
+          "Supplier capabilities require review against the selected pathway."
+      ],
       matchScore: Math.max(55, 82 - index * 3),
       matchReasons: [
-        result.description || "Search result matched the requested capabilities."
+        result.description ||
+          "The search result appeared for the selected-pathway discovery query; direct capability evidence requires review."
       ],
       risks: [
         "Search result requires identity, capability, location and contact verification before buyer-approved outreach."
@@ -308,11 +326,11 @@ async function discoverWithFirecrawl(
           id: randomUUID(),
           title: result.title,
           url: result.url,
-          sourceType: "supplier_website",
+          sourceType: "other",
           provider: "firecrawl",
           evidenceNote:
             result.description ||
-            "Firecrawl search result matched the supplier discovery query.",
+            "Firecrawl returned this page for the selected-pathway discovery query; the page type and supplier capabilities require review.",
           accessedAt: now
         }
       ],
@@ -527,7 +545,7 @@ const discoveryJsonSchema = {
   properties: {
     suppliers: {
       type: "array",
-      minItems: 1,
+      minItems: 3,
       maxItems: 10,
       items: {
         type: "object",
