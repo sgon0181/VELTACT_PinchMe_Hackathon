@@ -68,6 +68,7 @@ describe("CommitmentPaymentService", () => {
     assert.equal(persistence.saveCalls, 1);
     assert.equal(firstResult.paymentLink.paymentLinkId, secondResult.paymentLink.paymentLinkId);
     assert.equal(provider.lastCreateInput?.amount, 750_000);
+    assert.equal(provider.lastCreateInput?.currency, "AUD");
     assert.equal(
       provider.lastCreateInput?.metadata?.milestoneId,
       "eng-robotics-m1-site-assessment-scoping-visit"
@@ -172,6 +173,29 @@ describe("CommitmentPaymentService", () => {
     assert.equal(provider.createCalls, 0);
   });
 
+  test("does not create a new link for paid state with missing legacy link data", async () => {
+    const context = commitmentContext();
+    context.paymentStatus = "paid";
+    const persistence = new MemoryCommitmentAdapter(context);
+    const provider = new FakePaymentProvider();
+
+    await assert.rejects(
+      new CommitmentPaymentService(
+        persistence,
+        provider
+      ).createOrReuseHostedPaymentLink({
+        engagementId: context.engagementId,
+        buyerAccessToken: "buyer-token",
+        returnUrl:
+          "https://veltact.example/api/pinch/return/eng-robotics"
+      }),
+      (error: unknown) =>
+        error instanceof CommitmentPaymentError &&
+        error.statusCode === 409
+    );
+    assert.equal(provider.createCalls, 0);
+  });
+
   test("secures only through explicit approved provider reconciliation", async () => {
     const context = commitmentContext();
     context.existingPaymentLink = {
@@ -183,7 +207,15 @@ describe("CommitmentPaymentService", () => {
     provider.approvedPayment = {
       provider: "pinch",
       paymentId: "pmt_approved",
-      status: "approved"
+      status: "approved",
+      paymentLinkId: "plk_reconcile",
+      payerId: "pyr_reconcile",
+      amount: 750_000,
+      currency: "AUD",
+      metadata: {
+        engagementId: context.engagementId,
+        milestoneId: context.commitment.milestoneId
+      }
     };
     const service = new CommitmentPaymentService(persistence, provider);
 
@@ -208,6 +240,18 @@ describe("CommitmentPaymentService", () => {
     });
     assert.equal(persistence.evidence[0]?.source, "pinch_reconciliation");
     assert.equal(persistence.evidence[0]?.providerStatus, "approved");
+    assert.deepEqual(persistence.evidence[0]?.payload, {
+      paymentLinkId: "plk_reconcile",
+      paymentId: "pmt_approved",
+      status: "approved",
+      payerId: "pyr_reconcile",
+      amount: 750_000,
+      currency: "AUD",
+      metadata: {
+        engagementId: context.engagementId,
+        milestoneId: context.commitment.milestoneId
+      }
+    });
   });
 
   test("keeps local demo evidence explicit, non-authoritative, and out of production", () => {

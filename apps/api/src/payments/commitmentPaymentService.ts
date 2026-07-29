@@ -87,6 +87,12 @@ export class CommitmentPaymentService {
       input.engagementId,
       input.buyerAccessToken
     );
+    if (context.paymentStatus === "paid") {
+      throw new CommitmentPaymentError(
+        "The commitment has already been paid",
+        409
+      );
+    }
     if (context.existingPaymentLink) {
       const currentLink = {
         ...context.existingPaymentLink,
@@ -100,12 +106,6 @@ export class CommitmentPaymentService {
           paymentLink: toHostedPaymentLink(currentLink),
           reused: true
         };
-      }
-      if (context.paymentStatus === "paid") {
-        throw new CommitmentPaymentError(
-          "The commitment has already been paid",
-          409
-        );
       }
     }
 
@@ -158,6 +158,15 @@ export class CommitmentPaymentService {
         supplierSecured: false
       };
     }
+    if (
+      approved.paymentLinkId !== undefined &&
+      approved.paymentLinkId !== paymentLinkId
+    ) {
+      throw new CommitmentPaymentError(
+        "Pinch reconciliation returned an unexpected Payment Link",
+        502
+      );
+    }
 
     const recorded = await this.persistence.recordAuthoritativePayment(
       reconciliationEvidence(context.engagementId, paymentLinkId, approved)
@@ -179,6 +188,7 @@ export class CommitmentPaymentService {
       buyerEmail: context.buyerEmail,
       buyerName: context.buyerName,
       amount: context.commitment.amount.amount,
+      currency: context.commitment.amount.currency,
       description: `Veltact ${context.commitment.title} commitment`,
       returnUrl,
       metadata: {
@@ -293,7 +303,19 @@ function reconciliationEvidence(
     payload: {
       paymentLinkId,
       paymentId: approved.paymentId,
-      status: approved.status
+      status: approved.status,
+      ...(approved.payerId === undefined
+        ? {}
+        : { payerId: approved.payerId }),
+      ...(approved.amount === undefined
+        ? {}
+        : { amount: approved.amount }),
+      ...(approved.currency === undefined
+        ? {}
+        : { currency: approved.currency }),
+      ...(approved.metadata === undefined
+        ? {}
+        : { metadata: approved.metadata })
     }
   };
 }

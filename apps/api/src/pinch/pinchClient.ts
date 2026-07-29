@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { env } from "../env.js";
 import type {
   AuthoritativePaymentResult,
@@ -52,6 +53,7 @@ export class PinchClient implements PaymentProvider {
   async createPaymentLink(input: {
     payerId: string;
     amount: number;
+    currency?: string;
     description: string;
     returnUrl?: string;
     metadata?: unknown;
@@ -60,6 +62,9 @@ export class PinchClient implements PaymentProvider {
       method: "POST",
       body: {
         amount: input.amount,
+        ...(input.currency === undefined
+          ? {}
+          : { currency: input.currency.toUpperCase() }),
         payerId: input.payerId,
         description: input.description,
         allowedPaymentMethods: ["credit-card"],
@@ -82,19 +87,47 @@ export class PinchClient implements PaymentProvider {
     });
   }
 
+  async getPaymentsForPayer(payerId: string) {
+    return this.request<unknown>(
+      `/payments/payer/${encodeURIComponent(payerId)}`,
+      {
+        method: "GET"
+      }
+    );
+  }
+
   async getApprovedPaymentForLink(
     paymentLinkId: string
   ): Promise<AuthoritativePaymentResult | undefined> {
     const paymentLink = await this.getPaymentLink(paymentLinkId);
-    const approvedPayment = findApprovedPayment(paymentLink);
-    if (!approvedPayment) {
+    const expected = parsePaymentLinkForReconciliation(
+      paymentLink,
+      paymentLinkId
+    );
+    const payerPayments = await this.getPaymentsForPayer(expected.payerId);
+    const approvedPayments = findApprovedPaymentsForLink(
+      payerPayments,
+      expected
+    );
+    if (approvedPayments.length === 0) {
       return undefined;
     }
+    if (approvedPayments.length > 1) {
+      throw new PinchApiError(
+        "Pinch reconciliation returned multiple matching approved payments"
+      );
+    }
+    const approvedPayment = approvedPayments[0];
 
     return {
       provider: "pinch",
-      paymentId: approvedPayment,
-      status: "approved"
+      paymentId: approvedPayment.paymentId,
+      status: "approved",
+      paymentLinkId: expected.paymentLinkId,
+      payerId: expected.payerId,
+      amount: expected.amount,
+      currency: expected.currency,
+      metadata: expected.metadata
     };
   }
 
@@ -113,13 +146,14 @@ export class PinchClient implements PaymentProvider {
     const linkResponse = await this.createPaymentLink({
       payerId,
       amount: input.amount,
+      currency: input.currency,
       description: input.description,
       returnUrl: input.returnUrl,
       metadata: {
+        ...input.metadata,
         engagementId: input.engagementId,
         needId: input.needId,
-        supplierId: input.supplierId,
-        ...input.metadata
+        supplierId: input.supplierId
       }
     });
 
@@ -405,30 +439,187 @@ function findStringValue(payload: unknown, keys: string[]): string | undefined {
   return undefined;
 }
 
-function findApprovedPayment(payload: unknown): string | undefined {
-  if (typeof payload !== "object" || payload === null) {
+type PaymentLinkReconciliationContext = {
+  paymentLinkId: string;
+  payerId: string;
+  amount: number;
+  currency: string;
+  metadata: Record<string, unknown>;
+};
+
+function parsePaymentLinkForReconciliation(
+  payload: unknown,
+  expectedPaymentLinkId: string
+): PaymentLinkReconciliationContext {
+  const paymentLink = asRecord(payload);
+  const paymentLinkId = getDirectString(paymentLink, [
+    "id",
+    "Id",
+    "paymentLinkId",
+    "PaymentLinkId"
+  ]);
+  const payer = asRecord(
+    getDirectValue(paymentLink, ["payer", "Payer"])
+  );
+  const payerId =
+    getDirectString(paymentLink, ["payerId", "PayerId"]) ??
+    getDirectString(payer, ["id", "Id", "payerId", "PayerId"]);
+  const amount = getDirectInteger(paymentLink, [
+    "amountInCents",
+    "AmountInCents",
+    "amount",
+    "Amount"
+  ]);
+  const currency = (
+    getDirectString(paymentLink, ["currency", "Currency"]) ?? ""
+  ).toUpperCase();
+  const metadata = parseMetadataObject(
+    getDirectValue(paymentLink, ["metadata", "Metadata"])
+  );
+
+  if (
+    paymentLinkId !== expectedPaymentLinkId ||
+    !payerId ||
+    amount === undefined ||
+    amount <= 0 ||
+    currency.length !== 3 ||
+    !metadata
+  ) {
+    throw new PinchApiError(
+      "Pinch Payment Link response was incomplete for reconciliation"
+    );
+  }
+
+  return {
+    paymentLinkId,
+    payerId,
+    amount,
+    currency,
+    metadata
+  };
+}
+
+function findApprovedPaymentsForLink(
+  payload: unknown,
+  expected: PaymentLinkReconciliationContext
+) {
+  return paymentRecords(payload).flatMap((payment) => {
+    const status = (
+      getDirectString(payment, ["status", "Status"]) ?? ""
+    ).toLowerCase();
+    const paymentId = getDirectString(payment, [
+      "id",
+      "Id",
+      "paymentId",
+      "PaymentId"
+    ]);
+    const payer = asRecord(
+      getDirectValue(payment, ["payer", "Payer"])
+    );
+    const payerId =
+      getDirectString(payment, ["payerId", "PayerId"]) ??
+      getDirectString(payer, ["id", "Id", "payerId", "PayerId"]);
+    const amount = getDirectInteger(payment, [
+      "amount",
+      "Amount",
+      "amountInCents",
+      "AmountInCents"
+    ]);
+    const currency = (
+      getDirectString(payment, ["currency", "Currency"]) ?? ""
+    ).toUpperCase();
+    const metadata = parseMetadataObject(
+      getDirectValue(payment, ["metadata", "Metadata"])
+    );
+
+    if (
+      status !== "approved" ||
+      !paymentId ||
+      payerId !== expected.payerId ||
+      amount !== expected.amount ||
+      currency !== expected.currency ||
+      !metadata ||
+      !isDeepStrictEqual(metadata, expected.metadata)
+    ) {
+      return [];
+    }
+    return [{ paymentId }];
+  });
+}
+
+function paymentRecords(payload: unknown): Array<Record<string, unknown>> {
+  const values = Array.isArray(payload)
+    ? payload
+    : getDirectValue(asRecord(payload), ["payments", "Payments"]);
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  return values.flatMap((value) => {
+    const record = asRecord(value);
+    return record ? [record] : [];
+  });
+}
+
+function parseMetadataObject(
+  value: unknown
+): Record<string, unknown> | undefined {
+  if (typeof value === "string") {
+    try {
+      return asRecord(JSON.parse(value) as unknown);
+    } catch {
+      return undefined;
+    }
+  }
+  return asRecord(value);
+}
+
+function asRecord(
+  value: unknown
+): Record<string, unknown> | undefined {
+  return typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function getDirectValue(
+  record: Record<string, unknown> | undefined,
+  keys: string[]
+) {
+  if (!record) {
     return undefined;
   }
-
-  const record = payload as Record<string, unknown>;
-  const payments = record.payments ?? record.Payments;
-  if (!Array.isArray(payments)) {
-    return undefined;
-  }
-
-  for (const payment of payments) {
-    if (typeof payment !== "object" || payment === null) {
-      continue;
-    }
-
-    const paymentRecord = payment as Record<string, unknown>;
-    const status = String(paymentRecord.status ?? paymentRecord.Status ?? "").toLowerCase();
-    const paymentId = paymentRecord.id ?? paymentRecord.Id;
-    if (status === "approved" && typeof paymentId === "string") {
-      return paymentId;
+  for (const key of keys) {
+    if (key in record) {
+      return record[key];
     }
   }
+  return undefined;
+}
 
+function getDirectString(
+  record: Record<string, unknown> | undefined,
+  keys: string[]
+) {
+  const value = getDirectValue(record, keys);
+  return typeof value === "string" && value.length > 0
+    ? value
+    : undefined;
+}
+
+function getDirectInteger(
+  record: Record<string, unknown> | undefined,
+  keys: string[]
+) {
+  const value = getDirectValue(record, keys);
+  if (typeof value === "number" && Number.isSafeInteger(value)) {
+    return value;
+  }
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : undefined;
+  }
   return undefined;
 }
 
