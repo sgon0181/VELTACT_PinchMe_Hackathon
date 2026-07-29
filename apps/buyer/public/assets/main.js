@@ -1,6 +1,6 @@
 import { aiIntakeResultSchema, intakeEvidenceSummarySchema, solutionDecisionSchema, solutionResearchResultSchema } from "@veltact/contracts";
 import { BackendAiIntakeService, DemoAiIntakeService } from "./aiIntakeService.js";
-import { apiBaseUrl, demoControlsEnabled, localDemoPaymentEnabled } from "./apiBase.js";
+import { apiBaseUrl, demoControlsEnabled, localDemoPaymentEnabled, outreachOverrideAvailability } from "./apiBase.js";
 import { companyLogoFor } from "./companyLogos.js";
 import { RapidMatchService } from "./rapidMatchService.js";
 const service = new RapidMatchService();
@@ -66,6 +66,10 @@ let intakeEvidence = [];
 let booting = true;
 let demoControlsAvailable = false;
 let localDemoPaymentAvailable = false;
+let stagingOutreachOverrides = {
+    email: false,
+    sms: false
+};
 let milestoneUpdateDraft = "";
 let restoreFailed = false;
 let workspaceEpoch = 0;
@@ -149,11 +153,17 @@ void bootstrap();
 async function bootstrap() {
     const demoGate = demoControlsEnabled();
     const localDemoPaymentGate = localDemoPaymentEnabled();
+    const outreachOverrideGate = outreachOverrideAvailability();
     const identity = readWorkspaceIdentity();
     if (!identity.needProfileId) {
-        [demoControlsAvailable, localDemoPaymentAvailable] = await Promise.all([
+        [
+            demoControlsAvailable,
+            localDemoPaymentAvailable,
+            stagingOutreachOverrides
+        ] = await Promise.all([
             demoGate,
-            localDemoPaymentGate
+            localDemoPaymentGate,
+            outreachOverrideGate
         ]);
         booting = false;
         render();
@@ -223,9 +233,14 @@ async function bootstrap() {
         }
     }
     finally {
-        [demoControlsAvailable, localDemoPaymentAvailable] = await Promise.all([
+        [
+            demoControlsAvailable,
+            localDemoPaymentAvailable,
+            stagingOutreachOverrides
+        ] = await Promise.all([
             demoGate,
-            localDemoPaymentGate
+            localDemoPaymentGate,
+            outreachOverrideGate
         ]);
         booting = false;
         render();
@@ -872,6 +887,11 @@ function renderCandidate(data, match, index) {
 function renderOutreachChoice(data, candidates, value, label, description) {
     const selected = selectedOutreachChoices.has(value);
     const available = outreachChoiceAvailable(data, candidates, value);
+    const availableDescription = value === "email" && stagingOutreachOverrides.email
+        ? "Send the private RFQ link through the configured staging email recipient"
+        : value === "sms" && stagingOutreachOverrides.sms
+            ? "Send the private RFQ link through the configured staging SMS recipient"
+            : description;
     return `
     <label class="outreach-mode ${selected ? "is-selected" : ""} ${available ? "" : "is-unavailable"}">
       <input
@@ -884,7 +904,7 @@ function renderOutreachChoice(data, candidates, value, label, description) {
       <span>
         <strong>${escapeHtml(label)}</strong>
         <small>${escapeHtml(available
-        ? description
+        ? availableDescription
         : `${description}. Unavailable for one or more selected suppliers.`)}</small>
       </span>
     </label>
@@ -2818,11 +2838,15 @@ function outreachChoiceAvailable(data, candidates, choice) {
         .filter((candidate) => selectedCandidateIds.has(candidate.supplierId))
         .map((candidate) => supplierFor(data, candidate.supplierId));
     if (choice === "sms") {
+        if (stagingOutreachOverrides.sms)
+            return selected.length > 0;
         return (selected.length > 0 &&
             selected.every((supplier) => supplier &&
                 "contactPhone" in supplier &&
                 Boolean(supplier.contactPhone)));
     }
+    if (stagingOutreachOverrides.email)
+        return selected.length > 0;
     return (selected.length > 0 &&
         selected.every((supplier) => Boolean(supplier?.contactEmail)));
 }
@@ -2854,6 +2878,15 @@ function outreachAction(choices, count, unavailableChoices) {
     }
     const selectedLabels = orderedOutreachChoices(choices).map((choice) => choice === "sms" ? "SMS" : statusLabel(choice));
     const hasExternalDelivery = choices.has("email") || choices.has("sms");
+    if (hasExternalDelivery &&
+        ((choices.has("email") && stagingOutreachOverrides.email) ||
+            (choices.has("sms") && stagingOutreachOverrides.sms))) {
+        return {
+            title: `Ready to send by ${selectedLabels.join(", ")}`,
+            description: "Configured staging recipient overrides protect unverified public contact data while the live providers deliver each private RFQ link.",
+            loadingLabel: "Sending staging supplier outreach"
+        };
+    }
     if (demoControlsAvailable && hasExternalDelivery) {
         return {
             title: `Ready to send by ${selectedLabels.join(", ")}`,
@@ -3101,7 +3134,9 @@ function candidateContactReadiness(supplier) {
     ].filter(Boolean);
     return channels.length
         ? `${channels.join(" + ")} available`
-        : "Secure link only";
+        : stagingOutreachOverrides.email || stagingOutreachOverrides.sms
+            ? "Public contact unverified · staging route ready"
+            : "Secure link only";
 }
 function shortId(value) {
     return value.length > 10 ? `${value.slice(0, 8)}...` : value;

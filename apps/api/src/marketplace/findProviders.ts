@@ -468,7 +468,7 @@ const citationJsonSchema = {
   required: ["title", "url", "sourceType", "evidenceNote"],
   properties: {
     title: { type: "string" },
-    url: { type: "string", format: "uri" },
+    url: { type: "string" },
     sourceType: {
       type: "string",
       enum: [
@@ -567,10 +567,10 @@ const discoveryJsonSchema = {
         ],
         properties: {
           companyName: { type: "string" },
-          website: { type: "string", format: "uri" },
-          logoUrl: { type: ["string", "null"], format: "uri" },
+          website: { type: "string" },
+          logoUrl: { type: ["string", "null"] },
           contactName: { type: ["string", "null"] },
-          contactEmail: { type: ["string", "null"], format: "email" },
+          contactEmail: { type: ["string", "null"] },
           contactPhone: { type: ["string", "null"] },
           location: { type: "string" },
           serviceRegions: { type: "array", items: { type: "string" } },

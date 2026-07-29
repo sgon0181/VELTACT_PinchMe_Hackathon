@@ -5,7 +5,9 @@ import {
   demoControlsEnabled,
   healthAllowsDemoControls,
   healthAllowsLocalDemoPayment,
-  localDemoPaymentEnabled
+  healthOutreachOverrideAvailability,
+  localDemoPaymentEnabled,
+  outreachOverrideAvailability
 } from "../public/assets/apiBase.js";
 
 test("allows demo controls only for explicit development and test health", () => {
@@ -64,6 +66,52 @@ test("uses health as the local-demo payment authority", async () => {
     }
   );
   assert.equal(enabled, true);
+});
+
+test("enables only health-confirmed live staging outreach overrides", async () => {
+  const live = {
+    environment: "development",
+    providerModes: { email: "resend", sms: "twilio" },
+    readiness: {
+      email: true,
+      sms: true,
+      outreachRecipientOverrides: true
+    }
+  };
+  assert.deepEqual(healthOutreachOverrideAvailability(live), {
+    email: true,
+    sms: true
+  });
+  assert.deepEqual(
+    healthOutreachOverrideAvailability({
+      ...live,
+      environment: "production"
+    }),
+    { email: false, sms: false }
+  );
+  assert.deepEqual(
+    healthOutreachOverrideAvailability({
+      ...live,
+      readiness: {
+        ...live.readiness,
+        outreachRecipientOverrides: false
+      }
+    }),
+    { email: false, sms: false }
+  );
+
+  const enabled = await outreachOverrideAvailability(
+    "https://veltact.example/api/",
+    async (url, init) => {
+      assert.equal(url, "https://veltact.example/api/health");
+      assert.equal(init.cache, "no-store");
+      return {
+        ok: true,
+        json: async () => live
+      };
+    }
+  );
+  assert.deepEqual(enabled, { email: true, sms: true });
 });
 
 test("uses the API health environment as the demo-control authority", async () => {
