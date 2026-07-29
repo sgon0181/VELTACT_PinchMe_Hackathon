@@ -133,6 +133,24 @@ Route templates are exported as `rapidMatchApiRoute`.
 The reset response must identify one canonical buyer workspace and at least two
 supplier invitation paths for comparison. All fixture records remain labelled.
 
+### Release Readiness
+
+- `GET /api/health`
+
+The health response is the operational authority for a deployed demo:
+
+- `releaseRevision`: the deployed Git revision, or `local` outside a release.
+- `providerModes.research`: `auto | openai | fixture`.
+- `providerModes.email`: `local_demo | resend | sendgrid`.
+- `providerModes.sms`: `none | local_demo | twilio`.
+- `providerModes.payment`: `local_demo | pinch`.
+- `readiness`: capability booleans without credentials, destinations or tokens.
+
+Release tooling must compare `releaseRevision` with the intended commit before
+running a browser rehearsal. A readiness boolean does not change the provider
+mode: for example, ready `local_demo` email still means that no external email
+was sent.
+
 Routes not already implemented are reserved by this contract. Implementations
 must use these names rather than adding `/api/v3`, `/api/unified` or additional
 V2 endpoints.
@@ -219,6 +237,8 @@ Agents must not emit canonical workflow updates under `veltact:v2:*`.
 - `VELTACT_V2_DATA_FILE` is migration-only.
 - `SUPPLIER_CATALOG_FILE` controls validated catalog data.
 - `PUBLIC_BASE_URL` is canonical for supplier and Pinch return links.
+- `RENDER_GIT_COMMIT` supplies the deployed revision on Render.
+- `VELTACT_RELEASE_SHA` may supply the revision on another host.
 - `BUYER_CAPABILITY_AUTH_REQUIRED` defaults to true in production.
 - `VELTACT_RESEARCH_PROVIDER=auto|openai|fixture` selects research behavior.
 - `OPENAI_API_KEY` enables live intake/research.
