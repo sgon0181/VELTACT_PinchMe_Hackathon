@@ -50,6 +50,9 @@ test("presents exactly the three highest-confidence solution pathways", () => {
 });
 
 test("keeps the canonical report and outreach controls visible", () => {
+  assert.match(mainBundle, />\s*Analyse requirement\s*</);
+  assert.match(mainBundle, /structureRequirement\(requirementForm, true\)/);
+  assert.doesNotMatch(mainBundle, /class="mode-switch"/);
   assert.match(mainBundle, /aria-label="Veltact Need Profile report"/);
   assert.match(mainBundle, /name="solution-pathway"/);
   assert.match(mainBundle, /data-download-report/);
@@ -58,10 +61,14 @@ test("keeps the canonical report and outreach controls visible", () => {
   assert.match(mainBundle, />\s*Find suppliers\s*</);
   assert.doesNotMatch(mainBundle, /Use this plan internally/);
   assert.match(mainBundle, /data-candidate-id/);
-  assert.match(mainBundle, /name="outreach-mode"/);
-  assert.match(mainBundle, /Secure link fallback/);
-  assert.match(mainBundle, /Prepare demo email invitations/);
-  assert.match(mainBundle, /Prepare demo SMS invitations/);
+  assert.match(mainBundle, /data-open-outreach/);
+  assert.match(mainBundle, />\s*Connect\s*</);
+  assert.match(mainBundle, /name="outreach-choice"/);
+  assert.match(mainBundle, /type="checkbox"/);
+  assert.match(mainBundle, /Select one or more channels/);
+  assert.match(mainBundle, />\s*Send\s*</);
+  assert.match(mainBundle, /function scrollBuyerWorkspaceToTop\(\)/);
+  assert.match(mainBundle, /match\.risks\.slice\(0, 2\)/);
   assert.match(mainBundle, /Site Assessment \/ Scoping Visit/);
 });
 
@@ -106,7 +113,7 @@ test("downloads the canonical buyer-scoped PDF without exposing the token", asyn
   assert.equal(report.blob.type, "application/pdf");
 });
 
-test("sends only selected supplier leads through the chosen canonical channel", async () => {
+test("sends only selected supplier leads through the chosen canonical channels", async () => {
   globalThis.window = {
     location: { origin: "https://buyer.veltact.example" }
   };
@@ -159,12 +166,12 @@ test("sends only selected supplier leads through the chosen canonical channel", 
   await service.sendSupplierOutreach(
     workspace,
     ["lead-1", "lead-3"],
-    ["sms"]
+    ["email", "sms"]
   );
 
   assert.deepEqual(JSON.parse(calls[0].init.body), {
     supplierLeadIds: ["lead-1", "lead-3"],
-    deliveryChannels: ["sms"]
+    deliveryChannels: ["email", "sms"]
   });
   assert.equal(
     calls[0].init.headers.get("x-veltact-buyer-token"),

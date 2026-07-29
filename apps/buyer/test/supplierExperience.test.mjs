@@ -54,6 +54,7 @@ describe("concise token-scoped supplier experience", () => {
     assert.match(html, /id="download-quote"/);
     assert.match(script, /await claimInvitation\(invitationToken, formData\)/);
     assert.match(script, /await postSupplierResponse\(/);
+    assert.match(script, /reasons\.slice\(0, 3\)/);
     assert.ok(
       script.indexOf("await claimInvitation") <
         script.indexOf("await postSupplierResponse")

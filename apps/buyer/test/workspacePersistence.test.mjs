@@ -120,6 +120,22 @@ test("Start new stores a tab-scoped reset marker", () => {
   );
 });
 
+test("the public Trial Demo entry starts fresh and removes its routing hint", () => {
+  assert.match(
+    mainBundle,
+    /const freshEntryRequested = url\.searchParams\.get\("start"\) === "new"/
+  );
+  assert.match(
+    mainBundle,
+    /if \(freshEntryRequested\) \{\s*safeStorageRemove\(LAST_NEED_KEY\);\s*safeSessionStorageSet\(NEW_REQUIREMENT_KEY, "1"\);/
+  );
+  assert.match(
+    mainBundle,
+    /freshEntryRequested \|\|\s*safeSessionStorageGet\(NEW_REQUIREMENT_KEY\) === "1"/
+  );
+  assert.match(mainBundle, /"needProfileId",\s*"start"/);
+});
+
 test("a missing workspace restored from browser storage recovers to fresh intake", () => {
   assert.match(
     mainBundle,

@@ -23,9 +23,9 @@ test("canonical public surfaces do not link to migration-only applications", asy
 
   assert.match(buyer, /src="\.\/assets\/main\.js/);
   assert.match(supplier, /src="\.\/supplier\.js/);
-  assert.match(landing, /href="\.\/index\.html"/);
-  assert.match(signIn, /href="\.\/index\.html"/);
-  assert.match(createAccount, /href="\.\/index\.html"/);
+  assert.match(landing, /href="\.\/index\.html\?start=new"/);
+  assert.match(signIn, /href="\.\/index\.html\?start=new"/);
+  assert.match(createAccount, /href="\.\/index\.html\?start=new"/);
 
   for (const surface of [landing, buyer, supplier, signIn, createAccount]) {
     assert.doesNotMatch(surface, /(?:href|src)="[^"]*(?:v2|supplier-claim)/i);

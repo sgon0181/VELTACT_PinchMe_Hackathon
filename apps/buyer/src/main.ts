@@ -48,7 +48,7 @@ type BuyerView =
   | "deployment";
 type IntakeMode = "ai" | "manual";
 type LoadState = "idle" | "loading" | "error" | "success";
-type OutreachMode = OutreachChannel | "link";
+type OutreachChoice = OutreachChannel | "link";
 type SupplierActivityStatus = "ready" | "sent" | "failed" | "viewed" | "responded";
 type SupplierCandidate = Pick<
   SupplierMatch,
@@ -61,7 +61,9 @@ type PersistedContext = {
   priority?: PrioritySignal;
   selectedApproachId?: string;
   selectedCandidateIds?: string[];
-  outreachMode?: OutreachMode;
+  outreachChoices?: OutreachChoice[];
+  outreachPanelOpen?: boolean;
+  outreachMode?: OutreachChoice;
   selectedResponseId?: string;
   engagementId?: string;
   intakeSourceMode?: IntakeSourceMode;
@@ -138,6 +140,11 @@ const priorities = new Set<PrioritySignal>([
   "trust",
   "price"
 ]);
+const outreachChoiceValues = new Set<OutreachChoice>([
+  "link",
+  "sms",
+  "email"
+]);
 
 let view: BuyerView = "intake";
 let intakeMode: IntakeMode = "ai";
@@ -149,7 +156,8 @@ let priority: PrioritySignal = "speed";
 let selectedApproachId = "";
 let selectedCandidateIds = new Set<string>();
 let candidateSelectionInitialised = false;
-let outreachMode: OutreachMode = "email";
+let selectedOutreachChoices = new Set<OutreachChoice>();
+let outreachPanelOpen = false;
 let selectedResponseId = "";
 let workspace: BuyerWorkspace | undefined;
 let aiIntakeResult: AiIntakeResult | undefined;
@@ -269,7 +277,13 @@ async function bootstrap() {
     selectedCandidateIds = new Set(context.selectedCandidateIds);
     candidateSelectionInitialised = true;
   }
-  if (context.outreachMode) outreachMode = context.outreachMode;
+  if (context.outreachChoices) {
+    selectedOutreachChoices = new Set(context.outreachChoices);
+  } else if (context.outreachMode) {
+    selectedOutreachChoices = new Set([context.outreachMode]);
+  }
+  outreachPanelOpen =
+    context.outreachPanelOpen ?? Boolean(context.outreachMode);
   if (context.selectedResponseId) selectedResponseId = context.selectedResponseId;
   if (context.intakeResult) aiIntakeResult = context.intakeResult;
   if (context.intakeSourceMode) intakeSourceMode = context.intakeSourceMode;
@@ -379,6 +393,14 @@ function render() {
   configureRealtime();
 }
 
+function scrollBuyerWorkspaceToTop() {
+  window.scrollTo({
+    top: 0,
+    left: 0,
+    behavior: "auto"
+  });
+}
+
 function renderJourney(phase: "find" | "connect" | "deploy") {
   const phases = [
     ["find", "Find", "Structure and choose a path"],
@@ -473,12 +495,6 @@ function renderWorkspaceStatus() {
 
 function renderIntake() {
   const structured = Boolean(aiIntakeResult);
-  const primaryLabel =
-    intakeMode === "manual"
-      ? "Analyse manual requirement"
-      : structured
-        ? "Analyse requirement"
-        : "Structure requirement";
   const missing = intakeMissingFields();
   const evidence = intakeEvidence.length
     ? `
@@ -520,11 +536,6 @@ function renderIntake() {
         }
       </div>
 
-      <div class="mode-switch" role="group" aria-label="Intake mode">
-        <button type="button" class="${intakeMode === "ai" ? "is-active" : ""}" data-intake-mode="ai" aria-pressed="${intakeMode === "ai"}">AI assisted</button>
-        <button type="button" class="${intakeMode === "manual" ? "is-active" : ""}" data-intake-mode="manual" aria-pressed="${intakeMode === "manual"}">Manual</button>
-      </div>
-
       <section class="intake-section intake-problem">
         <div class="section-heading">
           <div>
@@ -563,20 +574,9 @@ function renderIntake() {
         ${evidence}
       </section>
 
-      ${
-        structured
-          ? renderStructuredIntakeSummary(missing)
-          : intakeMode === "ai"
-            ? `
-              <div class="intake-explainer">
-                <strong>One bounded structuring pass</strong>
-                <span>The API extracts procurement fields, identifies unknowns and keeps every field editable before any supplier is contacted.</span>
-              </div>
-            `
-            : ""
-      }
+      ${structured ? renderStructuredIntakeSummary(missing) : ""}
 
-      ${renderManualFields(structured || intakeMode === "manual", missing)}
+      ${renderManualFields(structured, missing)}
 
       <div class="primary-action-row">
         <div>
@@ -584,7 +584,7 @@ function renderIntake() {
           <span>${escapeHtml(primaryActionDescription())}</span>
         </div>
         <button class="button button-primary" type="submit" ${loadState === "loading" ? "disabled" : ""}>
-          ${escapeHtml(primaryLabel)}
+          Analyse requirement
         </button>
       </div>
     </form>
@@ -635,8 +635,8 @@ function renderManualFields(open: boolean, missing: string[]) {
     <details class="manual-fields" ${open ? "open" : ""}>
       <summary>
         <span>
-          <strong>Review and edit Need Profile fields</strong>
-          <small>Manual entry stays available at every intake step.</small>
+          <strong>${open ? "Review and edit Need Profile" : "Additional requirement details"}</strong>
+          <small>${open ? "Confirm the structured fields before continuing." : "Location, urgency, budget, priority and buyer contact."}</small>
         </span>
         <span class="summary-status">${missing.length ? `${missing.length} missing` : "Ready"}</span>
       </summary>
@@ -996,12 +996,18 @@ function renderCandidates(data: BuyerWorkspace) {
   const selectedCount = candidates.filter((candidate) =>
     selectedCandidateIds.has(candidate.supplierId)
   ).length;
-  const channelAvailable = outreachModeAvailable(
-    data,
-    candidates,
-    outreachMode
+  const unavailableChoices = [...selectedOutreachChoices].filter(
+    (choice) => !outreachChoiceAvailable(data, candidates, choice)
   );
-  const action = outreachAction(outreachMode, selectedCount);
+  const action = outreachAction(
+    selectedOutreachChoices,
+    selectedCount,
+    unavailableChoices
+  );
+  const canSend =
+    selectedCount > 0 &&
+    selectedOutreachChoices.size > 0 &&
+    unavailableChoices.length === 0;
   return `
     <div class="view-stack">
       <section class="panel">
@@ -1024,48 +1030,73 @@ function renderCandidates(data: BuyerWorkspace) {
         <div class="outreach-approval-heading">
           <div>
             <p class="eyebrow">Buyer-approved outreach</p>
-            <h2>${selectedCount} supplier${selectedCount === 1 ? "" : "s"} selected</h2>
+            <h2>${outreachPanelOpen ? "Choose connection channels" : `${selectedCount} supplier${selectedCount === 1 ? "" : "s"} selected`}</h2>
           </div>
           <span class="selection-count">${selectedCount}/${candidates.length}</span>
         </div>
-        <fieldset class="outreach-modes">
-          <legend>Choose one outreach method</legend>
-          ${renderOutreachMode(
-            "email",
-            "Email",
-            "Send through the configured email provider"
-          )}
-          ${renderOutreachMode(
-            "sms",
-            "SMS",
-            "Send only where a mobile number is available"
-          )}
-          ${renderOutreachMode(
-            "link",
-            "Secure link",
-            "Generate links without requesting external delivery"
-          )}
-        </fieldset>
-        <div class="primary-action-row">
-          <div>
-            <strong>${escapeHtml(action.title)}</strong>
-            <span>${escapeHtml(
-              selectedCount === 0
-                ? "Select at least one supplier to continue."
-                : channelAvailable
-                  ? action.description
-                  : `${outreachMode === "sms" ? "SMS" : "Email"} is unavailable for the selected suppliers. Choose secure link instead.`
-            )}</span>
-          </div>
-          <button
-            class="button button-primary button-large"
-            type="button"
-            data-send-outreach
-            ${selectedCount > 0 && channelAvailable ? "" : "disabled"}
-          >
-            ${escapeHtml(action.label)}
-          </button>
-        </div>
+        ${
+          outreachPanelOpen
+            ? `
+              <fieldset class="outreach-modes">
+                <legend>Select one or more channels</legend>
+                ${renderOutreachChoice(
+                  data,
+                  candidates,
+                  "link",
+                  "Link",
+                  "Create a private RFQ link to copy manually"
+                )}
+                ${renderOutreachChoice(
+                  data,
+                  candidates,
+                  "sms",
+                  "SMS",
+                  "Send the private RFQ link to supplier mobile numbers"
+                )}
+                ${renderOutreachChoice(
+                  data,
+                  candidates,
+                  "email",
+                  "Email",
+                  "Send the private RFQ link to supplier email addresses"
+                )}
+              </fieldset>
+              <div class="primary-action-row">
+                <div>
+                  <strong>${escapeHtml(action.title)}</strong>
+                  <span>${escapeHtml(action.description)}</span>
+                </div>
+                <button
+                  class="button button-primary button-large"
+                  type="button"
+                  data-send-outreach
+                  ${canSend ? "" : "disabled"}
+                >
+                  Send
+                </button>
+              </div>
+            `
+            : `
+              <div class="primary-action-row">
+                <div>
+                  <strong>Ready to contact the selected suppliers</strong>
+                  <span>${escapeHtml(
+                    selectedCount
+                      ? "Choose how each supplier receives the same private RFQ."
+                      : "Select at least one supplier to continue."
+                  )}</span>
+                </div>
+                <button
+                  class="button button-primary button-large"
+                  type="button"
+                  data-open-outreach
+                  ${selectedCount > 0 ? "" : "disabled"}
+                >
+                  Connect
+                </button>
+              </div>
+            `
+        }
       </section>
     </div>
   `;
@@ -1108,13 +1139,13 @@ function renderCandidate(
       </div>
       <div class="candidate-section">
         <strong>Why this supplier</strong>
-        ${bulletList(match.reasons.slice(0, 3), "No match explanation returned.")}
+        ${bulletList(match.reasons.slice(0, 2), "No match explanation returned.")}
         ${
-          match.reasons.length > 3
+          match.reasons.length > 2
             ? `
               <details class="match-more">
-                <summary>View ${match.reasons.length - 3} more match signals</summary>
-                ${bulletList(match.reasons.slice(3), "No additional signals.")}
+                <summary>View ${match.reasons.length - 2} more match signals</summary>
+                ${bulletList(match.reasons.slice(2), "No additional signals.")}
               </details>
             `
             : ""
@@ -1122,7 +1153,17 @@ function renderCandidate(
       </div>
       <div class="candidate-section">
         <strong>Risks to verify</strong>
-        ${bulletList(match.risks, "No specific match risks returned.")}
+        ${bulletList(match.risks.slice(0, 2), "No specific match risks returned.")}
+        ${
+          match.risks.length > 2
+            ? `
+              <details class="match-more">
+                <summary>View ${match.risks.length - 2} more risks</summary>
+                ${bulletList(match.risks.slice(2), "No additional risks.")}
+              </details>
+            `
+            : ""
+        }
       </div>
       <div class="candidate-footer">
         <span class="status-chip is-ready">${invitation ? "Link ready" : "Candidate"}</span>
@@ -1132,22 +1173,31 @@ function renderCandidate(
   `;
 }
 
-function renderOutreachMode(
-  value: OutreachMode,
+function renderOutreachChoice(
+  data: BuyerWorkspace,
+  candidates: SupplierCandidate[],
+  value: OutreachChoice,
   label: string,
   description: string
 ) {
+  const selected = selectedOutreachChoices.has(value);
+  const available = outreachChoiceAvailable(data, candidates, value);
   return `
-    <label class="outreach-mode ${outreachMode === value ? "is-selected" : ""}">
+    <label class="outreach-mode ${selected ? "is-selected" : ""} ${available ? "" : "is-unavailable"}">
       <input
-        type="radio"
-        name="outreach-mode"
+        type="checkbox"
+        name="outreach-choice"
         value="${value}"
-        ${outreachMode === value ? "checked" : ""}
+        ${selected ? "checked" : ""}
+        ${!available && !selected ? "disabled" : ""}
       />
       <span>
         <strong>${escapeHtml(label)}</strong>
-        <small>${escapeHtml(description)}</small>
+        <small>${escapeHtml(
+          available
+            ? description
+            : `${description}. Unavailable for one or more selected suppliers.`
+        )}</small>
       </span>
     </label>
   `;
@@ -1984,7 +2034,7 @@ function bindEvents() {
     event.preventDefault();
     syncIntakeDraft(requirementForm);
     if (intakeMode === "ai" && !aiIntakeResult) {
-      void structureRequirement(requirementForm);
+      void structureRequirement(requirementForm, true);
       return;
     }
     void analyseRequirement();
@@ -2003,19 +2053,6 @@ function bindEvents() {
     if (!milestoneForm.reportValidity()) return;
     void updateDeploymentMilestone(milestoneForm);
   });
-
-  document.querySelectorAll<HTMLButtonElement>("[data-intake-mode]").forEach(
-    (button) => {
-      button.addEventListener("click", () => {
-        if (requirementForm) syncIntakeDraft(requirementForm);
-        intakeRevision += 1;
-        intakeMode = button.dataset.intakeMode === "manual" ? "manual" : "ai";
-        loadState = "idle";
-        errorMessage = "";
-        render();
-      });
-    }
-  );
 
   document.querySelectorAll<HTMLButtonElement>("[data-demo]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2088,15 +2125,18 @@ function bindEvents() {
     });
 
   document
-    .querySelectorAll<HTMLInputElement>("input[name='outreach-mode']")
-    .forEach((radio) => {
-      radio.addEventListener("change", () => {
-        const next = radio.value as OutreachMode;
-        if (next === "email" || next === "sms" || next === "link") {
-          outreachMode = next;
-          persistContext();
-          render();
+    .querySelectorAll<HTMLInputElement>("input[name='outreach-choice']")
+    .forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        const next = checkbox.value as OutreachChoice;
+        if (!outreachChoiceValues.has(next)) return;
+        if (checkbox.checked) {
+          selectedOutreachChoices.add(next);
+        } else {
+          selectedOutreachChoices.delete(next);
         }
+        persistContext();
+        render();
       });
     });
 
@@ -2104,16 +2144,23 @@ function bindEvents() {
   bindClick("[data-download-report]", downloadReport);
   bindClick("[data-find-suppliers]", findSpecialist);
   bindClick("[data-refresh-workspace]", refreshWorkspace);
+  bindClick("[data-open-outreach]", () => {
+    outreachPanelOpen = true;
+    persistContext();
+    render();
+  });
   bindClick("[data-send-outreach]", sendOutreach);
   bindClick("[data-compare]", () => {
     view = "compare";
     persistContext();
     render();
+    scrollBuyerWorkspaceToTop();
   });
   bindClick("[data-back-outreach]", () => {
     view = "outreach";
     persistContext();
     render();
+    scrollBuyerWorkspaceToTop();
   });
   bindClick("[data-select-supplier]", selectSupplier);
   bindClick("[data-create-payment]", createPayment);
@@ -2145,7 +2192,10 @@ function bindEvents() {
     });
 }
 
-async function structureRequirement(form: HTMLFormElement) {
+async function structureRequirement(
+  form: HTMLFormElement,
+  analyseWhenComplete = false
+) {
   syncIntakeDraft(form);
   const requestRevision = intakeRevision;
   const requestMode = intakeMode;
@@ -2160,6 +2210,7 @@ async function structureRequirement(form: HTMLFormElement) {
   errorMessage = "";
   liveMessage = "";
   render();
+  let continueToAnalysis = false;
 
   try {
     const outcome = await structureIntakeWithFallback(
@@ -2189,6 +2240,8 @@ async function structureRequirement(form: HTMLFormElement) {
     intakeSourceMode = outcome.sourceMode;
     applyStructuredResult(outcome.result);
     loadState = "success";
+    continueToAnalysis =
+      analyseWhenComplete && !validateDraft(intakeDraft);
     liveMessage = outcome.fallbackReason
       ? localFallbackMessage(outcome.fallbackReason)
       : intakeSourceMode === "live"
@@ -2212,7 +2265,12 @@ async function structureRequirement(form: HTMLFormElement) {
       errorMessage = errorText(error);
     }
   }
-  if (requestId === activeIntakeRequestId) render();
+  if (requestId !== activeIntakeRequestId) return;
+  if (continueToAnalysis) {
+    await analyseRequirement();
+    return;
+  }
+  render();
 }
 
 type IntakeFallbackReason = "slow" | "unavailable";
@@ -2386,6 +2444,8 @@ async function findSpecialist() {
       supplierCandidates(next).map((candidate) => candidate.supplierId)
     );
     candidateSelectionInitialised = true;
+    selectedOutreachChoices = new Set();
+    outreachPanelOpen = false;
     view = "candidates";
     persistContext();
     liveMessage = "Supplier candidates ready for buyer review.";
@@ -2393,10 +2453,33 @@ async function findSpecialist() {
 }
 
 async function sendOutreach() {
-  if (!workspace || selectedCandidateIds.size === 0) return;
-  const deliveryChannels: OutreachChannel[] =
-    outreachMode === "link" ? [] : [outreachMode];
-  const action = outreachAction(outreachMode, selectedCandidateIds.size);
+  if (
+    !workspace ||
+    selectedCandidateIds.size === 0 ||
+    selectedOutreachChoices.size === 0
+  ) {
+    return;
+  }
+  const candidates = supplierCandidates(workspace);
+  if (
+    [...selectedOutreachChoices].some(
+      (choice) => !outreachChoiceAvailable(workspace as BuyerWorkspace, candidates, choice)
+    )
+  ) {
+    loadState = "error";
+    errorMessage =
+      "Remove unavailable outreach channels before sending supplier invitations.";
+    render();
+    return;
+  }
+  const deliveryChannels: OutreachChannel[] = [];
+  if (selectedOutreachChoices.has("email")) deliveryChannels.push("email");
+  if (selectedOutreachChoices.has("sms")) deliveryChannels.push("sms");
+  const action = outreachAction(
+    selectedOutreachChoices,
+    selectedCandidateIds.size,
+    []
+  );
   await runAction(action.loadingLabel, async () => {
     workspace = await service.sendSupplierOutreach(
       workspace as BuyerWorkspace,
@@ -2405,10 +2488,12 @@ async function sendOutreach() {
     );
     view = "outreach";
     persistContext();
-    liveMessage =
-      outreachMode === "link"
-        ? "Secure supplier links are ready. Delivery records below remain authoritative."
-        : `${outreachMode === "sms" ? "SMS" : "Email"} delivery requested. Status reflects backend confirmation.`;
+    const externalChannels = deliveryChannels.map((channel) =>
+      channel === "sms" ? "SMS" : "Email"
+    );
+    liveMessage = externalChannels.length
+      ? `${externalChannels.join(" and ")} delivery requested. Secure supplier links are ready and backend status remains authoritative.`
+      : "Secure supplier links are ready for manual sharing. No external delivery was requested.";
   });
 }
 
@@ -2547,6 +2632,7 @@ async function updateDeploymentMilestone(form: HTMLFormElement) {
 }
 
 async function runAction(label: string, action: () => Promise<void>) {
+  const startingView = view;
   loadState = "loading";
   loadingLabel = label;
   errorMessage = "";
@@ -2560,6 +2646,7 @@ async function runAction(label: string, action: () => Promise<void>) {
     errorMessage = errorText(error);
   }
   render();
+  if (view !== startingView) scrollBuyerWorkspaceToTop();
 }
 
 function configurePolling() {
@@ -2728,6 +2815,7 @@ async function refreshRealtimeState(message: string) {
       return;
     }
     workspace = refreshedWorkspace;
+    const startingView = view;
     selectedResponseId =
       workspace.engagement?.supplierResponseId || selectedResponseId;
     if (workspace.engagement?.status === "supplier_secured") {
@@ -2735,7 +2823,10 @@ async function refreshRealtimeState(message: string) {
     }
     liveMessage = message;
     persistContext();
-    if (!milestoneUpdateFormHasFocus()) render();
+    if (!milestoneUpdateFormHasFocus()) {
+      render();
+      if (view !== startingView) scrollBuyerWorkspaceToTop();
+    }
   } catch {
     // Scheduled polling and explicit refresh remain available if realtime fails.
   } finally {
@@ -2765,6 +2856,7 @@ async function pollWorkspace() {
       return;
     }
     workspace = refreshedWorkspace;
+    const startingView = view;
     const nextResponses = submittedResponses(workspace).length;
     if (workspace.engagement?.status === "supplier_secured") {
       view = "deployment";
@@ -2782,6 +2874,7 @@ async function pollWorkspace() {
       persistContext();
       if (!milestoneUpdateFormHasFocus()) render();
     }
+    if (view !== startingView) scrollBuyerWorkspaceToTop();
   } catch {
     // Polling stays silent. Explicit refresh surfaces actionable API errors.
   } finally {
@@ -2811,7 +2904,8 @@ function loadDemo(input: BuyerRequirementInput, robotics: boolean) {
   selectedApproachId = "";
   selectedCandidateIds = new Set();
   candidateSelectionInitialised = false;
-  outreachMode = "email";
+  selectedOutreachChoices = new Set();
+  outreachPanelOpen = false;
   intakeEvidence = [
     {
       kind: "written",
@@ -3081,6 +3175,11 @@ function renderIntakeProvenance() {
 
 function readWorkspaceIdentity() {
   const url = new URL(window.location.href);
+  const freshEntryRequested = url.searchParams.get("start") === "new";
+  if (freshEntryRequested) {
+    safeStorageRemove(LAST_NEED_KEY);
+    safeSessionStorageSet(NEW_REQUIREMENT_KEY, "1");
+  }
   const explicitNeedProfileId =
     url.searchParams.get("needId") ??
     url.searchParams.get("needProfileId") ??
@@ -3088,7 +3187,8 @@ function readWorkspaceIdentity() {
   const needProfileId = resolveRestoredNeedProfileId(
     explicitNeedProfileId,
     safeStorageGet(LAST_NEED_KEY) ?? undefined,
-    safeSessionStorageGet(NEW_REQUIREMENT_KEY) === "1"
+    freshEntryRequested ||
+      safeSessionStorageGet(NEW_REQUIREMENT_KEY) === "1"
   );
   if (explicitNeedProfileId) {
     safeSessionStorageRemove(NEW_REQUIREMENT_KEY);
@@ -3105,7 +3205,8 @@ function readWorkspaceIdentity() {
     "buyerToken",
     "buyerAccessToken",
     "accessToken",
-    "needProfileId"
+    "needProfileId",
+    "start"
   ]) {
     url.searchParams.delete(key);
   }
@@ -3163,7 +3264,8 @@ function persistContext() {
     priority,
     selectedApproachId: selectedApproachId || undefined,
     selectedCandidateIds: [...selectedCandidateIds],
-    outreachMode,
+    outreachChoices: orderedOutreachChoices(selectedOutreachChoices),
+    outreachPanelOpen,
     selectedResponseId: selectedResponseId || undefined,
     engagementId: current.engagement?.id,
     intakeSourceMode,
@@ -3201,6 +3303,13 @@ function loadContext(needProfileId: string): PersistedContext {
       priorities.has(value.priority as PrioritySignal)
         ? (value.priority as PrioritySignal)
         : undefined;
+    const storedOutreachChoices = Array.isArray(value.outreachChoices)
+      ? value.outreachChoices.filter(
+          (item): item is OutreachChoice =>
+            typeof item === "string" &&
+            outreachChoiceValues.has(item as OutreachChoice)
+        )
+      : undefined;
     return {
       view: storedView,
       priority: storedPriority,
@@ -3213,6 +3322,11 @@ function loadContext(needProfileId: string): PersistedContext {
             (item): item is string => typeof item === "string"
           )
         : undefined,
+      outreachChoices: storedOutreachChoices,
+      outreachPanelOpen:
+        typeof value.outreachPanelOpen === "boolean"
+          ? value.outreachPanelOpen
+          : undefined,
       outreachMode:
         value.outreachMode === "email" ||
         value.outreachMode === "sms" ||
@@ -3330,7 +3444,8 @@ function resetRequirementState(needProfileId?: string) {
   selectedApproachId = "";
   selectedCandidateIds = new Set();
   candidateSelectionInitialised = false;
-  outreachMode = "email";
+  selectedOutreachChoices = new Set();
+  outreachPanelOpen = false;
   selectedResponseId = "";
   intakeMode = "ai";
   view = "intake";
@@ -3344,6 +3459,7 @@ function resetRequirementState(needProfileId?: string) {
 function startNewRequirement() {
   resetRequirementState(workspace?.needProfile?.id);
   render();
+  scrollBuyerWorkspaceToTop();
 }
 
 function currentPhase(): "find" | "connect" | "deploy" {
@@ -3448,16 +3564,21 @@ function resolveSelectedCandidateIds(
   );
 }
 
-function outreachModeAvailable(
+function orderedOutreachChoices(choices: Set<OutreachChoice>) {
+  const order: OutreachChoice[] = ["link", "sms", "email"];
+  return order.filter((choice) => choices.has(choice));
+}
+
+function outreachChoiceAvailable(
   data: BuyerWorkspace,
   candidates: SupplierCandidate[],
-  mode: OutreachMode
+  choice: OutreachChoice
 ) {
-  if (mode === "link") return true;
+  if (choice === "link") return true;
   const selected = candidates
     .filter((candidate) => selectedCandidateIds.has(candidate.supplierId))
     .map((candidate) => supplierFor(data, candidate.supplierId));
-  if (mode === "sms") {
+  if (choice === "sms") {
     return (
       selected.length > 0 &&
       selected.every(
@@ -3474,50 +3595,63 @@ function outreachModeAvailable(
   );
 }
 
-function outreachAction(mode: OutreachMode, count: number) {
+function outreachAction(
+  choices: Set<OutreachChoice>,
+  count: number,
+  unavailableChoices: OutreachChoice[]
+) {
   const supplierLabel = `${count} supplier${count === 1 ? "" : "s"}`;
-  if (mode === "link") {
+  if (count === 0) {
     return {
-      title: "Secure link fallback",
-      description:
-        "The request selects no provider channel. The backend delivery records remain the source of truth.",
-      label: `Create links for ${supplierLabel}`,
-      loadingLabel: "Creating secure supplier links"
+      title: "Select at least one supplier",
+      description: "Choose the suppliers that should receive this RFQ.",
+      loadingLabel: "Sending supplier outreach"
     };
   }
-  if (mode === "sms") {
-    if (demoControlsAvailable) {
-      return {
-        title: "Prepare demo SMS invitations",
-        description:
-          "Veltact prepares the same private links and delivery records without contacting an external phone.",
-        label: `Prepare demo SMS for ${supplierLabel}`,
-        loadingLabel: "Preparing demo SMS outreach"
-      };
-    }
+  if (choices.size === 0) {
     return {
-      title: "Send SMS through the configured provider",
-      description:
-        "Only backend provider acceptance can move SMS delivery to Sent. Secure links remain available for every selected supplier.",
-      label: `Send SMS to ${supplierLabel}`,
-      loadingLabel: "Requesting approved SMS outreach"
+      title: "Choose at least one channel",
+      description: `Select Link, SMS or Email for ${supplierLabel}.`,
+      loadingLabel: "Sending supplier outreach"
     };
   }
-  if (demoControlsAvailable) {
+  if (unavailableChoices.length) {
+    const unavailable = unavailableChoices
+      .map((choice) => (choice === "sms" ? "SMS" : statusLabel(choice)))
+      .join(" and ");
     return {
-      title: "Prepare demo email invitations",
+      title: `${unavailable} unavailable`,
       description:
-        "Veltact prepares the same private links and delivery records without contacting an external inbox.",
-      label: `Prepare demo email for ${supplierLabel}`,
-      loadingLabel: "Preparing demo email outreach"
+        "One or more selected suppliers are missing the required destination. Remove that channel or change the supplier selection.",
+      loadingLabel: "Sending supplier outreach"
+    };
+  }
+  const selectedLabels = orderedOutreachChoices(choices).map((choice) =>
+    choice === "sms" ? "SMS" : statusLabel(choice)
+  );
+  const hasExternalDelivery =
+    choices.has("email") || choices.has("sms");
+  if (demoControlsAvailable && hasExternalDelivery) {
+    return {
+      title: `Ready to send by ${selectedLabels.join(", ")}`,
+      description:
+        "Demo mode records provider-shaped delivery evidence without contacting external destinations. Private supplier links remain fully usable.",
+      loadingLabel: "Recording demo supplier outreach"
+    };
+  }
+  if (!hasExternalDelivery) {
+    return {
+      title: `Ready to create links for ${supplierLabel}`,
+      description:
+        "No external delivery will be requested. Each selected supplier receives a private RFQ link you can copy manually.",
+      loadingLabel: "Creating private supplier links"
     };
   }
   return {
-    title: "Send email through the configured provider",
+    title: `Ready to send by ${selectedLabels.join(", ")}`,
     description:
-      "Only backend provider acceptance can move email delivery to Sent. Secure links remain available for every selected supplier.",
-    label: `Send email to ${supplierLabel}`,
-    loadingLabel: "Requesting approved email outreach"
+      "Backend provider acceptance controls delivery status. A private supplier link is generated for every selected supplier.",
+    loadingLabel: "Sending supplier outreach"
   };
 }
 
@@ -3684,19 +3818,17 @@ function renderInlineEmpty(title: string, body: string) {
 }
 
 function primaryActionHeading() {
-  if (intakeMode === "manual") return "Create and analyse the manual profile";
-  if (aiIntakeResult) return "Create the reviewed Need Profile";
-  return "Structure one supplier requirement";
+  if (aiIntakeResult) return "Continue with the reviewed Need Profile";
+  return "Create a supplier-ready Need Profile";
 }
 
 function primaryActionDescription() {
-  if (intakeMode === "manual") {
-    return "Manual fields go through the same canonical Need Profile API.";
-  }
   if (aiIntakeResult) {
-    return "No supplier outreach occurs during analysis.";
+    return intakeMissingFields().length
+      ? "Complete the missing fields before viewing recommended solutions."
+      : "Your reviewed scope will be used to generate three recommended pathways.";
   }
-  return "Low-signal input is rejected before a paid model call.";
+  return "Veltact structures the requirement and prepares recommended pathways. No supplier is contacted yet.";
 }
 
 function fileEvidenceNote(item: IntakeEvidence) {
