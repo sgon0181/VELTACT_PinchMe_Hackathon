@@ -81,7 +81,7 @@ test("keeps Pinch wording only for secure GetPinch hosted links", () => {
     "https://sandbox.getpinch.com.au/pay/plk_sandbox"
   );
   assert.equal(pinch.kind, "pinch");
-  assert.equal(pinch.openLabel, "Open Pinch payment");
+  assert.equal(pinch.openLabel, "Open secure Pinch checkout");
   assert.equal(pinch.readyMessage, "Pinch checkout is ready.");
 
   const insecure = paymentLinkPresentation(
@@ -100,7 +100,10 @@ test("uses provider-neutral copy before a hosted URL exists", () => {
   assert.equal(uncreated.kind, "uncreated");
   assert.equal(uncreated.eyebrow, "Deploy / Hosted commitment");
   assert.equal(uncreated.openLabel, "Create payment link");
-  assert.doesNotMatch(mainBundle, /Create a Pinch commitment/);
+  assert.match(
+    mainBundle,
+    /Create local demo payment link.*Create Pinch payment link/
+  );
   assert.match(mainBundle, /Create a hosted commitment/);
 });
 

@@ -36,6 +36,7 @@ import {
   getEngagement,
   getInvitation,
   getNeedReportForNeed,
+  getSupplierCommitmentNotification,
   getSolutionDecisionForNeed,
   listLocalDemoPaymentEvidence,
   listMarketplaceAuditEvents,
@@ -1829,7 +1830,7 @@ describe("marketplace core routes", () => {
     assert.equal(missingInvitation.status, 404);
   });
 
-  test("creates hosted payment link and secures only after verified Pinch event", async () => {
+  test("preserves cents and secures and notifies only after verified Pinch event", async () => {
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",
       profile: automationNeed()
@@ -1888,6 +1889,10 @@ describe("marketplace core routes", () => {
       pendingDeployment.body.deployment.milestones[0].status,
       "awaiting_payment"
     );
+    assert.equal(
+      getSupplierCommitmentNotification(selected.body.engagement.id),
+      undefined
+    );
 
     const returned = await fetch(`${baseUrl}/api/pinch/return/${selected.body.engagement.id}`);
     const returnText = await returned.text();
@@ -1932,6 +1937,11 @@ describe("marketplace core routes", () => {
     assert.equal(secured.body.engagement.paymentEvidenceProvider, "pinch");
     assert.equal(secured.body.engagement.paymentEvidenceSource, "pinch_webhook");
     assert.equal(secured.body.engagement.paymentEvidenceAuthoritative, true);
+    assert.equal(
+      getSupplierCommitmentNotification(selected.body.engagement.id)
+        ?.notificationType,
+      "commitment_confirmed"
+    );
 
     const securedWorkspace = await getJson(
       `/api/need-profiles/${created.body.need.id}`

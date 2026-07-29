@@ -1518,7 +1518,7 @@ function renderSelected(data: BuyerWorkspace) {
           <strong>Create a hosted commitment</strong>
           <span>The API uses the configured payment provider and returns its hosted link. Payment remains pending until backend evidence is confirmed.</span>
         </div>
-        <button class="button button-primary button-large" type="button" data-create-payment>Create payment link</button>
+        <button class="button button-primary button-large" type="button" data-create-payment>${localDemoPaymentAvailable ? "Create local demo payment link" : "Create Pinch payment link"}</button>
       </div>
     </section>
   `;
@@ -1584,7 +1584,7 @@ function paymentLinkPresentation(hostedUrl?: string) {
         "Opening checkout does not change payment status. The buyer workspace refreshes the engagement record to confirm Pinch evidence.",
       actionTitle: "Complete the commitment in Pinch",
       actionCopy: "Pinch checkout opens in a separate secure tab.",
-      openLabel: "Open Pinch payment",
+      openLabel: "Open secure Pinch checkout",
       readyMessage: "Pinch checkout is ready."
     };
   }
