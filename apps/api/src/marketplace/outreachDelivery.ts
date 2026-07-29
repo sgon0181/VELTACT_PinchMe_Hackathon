@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { env } from "../env.js";
 import type { OutreachChannel } from "@veltact/contracts";
 import type { NeedRecord, SupplierInvitation, SupplierOutreachDelivery } from "./types.js";
@@ -50,6 +51,10 @@ type OutreachProvider =
   | "twilio_whatsapp";
 
 const providerTimeoutMs = 10_000;
+const inFlightSupplierOpportunities = new Map<
+  string,
+  Promise<DeliveryResult>
+>();
 
 export type SelectedOutreachDelivery = {
   delivery: SupplierOutreachDelivery;
@@ -69,6 +74,10 @@ export function getOutreachDeliveryReadiness(
       return env.NODE_ENV === "production"
         ? unavailable(provider, "Production email provider is not configured.")
         : { available: true, provider };
+    }
+    const publicBaseUrlError = livePublicBaseUrlError();
+    if (publicBaseUrlError) {
+      return unavailable(provider, publicBaseUrlError);
     }
     if (!env.EMAIL_FROM) {
       return unavailable(provider, "EMAIL_FROM is not configured.");
@@ -91,6 +100,10 @@ export function getOutreachDeliveryReadiness(
   if (env.SMS_PROVIDER === "none") {
     return unavailable(provider, `${isWhatsApp ? "WhatsApp" : "SMS"} provider is not configured.`);
   }
+  const publicBaseUrlError = livePublicBaseUrlError();
+  if (publicBaseUrlError) {
+    return unavailable(provider, publicBaseUrlError);
+  }
 
   const from = isWhatsApp ? env.TWILIO_WHATSAPP_FROM : env.TWILIO_FROM_NUMBER;
   if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN || !from) {
@@ -107,14 +120,43 @@ export function getOutreachDeliveryReadiness(
  * Callers must leave the contract delivery status as `not_sent` when the
  * outcome is `not_configured`; only an attempted `failed` outcome is a failure.
  */
-export async function sendSupplierOpportunity(
+export function sendSupplierOpportunity(
   delivery: SupplierOutreachDelivery,
   invitation: SupplierInvitation,
   need: NeedRecord
 ): Promise<DeliveryResult> {
+  const requestKey = supplierOpportunityIdempotencyKey(delivery);
+  const active = inFlightSupplierOpportunities.get(requestKey);
+  if (active) return active;
+
+  const task = deliverSupplierOpportunity(
+    delivery,
+    invitation,
+    need,
+    requestKey
+  ).finally(() => {
+    inFlightSupplierOpportunities.delete(requestKey);
+  });
+  inFlightSupplierOpportunities.set(requestKey, task);
+  return task;
+}
+
+async function deliverSupplierOpportunity(
+  delivery: SupplierOutreachDelivery,
+  invitation: SupplierInvitation,
+  need: NeedRecord,
+  idempotencyKey: string
+): Promise<DeliveryResult> {
   const readiness = getOutreachDeliveryReadiness(delivery);
   if (!readiness.available) {
     return notConfigured(readiness.provider, readiness.reason);
+  }
+  const invitationLinkError = liveInvitationLinkError(
+    invitation,
+    readiness.provider
+  );
+  if (invitationLinkError) {
+    return notConfigured(readiness.provider, invitationLinkError);
   }
 
   try {
@@ -124,6 +166,7 @@ export async function sendSupplierOpportunity(
         subject: `Veltact opportunity: ${need.profile.title}`,
         text: supplierEmailMessage(invitation, need),
         html: supplierEmailHtml(invitation, need),
+        idempotencyKey,
         provider: readiness.provider
       });
     }
@@ -200,7 +243,7 @@ export function supplierEmailMessage(
     "",
     "Veltact matched this request using reviewed catalogue or public-source evidence.",
     "That evidence indicates relevance only; it is not identity, licence, KYC or availability verification.",
-    "Ignore this message to decline. Reply STOP or contact the sender to opt out of future Veltact outreach."
+    "Ignore this message to decline. Contact the sender to opt out of future Veltact outreach."
   ].join("\n");
 }
 
@@ -238,7 +281,7 @@ export function supplierEmailHtml(
 }
 
 export function supplierSmsMessage(invitation: SupplierInvitation) {
-  return `Veltact RFQ: review and respond privately ${invitation.responseUrl}`;
+  return `Veltact RFQ: ${invitation.responseUrl} Reply STOP to opt out.`;
 }
 
 export function supplierRfqUrl(invitation: SupplierInvitation) {
@@ -269,6 +312,13 @@ export async function sendCommitmentConfirmedEmail(input: {
   const readiness = getOutreachDeliveryReadiness(delivery);
   if (!readiness.available) {
     return notConfigured(readiness.provider, readiness.reason);
+  }
+  const responseLinkError = liveResponseLinkError(
+    input.responseUrl,
+    readiness.provider
+  );
+  if (responseLinkError) {
+    return notConfigured(readiness.provider, responseLinkError);
   }
 
   const text = commitmentConfirmedEmailMessage(input);
@@ -382,7 +432,7 @@ async function sendTwilioMessage(input: {
 }): Promise<DeliveryResult> {
   if (input.provider === "local_demo") {
     console.info(
-      `[local-demo-sms] Prepared SMS without external delivery: ${input.body}`
+      "[local-demo-sms] Prepared SMS without external delivery."
     );
     return localDemo("SMS");
   }
@@ -418,34 +468,186 @@ async function providerResult(
   response: Response,
   provider: OutreachProvider
 ): Promise<DeliveryResult> {
-  if (response.ok) {
-    return sent(provider);
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    const detail = body ? `: ${redactOutreachError(body.slice(0, 240))}` : "";
+    return failed(
+      provider,
+      `${providerLabel(provider)} rejected delivery (${response.status})${detail}`
+    );
+  }
+
+  if (provider === "sendgrid") {
+    return response.status === 202
+      ? sent(provider)
+      : invalidAcceptance(provider, response.status);
   }
 
   const body = await response.text().catch(() => "");
-  const detail = body ? `: ${redactOutreachError(body.slice(0, 240))}` : "";
-  return failed(
-    provider,
-    `${providerLabel(provider)} rejected delivery (${response.status})${detail}`
-  );
+  const payload = parseProviderJson(body);
+  if (provider === "resend") {
+    return typeof payload?.id === "string" && payload.id.trim()
+      ? sent(provider)
+      : invalidAcceptance(provider, response.status);
+  }
+
+  const twilioStatus =
+    typeof payload?.status === "string"
+      ? payload.status.toLowerCase()
+      : undefined;
+  return typeof payload?.sid === "string" &&
+    /^(SM|MM)/.test(payload.sid) &&
+    twilioStatus !== "failed" &&
+    twilioStatus !== "undelivered"
+    ? sent(provider)
+    : invalidAcceptance(provider, response.status);
 }
 
 export function redactOutreachError(value: string) {
-  let redacted = value.replace(
-    /([?&]token=)[^&\s"'<>]+/gi,
-    "$1[redacted]"
-  );
+  let redacted = value
+    .replace(
+      /([?&](?:amp;)?token=)[^&\s"'<>]+/gi,
+      "$1[redacted]"
+    )
+    .replace(
+      /(token%3D)(?:(?!%26|[\s"'<>]).)+/gi,
+      "$1[redacted]"
+    )
+    .replace(
+      /("(?:token|api[_-]?key|auth[_-]?token|authorization)"\s*:\s*")[^"]*(")/gi,
+      "$1[redacted]$2"
+    )
+    .replace(
+      /(\/api\/supplier-invitations\/)[^/\s"'<>?]+/gi,
+      "$1[redacted]"
+    )
+    .replace(
+      /(%2Fapi%2Fsupplier-invitations%2F)(?:(?!%2F|[\s"'<>]).)+/gi,
+      "$1[redacted]"
+    )
+    .replace(
+      /(\b(?:authorization\s*[:=]\s*)?(?:bearer|basic)\s+)[a-z0-9._~+/=-]+/gi,
+      "$1[redacted]"
+    );
   const secrets = [
     env.RESEND_API_KEY,
     env.SENDGRID_API_KEY,
     env.TWILIO_AUTH_TOKEN,
-    env.TWILIO_ACCOUNT_SID
+    env.TWILIO_ACCOUNT_SID,
+    twilioBasicCredential()
   ].filter((secret): secret is string => Boolean(secret && secret.length >= 6));
 
   for (const secret of secrets) {
     redacted = redacted.split(secret).join("[redacted]");
   }
   return redacted;
+}
+
+function supplierOpportunityIdempotencyKey(
+  delivery: SupplierOutreachDelivery
+) {
+  const digest = createHash("sha256")
+    .update(`${delivery.invitationId}\0${delivery.channel}`)
+    .digest("hex");
+  return `veltact-opportunity-${digest}`;
+}
+
+function livePublicBaseUrlError() {
+  if (env.NODE_ENV === "test") return undefined;
+
+  try {
+    const publicBaseUrl = new URL(env.PUBLIC_BASE_URL);
+    if (
+      publicBaseUrl.protocol !== "https:" ||
+      publicBaseUrl.username ||
+      publicBaseUrl.password
+    ) {
+      return "PUBLIC_BASE_URL must be a credential-free HTTPS URL for live outreach.";
+    }
+  } catch {
+    return "PUBLIC_BASE_URL must be a valid HTTPS URL for live outreach.";
+  }
+  return undefined;
+}
+
+function liveInvitationLinkError(
+  invitation: SupplierInvitation,
+  provider: OutreachProvider
+) {
+  if (provider === "local_demo" || env.NODE_ENV === "test") {
+    return undefined;
+  }
+
+  const baseError = livePublicBaseUrlError();
+  if (baseError) return baseError;
+
+  try {
+    const publicBaseUrl = new URL(env.PUBLIC_BASE_URL);
+    const responseUrl = new URL(invitation.responseUrl);
+    if (
+      responseUrl.protocol !== "https:" ||
+      responseUrl.origin !== publicBaseUrl.origin ||
+      responseUrl.pathname !== "/supplier.html" ||
+      responseUrl.searchParams.get("token") !== invitation.token ||
+      responseUrl.username ||
+      responseUrl.password
+    ) {
+      return "Supplier invitation link must use the configured HTTPS PUBLIC_BASE_URL; recreate the invitation.";
+    }
+  } catch {
+    return "Supplier invitation link must be a valid URL on the configured HTTPS PUBLIC_BASE_URL.";
+  }
+  return undefined;
+}
+
+function liveResponseLinkError(
+  responseUrlValue: string,
+  provider: OutreachProvider
+) {
+  if (provider === "local_demo" || env.NODE_ENV === "test") {
+    return undefined;
+  }
+
+  const baseError = livePublicBaseUrlError();
+  if (baseError) return baseError;
+
+  try {
+    const publicBaseUrl = new URL(env.PUBLIC_BASE_URL);
+    const responseUrl = new URL(responseUrlValue);
+    if (
+      responseUrl.protocol !== "https:" ||
+      responseUrl.origin !== publicBaseUrl.origin ||
+      responseUrl.pathname !== "/supplier.html" ||
+      !responseUrl.searchParams.get("token") ||
+      responseUrl.username ||
+      responseUrl.password
+    ) {
+      return "Supplier response link must use the configured HTTPS PUBLIC_BASE_URL.";
+    }
+  } catch {
+    return "Supplier response link must be a valid URL on the configured HTTPS PUBLIC_BASE_URL.";
+  }
+  return undefined;
+}
+
+function twilioBasicCredential() {
+  if (!env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN) {
+    return undefined;
+  }
+  return Buffer.from(
+    `${env.TWILIO_ACCOUNT_SID}:${env.TWILIO_AUTH_TOKEN}`
+  ).toString("base64");
+}
+
+function parseProviderJson(value: string) {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function sendGridFrom(value: string) {
@@ -584,4 +786,14 @@ function failed(
     provider,
     errorMessage
   };
+}
+
+function invalidAcceptance(
+  provider: OutreachProvider,
+  status: number
+): DeliveryResult {
+  return failed(
+    provider,
+    `${providerLabel(provider)} returned an invalid acceptance response (${status}).`
+  );
 }

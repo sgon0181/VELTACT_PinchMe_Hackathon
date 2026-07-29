@@ -1,4 +1,5 @@
 import type { SupplierCommitmentNotification } from "@veltact/contracts";
+import { env } from "../env.js";
 import {
   getOutreachDeliveryReadiness,
   sendCommitmentConfirmedEmail
@@ -55,6 +56,8 @@ async function deliverCommitmentNotification(
     existing?.deliveryStatus === "sent" ||
     existing?.deliveryStatus === "queued"
   ) {
+    // A persisted queued result has an ambiguous provider outcome after a
+    // restart. Replaying it could duplicate SendGrid delivery.
     return structuredClone(existing);
   }
 
@@ -136,7 +139,9 @@ function commitmentContext(engagementId: string) {
     (match) => match.supplier.id === engagement.supplierId
   )?.supplier;
   const destination =
-    claim?.claimantEmail || matchedSupplier?.contactEmail;
+    env.SUPPLIER_OUTREACH_EMAIL_TO ??
+    claim?.claimantEmail ??
+    matchedSupplier?.contactEmail;
   if (!destination) return undefined;
 
   return {
