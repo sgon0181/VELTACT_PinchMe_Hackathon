@@ -6,6 +6,7 @@ import { verifyPinchWebhookSignature, PinchWebhookError } from "./webhookVerifie
 import { listWebhookEvents, recordWebhookEvent } from "./webhookStore.js";
 import {
   getDeployment,
+  getEngagement,
   recordAuthoritativePinchPayment
 } from "../marketplace/store.js";
 import {
@@ -17,7 +18,10 @@ import { env } from "../env.js";
 import { v2Service } from "../v2/service.js";
 import { veltactV2SocketEvent } from "@veltact/contracts";
 import { emitV2Update } from "../realtime.js";
-import { extractApprovedPinchPaymentEvent } from "./authoritativePaymentEvent.js";
+import {
+  extractApprovedPinchPaymentEvent,
+  matchesExpectedPinchCommitment
+} from "./authoritativePaymentEvent.js";
 
 export const pinchRouter = Router();
 
@@ -151,7 +155,29 @@ pinchRouter.post("/webhooks", async (request, response) => {
     const event = recordWebhookEvent(request.body);
     const rapidMatchPayment = extractApprovedPinchPaymentEvent(request.body);
     const paymentEvent = extractSuccessfulPaymentEvent(request.body);
-    if (rapidMatchPayment) {
+    const engagement = rapidMatchPayment
+      ? getEngagement(rapidMatchPayment.engagementId)
+      : undefined;
+    const deployment = engagement
+      ? getDeployment(engagement.id)
+      : undefined;
+    const commitment = deployment?.milestones[0];
+    const matchesCommitment = Boolean(
+      rapidMatchPayment &&
+      engagement?.paymentLinkId &&
+      engagement.pinchPayerId &&
+      engagement.hostedCheckoutUrl &&
+      commitment?.amount &&
+      matchesExpectedPinchCommitment(rapidMatchPayment, {
+        engagementId: engagement.id,
+        needProfileId: engagement.needId,
+        supplierId: engagement.supplierId,
+        milestoneId: commitment.id,
+        amountMinor: commitment.amount.amount,
+        currency: commitment.amount.currency
+      })
+    );
+    if (rapidMatchPayment && matchesCommitment) {
       const result = recordAuthoritativePinchPayment({
         eventId: rapidMatchPayment.eventId,
         eventType: rapidMatchPayment.eventType,
@@ -165,12 +191,12 @@ pinchRouter.post("/webhooks", async (request, response) => {
         if (result.engagement.status === "supplier_secured") {
           emitEngagementSecured(result.engagement);
         }
-        const deployment = getDeployment(result.engagement.id);
-        if (deployment) {
+        const updatedDeployment = getDeployment(result.engagement.id);
+        if (updatedDeployment) {
           emitDeploymentUpdated({
             needProfileId: result.engagement.needId,
             engagementId: result.engagement.id,
-            deployment
+            deployment: updatedDeployment
           });
         }
       }

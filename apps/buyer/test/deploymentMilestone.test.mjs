@@ -89,7 +89,7 @@ test("does not skip an ineligible milestone or infer payment completion", () => 
   );
 });
 
-test("renders one required delivery-update form and preserves completed handoff", () => {
+test("renders one required delivery-update form and keeps a new requirement available", () => {
   assert.match(mainBundle, /id="deployment-milestone-form"/);
   assert.match(mainBundle, /name="latestUpdate"/);
   assert.match(mainBundle, /maxlength="500"/);
@@ -98,6 +98,10 @@ test("renders one required delivery-update form and preserves completed handoff"
   assert.match(
     mainBundle,
     /data-start-new>Start new requirement<\/button>/
+  );
+  assert.match(
+    mainBundle,
+    /data-refresh-deployment>Refresh deployment<\/button>[\s\S]*data-start-new>Start new requirement<\/button>/
   );
   assert.match(mainBundle, /milestoneUpdateFormHasFocus\(\)/);
 });

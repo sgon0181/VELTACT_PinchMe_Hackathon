@@ -5,6 +5,7 @@ import {
   supplierLeadSchema,
   type MarketplaceNeedProfile,
   type ResearchCitation,
+  type SolutionApproach,
   type SolutionResearchResult,
   type SupplierLead
 } from "@veltact/contracts";
@@ -14,6 +15,7 @@ import {
   createMarketplaceFixtureResearch,
   createMarketplaceFixtureSupplierLeads
 } from "./findFixtures.js";
+import { rankDiscoveredSupplierLeads } from "./candidateDiscovery.js";
 
 const liveCitationSchema = z.object({
   title: z.string().trim().min(1),
@@ -49,6 +51,7 @@ const liveDiscoveryPayloadSchema = z.object({
       z.object({
         companyName: z.string().trim().min(1),
         website: z.string().url(),
+        logoUrl: z.string().url().nullable(),
         contactName: z.string().trim().min(1).nullable(),
         contactEmail: z.string().trim().email().nullable(),
         contactPhone: z.string().trim().min(1).nullable(),
@@ -98,20 +101,32 @@ export async function runSolutionResearch(
 export async function runSupplierDiscovery(
   needProfileId: string,
   profile: MarketplaceNeedProfile,
-  requiredCapabilities: string[]
+  selectedApproach: SolutionApproach
 ): Promise<MarketplaceProviderExecution<SupplierLead[]>> {
+  const rankCandidates = (candidates: SupplierLead[]) =>
+    rankDiscoveredSupplierLeads({
+      profile,
+      selectedApproach,
+      candidates,
+      publicBaseUrl: env.PUBLIC_BASE_URL
+    });
+
   if (shouldUseFixture()) {
     return {
-      value: createMarketplaceFixtureSupplierLeads(needProfileId, profile)
+      value: rankCandidates(
+        createMarketplaceFixtureSupplierLeads(needProfileId, profile)
+      )
     };
   }
 
   try {
     return {
-      value: await discoverWithOpenAi(
-        needProfileId,
-        profile,
-        requiredCapabilities
+      value: rankCandidates(
+        await discoverWithOpenAi(
+          needProfileId,
+          profile,
+          selectedApproach
+        )
       )
     };
   } catch (error) {
@@ -120,11 +135,11 @@ export async function runSupplierDiscovery(
         const firecrawlLeads = await discoverWithFirecrawl(
           needProfileId,
           profile,
-          requiredCapabilities
+          selectedApproach.requiredCapabilities
         );
         if (firecrawlLeads.length > 0) {
           return {
-            value: firecrawlLeads,
+            value: rankCandidates(firecrawlLeads),
             warning:
               "OpenAI discovery was unavailable; Firecrawl search evidence was used. Candidate identity and contact details require buyer review."
           };
@@ -137,7 +152,9 @@ export async function runSupplierDiscovery(
       throw error;
     }
     return {
-      value: createMarketplaceFixtureSupplierLeads(needProfileId, profile),
+      value: rankCandidates(
+        createMarketplaceFixtureSupplierLeads(needProfileId, profile)
+      ),
       warning: `Live supplier discovery was unavailable; deterministic fixture candidates were used. ${errorMessage(error)}`
     };
   }
@@ -202,15 +219,15 @@ async function researchWithOpenAi(
 async function discoverWithOpenAi(
   needProfileId: string,
   profile: MarketplaceNeedProfile,
-  requiredCapabilities: string[]
+  selectedApproach: SolutionApproach
 ): Promise<SupplierLead[]> {
   const payload = liveDiscoveryPayloadSchema.parse(
     await requestOpenAiJson({
       name: "rapidmatch_supplier_discovery",
       schema: discoveryJsonSchema,
       system:
-        "You are Veltact's Australian industrial supplier discovery assistant. Find up to 10 relevant real supplier businesses using public web evidence. Prefer official supplier websites. Do not infer certifications, availability, consent, verification, enrolment or contact details. Omit contact fields unless explicitly published on a cited source. Return public discovery evidence only; the buyer must review every candidate before outreach. Return only the requested JSON.",
-      user: JSON.stringify({ profile, requiredCapabilities })
+        "You are Veltact's Australian industrial supplier discovery assistant. Find up to 10 relevant real supplier businesses using public web evidence for the single buyer-selected solution pathway. Prefer official supplier websites. Provide an official logo URL only when that exact image URL is supported by the cited supplier website; otherwise return null. Do not infer certifications, availability, consent, verification, enrolment or contact details. Return contact fields only when explicitly published on a cited source; otherwise return null. Return public discovery evidence only; the buyer must review every candidate before outreach. Return only the requested JSON.",
+      user: JSON.stringify({ profile, selectedApproach })
     })
   );
   const now = new Date().toISOString();
@@ -221,6 +238,7 @@ async function discoverWithOpenAi(
       needProfileId,
       companyName: supplier.companyName,
       website: supplier.website,
+      logoUrl: supplier.logoUrl ?? undefined,
       contactName: supplier.contactName ?? undefined,
       contactEmail: supplier.contactEmail ?? undefined,
       contactPhone: supplier.contactPhone ?? undefined,
@@ -517,6 +535,7 @@ const discoveryJsonSchema = {
         required: [
           "companyName",
           "website",
+          "logoUrl",
           "contactName",
           "contactEmail",
           "contactPhone",
@@ -531,6 +550,7 @@ const discoveryJsonSchema = {
         properties: {
           companyName: { type: "string" },
           website: { type: "string", format: "uri" },
+          logoUrl: { type: ["string", "null"], format: "uri" },
           contactName: { type: ["string", "null"] },
           contactEmail: { type: ["string", "null"], format: "email" },
           contactPhone: { type: ["string", "null"] },

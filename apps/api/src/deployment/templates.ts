@@ -12,7 +12,7 @@ import type {
 const MILESTONE_TITLES: Record<DeploymentScenario, readonly string[]> = {
   plc_recovery: ["Diagnosis", "Recovery", "Validation", "Handover"],
   robotic_integration: [
-    "Site assessment",
+    "Site Assessment / Scoping Visit",
     "Design",
     "Installation",
     "Commissioning"

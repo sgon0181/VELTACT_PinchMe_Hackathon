@@ -35,6 +35,8 @@ import {
   createNeed,
   getEngagement,
   getInvitation,
+  getNeedReportForNeed,
+  getSolutionDecisionForNeed,
   listLocalDemoPaymentEvidence,
   listMarketplaceAuditEvents,
   listPinchWebhookEvidence,
@@ -312,6 +314,148 @@ describe("marketplace core routes", () => {
     }
   });
 
+  test("downloads and reuses a selected-path report before later outsource discovery", async () => {
+    const originalAuth = env.BUYER_CAPABILITY_AUTH_REQUIRED;
+    const originalProvider = env.VELTACT_RESEARCH_PROVIDER;
+    Object.assign(env, {
+      BUYER_CAPABILITY_AUTH_REQUIRED: true,
+      VELTACT_RESEARCH_PROVIDER: "fixture"
+    });
+
+    try {
+      const created = await postJson("/api/need-profiles", {
+        buyerEmail: "buyer@example.com",
+        profile: structuredSiemensNeed()
+      });
+      const needId = created.body.need.id;
+      const buyerHeaders = {
+        "x-veltact-buyer-token": created.body.buyerAccessToken
+      };
+      const researched = await postJson(
+        `/api/need-profiles/${needId}/research`,
+        {},
+        buyerHeaders
+      );
+      assert.equal(researched.status, 200);
+      const selectedApproachId =
+        researched.body.researchResult.approaches[1].id;
+      const reportPath =
+        `/api/need-profiles/${needId}/report.pdf?selectedApproachId=` +
+        encodeURIComponent(selectedApproachId);
+
+      assert.equal(getSolutionDecisionForNeed(needId), undefined);
+      const discoveryBeforeDecision = await postJson(
+        `/api/need-profiles/${needId}/suppliers/discover`,
+        {},
+        buyerHeaders
+      );
+      assert.equal(discoveryBeforeDecision.status, 409);
+      assert.match(
+        discoveryBeforeDecision.body.message,
+        /solution decision/i
+      );
+
+      const firstDownload = await getBinary(reportPath, buyerHeaders);
+      assert.equal(firstDownload.status, 200);
+      assert.equal(
+        firstDownload.headers.get("content-type"),
+        "application/pdf"
+      );
+      assert.match(
+        firstDownload.body.toString("latin1"),
+        /Execution decision: Not recorded/
+      );
+      assert.equal(getSolutionDecisionForNeed(needId), undefined);
+      const persistedReport = getNeedReportForNeed(needId);
+      assert.equal(
+        persistedReport?.selectedApproachId,
+        selectedApproachId
+      );
+      assert.deepEqual(persistedReport?.selectionProvenance, {
+        source: "report_request",
+        selectedBy: "buyer@example.com",
+        selectedAt: persistedReport?.generatedAt
+      });
+      assert.equal(persistedReport?.solutionDecisionId, undefined);
+
+      const repeatDownload = await getBinary(reportPath, buyerHeaders);
+      assert.equal(repeatDownload.status, 200);
+      assert.equal(
+        repeatDownload.headers.get("x-veltact-report-id"),
+        firstDownload.headers.get("x-veltact-report-id")
+      );
+      assert.deepEqual(repeatDownload.body, firstDownload.body);
+      assert.deepEqual(getNeedReportForNeed(needId), persistedReport);
+
+      const decision = await postJson(
+        `/api/need-profiles/${needId}/solution-decision`,
+        {
+          decision: "outsource",
+          selectedApproachIds: [selectedApproachId]
+        },
+        buyerHeaders
+      );
+      assert.equal(decision.status, 200);
+      assert.equal(
+        getNeedReportForNeed(needId)?.selectionProvenance.source,
+        "report_request"
+      );
+
+      const discovered = await postJson(
+        `/api/need-profiles/${needId}/suppliers/discover`,
+        {},
+        buyerHeaders
+      );
+      assert.equal(discovered.status, 200);
+      assert.equal(discovered.body.supplierLeads.length, 3);
+    } finally {
+      Object.assign(env, {
+        BUYER_CAPABILITY_AUTH_REQUIRED: originalAuth,
+        VELTACT_RESEARCH_PROVIDER: originalProvider
+      });
+    }
+  });
+
+  test("rejects report selections outside the current persisted research", async () => {
+    const originalAuth = env.BUYER_CAPABILITY_AUTH_REQUIRED;
+    const originalProvider = env.VELTACT_RESEARCH_PROVIDER;
+    Object.assign(env, {
+      BUYER_CAPABILITY_AUTH_REQUIRED: true,
+      VELTACT_RESEARCH_PROVIDER: "fixture"
+    });
+
+    try {
+      const created = await postJson("/api/need-profiles", {
+        buyerEmail: "buyer@example.com",
+        profile: structuredSiemensNeed()
+      });
+      const needId = created.body.need.id;
+      const buyerHeaders = {
+        "x-veltact-buyer-token": created.body.buyerAccessToken
+      };
+      const researched = await postJson(
+        `/api/need-profiles/${needId}/research`,
+        {},
+        buyerHeaders
+      );
+      assert.equal(researched.status, 200);
+
+      const invalid = await getJson(
+        `/api/need-profiles/${needId}/report.pdf?selectedApproachId=not-from-current-research`,
+        buyerHeaders
+      );
+      assert.equal(invalid.status, 400);
+      assert.match(invalid.body.message, /current research result/i);
+      assert.equal(getNeedReportForNeed(needId), undefined);
+      assert.equal(getSolutionDecisionForNeed(needId), undefined);
+    } finally {
+      Object.assign(env, {
+        BUYER_CAPABILITY_AUTH_REQUIRED: originalAuth,
+        VELTACT_RESEARCH_PROVIDER: originalProvider
+      });
+    }
+  });
+
   test("enforces the canonical Find lifecycle with scoped authorization and provenance", async () => {
     const originalAuth = env.BUYER_CAPABILITY_AUTH_REQUIRED;
     const originalProvider = env.VELTACT_RESEARCH_PROVIDER;
@@ -357,6 +501,21 @@ describe("marketplace core routes", () => {
         researched.body.researchResult.citations.every(
           (citation: { provider: string }) => citation.provider === "fixture"
         )
+      );
+
+      const unauthorisedReport = await getJson(
+        `/api/need-profiles/${needId}/report.pdf`
+      );
+      assert.equal(unauthorisedReport.status, 401);
+
+      const reportBeforeDecision = await getJson(
+        `/api/need-profiles/${needId}/report.pdf`,
+        buyerHeaders
+      );
+      assert.equal(reportBeforeDecision.status, 400);
+      assert.match(
+        reportBeforeDecision.body.message,
+        /selectedApproachId is required/
       );
 
       const discoveryBeforeDecision = await postJson(
@@ -410,18 +569,56 @@ describe("marketplace core routes", () => {
       );
       assert.equal(localDiscovery.status, 409);
 
+      const multipleApproaches = await postJson(
+        `/api/need-profiles/${needId}/solution-decision`,
+        {
+          decision: "outsource",
+          selectedApproachIds:
+            researched.body.researchResult.approaches.map(
+              (approach: { id: string }) => approach.id
+            )
+        },
+        buyerHeaders
+      );
+      assert.equal(multipleApproaches.status, 400);
+      assert.match(multipleApproaches.body.message, /invalid solution decision/i);
+
       const outsourceDecision = await postJson(
         `/api/need-profiles/${needId}/solution-decision`,
         {
           decision: "outsource",
-          selectedApproachIds: researched.body.researchResult.approaches.map(
-            (approach: { id: string }) => approach.id
-          ),
+          selectedApproachIds: [
+            researched.body.researchResult.approaches[1].id
+          ],
           buyerNote: "Find a specialist for the controlled recovery."
         },
         buyerHeaders
       );
       assert.equal(outsourceDecision.status, 200);
+      assert.deepEqual(
+        outsourceDecision.body.solutionDecision.selectedApproachIds,
+        [researched.body.researchResult.approaches[1].id]
+      );
+
+      const report = await getBinary(
+        `/api/need-profiles/${needId}/report.pdf`,
+        buyerHeaders
+      );
+      assert.equal(report.status, 200);
+      assert.equal(report.headers.get("content-type"), "application/pdf");
+      assert.match(
+        report.headers.get("content-disposition") ?? "",
+        /veltact-need-report-.*\.pdf/
+      );
+      assert.equal(report.body.subarray(0, 8).toString(), "%PDF-1.4");
+      const reportText = report.body.toString("latin1");
+      assert.match(reportText, /VELTACT NEED AND SOLUTION REPORT/);
+      assert.match(
+        reportText,
+        /SELECTED - Controlled recovery from a verified baseline/
+      );
+      assert.match(reportText, /Evidence mode: FIXTURE/);
+      assert.match(reportText, /SAFETY NOTICE/);
 
       const wrongTokenDiscovery = await postJson(
         `/api/need-profiles/${needId}/suppliers/discover`,
@@ -440,6 +637,25 @@ describe("marketplace core routes", () => {
         supplierLeadSchema.array().parse(discovered.body.supplierLeads)
       );
       assert.equal(discovered.body.supplierLeads.length, 3);
+      assert.equal(
+        discovered.body.supplierLeads[0].companyName,
+        "EastGrid Automation (Demo)"
+      );
+      assert.ok(
+        discovered.body.supplierLeads.every(
+          (lead: { matchReasons: string[]; risks: string[] }) => {
+            const reasons = lead.matchReasons.join(" ");
+            const risks = lead.risks.join(" ");
+            return (
+              /Selected solution (fit|check):/.test(reasons) &&
+              /Location fit:/.test(reasons) &&
+              /Buyer priority (fit|check):/.test(reasons) &&
+              /Availability check:/.test(risks) &&
+              /Budget check:/.test(risks)
+            );
+          }
+        )
+      );
       assert.ok(
         discovered.body.supplierLeads.every(
           (lead: {
@@ -638,7 +854,28 @@ describe("marketplace core routes", () => {
       );
       assert.equal(reset.body.workspace.researchResult.sourceMode, "fixture");
       assert.ok(reset.body.workspace.researchResult.citations.length >= 3);
+      assert.equal(
+        reset.body.workspace.solutionDecision.selectedApproachIds.length,
+        1
+      );
       assert.equal(reset.body.workspace.discoveredSuppliers.length, 3);
+      if (scenario === "robotics") {
+        assert.ok(
+          reset.body.workspace.discoveredSuppliers.every(
+            (lead: { logoUrl?: string }) =>
+              lead.logoUrl?.startsWith(
+                new URL("/logos/", env.PUBLIC_BASE_URL).toString()
+              )
+          )
+        );
+      } else {
+        assert.ok(
+          reset.body.workspace.discoveredSuppliers.every(
+            (lead: { companyName: string; logoUrl?: string }) =>
+              lead.logoUrl === undefined && lead.companyName.length > 0
+          )
+        );
+      }
       assert.equal(reset.body.supplierPaths.length, 2);
       assert.deepEqual(
         new Set(
@@ -744,6 +981,15 @@ describe("marketplace core routes", () => {
       assert.equal(retrieved.status, 200);
       assert.doesNotThrow(() =>
         rapidMatchBuyerWorkspaceSchema.parse(retrieved.body.workspace)
+      );
+      const report = await getBinary(
+        `/api/need-profiles/${reset.body.needProfileId}/report.pdf`,
+        { "x-veltact-buyer-token": reset.body.buyerAccessToken }
+      );
+      assert.equal(report.status, 200);
+      assert.equal(
+        report.headers.get("x-veltact-report-source"),
+        "fixture"
       );
       workspaces[scenario] = reset.body.workspace;
     }
@@ -1278,6 +1524,142 @@ describe("marketplace core routes", () => {
     assert.equal(update.supplierInvitation.supplierId, "supplier-automation-nsw");
   });
 
+  test("honours shared deliveryChannels through the production invitation route", async () => {
+    const originalFetch = globalThis.fetch;
+    const originalOutreachEnv = {
+      EMAIL_PROVIDER: env.EMAIL_PROVIDER,
+      EMAIL_FROM: env.EMAIL_FROM,
+      RESEND_API_KEY: env.RESEND_API_KEY,
+      SMS_PROVIDER: env.SMS_PROVIDER,
+      TWILIO_ACCOUNT_SID: env.TWILIO_ACCOUNT_SID,
+      TWILIO_AUTH_TOKEN: env.TWILIO_AUTH_TOKEN,
+      TWILIO_FROM_NUMBER: env.TWILIO_FROM_NUMBER,
+      SUPPLIER_OUTREACH_EMAIL_TO: env.SUPPLIER_OUTREACH_EMAIL_TO,
+      SUPPLIER_OUTREACH_SMS_TO: env.SUPPLIER_OUTREACH_SMS_TO,
+      SUPPLIER_OUTREACH_WHATSAPP_TO:
+        env.SUPPLIER_OUTREACH_WHATSAPP_TO
+    };
+    Object.assign(env, {
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key",
+      SMS_PROVIDER: "twilio",
+      TWILIO_ACCOUNT_SID: "AC123",
+      TWILIO_AUTH_TOKEN: "twilio_test_token",
+      TWILIO_FROM_NUMBER: "+61400000000",
+      SUPPLIER_OUTREACH_EMAIL_TO: "supplier@example.com",
+      SUPPLIER_OUTREACH_SMS_TO: "+61411111111",
+      SUPPLIER_OUTREACH_WHATSAPP_TO: undefined
+    });
+    const providerCalls: string[] = [];
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      if (url.startsWith(baseUrl)) {
+        return originalFetch(input, init);
+      }
+      providerCalls.push(url);
+      if (url === "https://api.resend.com/emails") {
+        return new Response(JSON.stringify({ id: "email-123" }), {
+          status: 200
+        });
+      }
+      if (
+        url ===
+        "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json"
+      ) {
+        return new Response(
+          JSON.stringify({ sid: "SM123", status: "queued" }),
+          { status: 201 }
+        );
+      }
+      throw new Error(`Unexpected provider URL: ${url}`);
+    };
+
+    const sendWithChannels = async (
+      deliveryChannels: Array<"email" | "sms">
+    ) => {
+      resetMarketplaceStore();
+      providerCalls.splice(0);
+      const created = await postJson("/api/needs", {
+        buyerEmail: "buyer@example.com",
+        profile: automationNeed()
+      });
+      const sent = await postJson(
+        `/api/need-profiles/${created.body.need.id}/invitations/send`,
+        {
+          deliveryChannels
+        }
+      );
+      assert.equal(sent.status, 200);
+      assert.ok(
+        sent.body.supplierInvitations.every(
+          (candidate: { responseUrl: string }) =>
+            /supplier\.html\?token=/.test(candidate.responseUrl)
+        )
+      );
+      return sent.body.supplierOutreachDeliveries as Array<{
+        channel: "email" | "sms";
+        deliveryStatus: string;
+      }>;
+    };
+
+    try {
+      const emailDeliveries = await sendWithChannels(["email"]);
+      const sentEmailCount = emailDeliveries.filter(
+        (delivery) =>
+          delivery.channel === "email" &&
+          delivery.deliveryStatus === "sent"
+      ).length;
+      assert.ok(sentEmailCount > 0);
+      assert.equal(providerCalls.length, sentEmailCount);
+      assert.deepEqual(
+        [...new Set(providerCalls)],
+        ["https://api.resend.com/emails"]
+      );
+      assert.equal(
+        emailDeliveries.some(
+          (delivery) =>
+            delivery.channel === "sms" &&
+            delivery.deliveryStatus === "sent"
+        ),
+        false
+      );
+
+      const smsDeliveries = await sendWithChannels(["sms"]);
+      const sentSmsCount = smsDeliveries.filter(
+        (delivery) =>
+          delivery.channel === "sms" &&
+          delivery.deliveryStatus === "sent"
+      ).length;
+      assert.ok(sentSmsCount > 0);
+      assert.equal(providerCalls.length, sentSmsCount);
+      assert.deepEqual(
+        [...new Set(providerCalls)],
+        [
+          "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json"
+        ]
+      );
+      assert.equal(
+        smsDeliveries.some(
+          (delivery) =>
+            delivery.channel === "email" &&
+            delivery.deliveryStatus === "sent"
+        ),
+        false
+      );
+      const linkDeliveries = await sendWithChannels([]);
+      assert.deepEqual(providerCalls, []);
+      assert.ok(
+        linkDeliveries.every(
+          (delivery) => delivery.deliveryStatus === "not_sent"
+        )
+      );
+    } finally {
+      Object.assign(env, originalOutreachEnv);
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("keeps local demo and unavailable outreach unsent without reporting failures", async () => {
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",
@@ -1738,6 +2120,18 @@ async function getJson(path: string, headers: Record<string, string> = {}) {
   return {
     status: response.status,
     body: (await response.json()) as Record<string, any>
+  };
+}
+
+async function getBinary(
+  path: string,
+  headers: Record<string, string> = {}
+) {
+  const response = await fetch(`${baseUrl}${path}`, { headers });
+  return {
+    status: response.status,
+    headers: response.headers,
+    body: Buffer.from(await response.arrayBuffer())
   };
 }
 

@@ -92,7 +92,10 @@ export class CommitmentPaymentService {
         ...context.existingPaymentLink,
         paymentStatus: context.paymentStatus
       };
-      if (isUsableHostedPaymentLink(currentLink)) {
+      if (
+        currentLink.provider === paymentProviderName(this.provider) &&
+        isUsableHostedPaymentLink(currentLink)
+      ) {
         return {
           paymentLink: toHostedPaymentLink(currentLink),
           reused: true
@@ -132,6 +135,15 @@ export class CommitmentPaymentService {
     if (!paymentLinkId) {
       throw new CommitmentPaymentError(
         "Create a Payment Link before reconciling payment",
+        409
+      );
+    }
+    if (
+      context.existingPaymentLink?.provider !== "pinch" ||
+      paymentProviderName(this.provider) !== "pinch"
+    ) {
+      throw new CommitmentPaymentError(
+        "Authoritative reconciliation requires a Pinch Payment Link",
         409
       );
     }
@@ -177,6 +189,12 @@ export class CommitmentPaymentService {
         commitmentCurrency: context.commitment.amount.currency
       }
     });
+    if (paymentLink.provider !== paymentProviderName(this.provider)) {
+      throw new CommitmentPaymentError(
+        "Payment provider returned an unexpected link type",
+        502
+      );
+    }
     await this.persistence.saveHostedPaymentLink(
       context.engagementId,
       paymentLink
@@ -230,7 +248,14 @@ export function isUsableHostedPaymentLink(link: StoredHostedPaymentLink) {
       return false;
     }
     if (link.provider === "pinch") {
-      return url.protocol === "https:";
+      return (
+        url.protocol === "https:" &&
+        ["pay.getpinch.com.au", "sandbox.getpinch.com.au"].includes(
+          url.hostname
+        ) &&
+        url.username === "" &&
+        url.password === ""
+      );
     }
     return isLocalDemoHostedPaymentLink(link);
   } catch {
@@ -280,4 +305,9 @@ function toHostedPaymentLink(link: StoredHostedPaymentLink): HostedPaymentLink {
     paymentLinkId: link.paymentLinkId,
     hostedCheckoutUrl: link.hostedCheckoutUrl
   };
+}
+
+function paymentProviderName(provider: PaymentProvider) {
+  // Older injected adapters predate the local-demo provider and are Pinch-only.
+  return provider.provider ?? "pinch";
 }

@@ -1,64 +1,94 @@
-# Free hackathon deployment
+# Veltact Live Demo Deployment
 
-Veltact is configured as one free Render Node service. Express serves the
-frontend, API, supplier pages, Socket.IO connection, and demo payment routes
-from the same origin.
+## Purpose
 
-## What this deployment intentionally does
+`https://veltact.com` runs the canonical Find, Connect and Deploy journey as one
+free Render Node service. Express serves the landing page, buyer workspace,
+supplier workspace, API, Socket.IO updates and explicit local-demo payment
+flow from the same origin.
 
-- deploys the `Recurssion` branch automatically;
-- runs the deterministic research and supplier demo;
-- uses visibly labelled local-demo payment evidence;
-- prepares supplier invitations without pretending that email was delivered;
-- requires no Pinch, OpenAI, Resend, or Twilio secrets;
-- uses `https://veltact.com` for public links and redirects.
+This is a public product demonstration, not a production marketplace.
 
-## Free-tier limitations
+## Live Demo Mode
 
-- The service can take a little while to wake after inactivity.
-- JSON demo data is stored on an ephemeral filesystem and can reset after a
-  restart or redeploy.
-- The public guided demo is intentionally enabled for hackathon judging.
-- This configuration is for the competition, not a real commercial launch.
+The checked-in `render.yaml` intentionally:
+
+- deploys the `Recurssion` branch to the existing `veltact` service;
+- keeps the service on Render's free plan;
+- uses deterministic fixture research while preserving the OpenAI adapter;
+- prepares clearly labelled local-demo email and SMS delivery evidence without
+  contacting external recipients;
+- uses clearly labelled, non-authoritative local-demo payment evidence;
+- requires no OpenAI, Resend, Twilio or Pinch secrets;
+- keeps `veltact.com` as the origin for every buyer and supplier link.
+
+The API health response is the authority for demo controls. The interface must
+not describe local-demo outreach as externally delivered or local-demo payment
+evidence as a Pinch transaction.
 
 ## Deploy
 
-1. Sign in to <https://dashboard.render.com/>.
-2. Choose **New > Blueprint**.
-3. Connect `sgon0181/VELTACT_PinchMe_Hackathon`.
-4. Select the `Recurssion` branch if Render asks for a branch.
-5. Apply the detected `render.yaml`.
-6. Wait for the service to report **Live**.
-7. Verify `https://YOUR-RENDER-HOST/api/health` returns `"status": "ok"`.
+Render automatically deploys pushed commits from `Recurssion`.
 
-## Connect veltact.com
+1. Run the complete local release gate.
+2. Push the verified commit to `origin/Recurssion`.
+3. Wait for `https://veltact.com/api/health` to return HTTP 200.
+4. Confirm the landing page and buyer workspace contain the new release.
+5. Run the complete live buyer and supplier journey twice.
 
-Cloudflare currently has these website records:
+Local release gate:
 
-```text
-@    A    185.158.133.1
-www  A    185.158.133.1
+```bash
+npm ci
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
 
-They must remain until the Render URL works. Render will show the exact DNS
-records under **Settings > Custom Domains**.
+## Live Acceptance
 
-At cutover:
+Verify:
 
-1. Replace only the `@` and `www` website records with Render's exact values.
-2. Start with Cloudflare proxy status set to **DNS only**.
-3. Keep every Google Workspace MX and TXT record unchanged.
-4. Verify the custom domain in Render.
-5. Test the landing page, `/api/health`, guided demo, buyer workspace, supplier
-   invitation, and demo payment flow.
+- `/`, `/index.html`, `/signin.html` and `/create-account.html` load over HTTPS;
+- a fresh requirement produces one structured Need Profile;
+- research produces exactly three solution pathways;
+- a selected-path PDF downloads before the outsource decision;
+- supplier discovery returns explainable ranked suppliers;
+- local-demo email and SMS prepare working tokenised supplier links;
+- two separate suppliers can claim and submit standardised quotes;
+- the buyer receives both responses and compares them;
+- selecting one supplier creates only one engagement;
+- local-demo payment remains explicitly non-authoritative;
+- recording local-demo evidence secures the supplier for demonstration;
+- Deploy begins with Site Assessment / Scoping Visit and zero engineering
+  completion;
+- desktop and mobile views have no blocking overlap or horizontal overflow.
 
-## Rollback
+## Free-Tier Limitations
 
-If the new deployment does not work, restore:
+- The service can take time to wake after inactivity.
+- JSON state is stored on an ephemeral filesystem and can reset after a restart
+  or redeploy.
+- Minimal account pages exist, but the public guided demo intentionally does
+  not require authentication.
+- This configuration is not suitable for commercial data or real payments.
 
-```text
-@    A    185.158.133.1
-www  A    185.158.133.1
-```
+Rollback is application-only: redeploy commit `7d1b7ee`. Do not alter DNS or
+Google Workspace MX and TXT records.
 
-Do not alter the Google Workspace mail records.
+## Real Provider Promotion
+
+Promote providers only after the live fixture journey is stable:
+
+1. Add OpenAI and select the `openai` research provider.
+2. Add verified Resend and controlled demo recipient settings.
+3. Add Twilio and a controlled demo recipient.
+4. Add Pinch sandbox credentials, HTTPS return URL and webhook secret.
+5. Enable production runtime, buyer capability protection and durable storage.
+6. Run `npm run smoke:staging -- --origin https://YOUR-STAGING-ORIGIN`.
+7. Prove physical email, SMS, hosted checkout and authoritative webhook
+   confirmation before making those claims publicly.
+
+Use a separate staging origin for this promotion. Do not test new external
+provider credentials directly against the public fixture demo.

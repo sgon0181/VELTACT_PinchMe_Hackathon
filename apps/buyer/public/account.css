@@ -1,0 +1,343 @@
+:root {
+  color-scheme: dark;
+  --account-bg: #050b13;
+  --account-surface: #101e2e;
+  --account-surface-raised: #16283c;
+  --account-line: rgba(169, 181, 191, 0.24);
+  --account-text: #f3f6f8;
+  --account-muted: #a9b5bf;
+  --account-blue: #2e7fc6;
+  --account-blue-lit: #8fc8f5;
+  --account-red: #d6283f;
+  --account-green: #2ab17e;
+  --account-amber: #e6a63f;
+  --account-font-display: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --account-font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --account-font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+body.account-page {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.014) 1px, transparent 1px),
+    var(--account-bg);
+  background-size: 100% 5px;
+  color: var(--account-text);
+  font-family: var(--account-font-body);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+.account-shell {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding-bottom: 40px;
+}
+
+.account-header {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid var(--account-line);
+}
+
+.account-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  color: var(--account-text);
+  font-family: var(--account-font-display);
+  font-weight: 800;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.account-wordmark-mark {
+  width: 13px;
+  height: 13px;
+  transform: rotate(45deg);
+  border: 2px solid var(--account-red);
+  box-shadow: 0 0 12px rgba(214, 40, 63, 0.42);
+}
+
+.account-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-nav a {
+  min-height: 40px;
+  border-bottom: 2px solid transparent;
+  padding: 10px 12px 8px;
+  color: var(--account-muted);
+  font-family: var(--account-font-mono);
+  font-size: 0.73rem;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.account-nav a[aria-current="page"] {
+  border-bottom-color: var(--account-blue);
+  color: var(--account-text);
+}
+
+.account-nav .try-demo {
+  border: 1px solid rgba(230, 166, 63, 0.7);
+  color: #f4d59a;
+}
+
+.account-main {
+  display: grid;
+  min-height: calc(100vh - 112px);
+  grid-template-columns: minmax(0, 0.9fr) minmax(360px, 1.1fr);
+  gap: 48px;
+  align-items: center;
+  padding: 54px 0;
+}
+
+.account-context {
+  align-self: stretch;
+  border-left: 3px solid var(--account-red);
+  padding: clamp(36px, 7vw, 90px) clamp(28px, 5vw, 64px);
+  background:
+    linear-gradient(135deg, rgba(122, 20, 37, 0.9), rgba(7, 17, 29, 0.82)),
+    url("./assets/brand/brushed-steel.jpg") center / cover;
+}
+
+.account-context h1 {
+  max-width: 620px;
+  margin: 10px 0 18px;
+  font-family: var(--account-font-display);
+  font-size: clamp(2.2rem, 5vw, 4.6rem);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.account-context p {
+  max-width: 570px;
+  color: #d5dde3;
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.account-eyebrow,
+.account-label {
+  color: var(--account-blue-lit);
+  font-family: var(--account-font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.account-boundary {
+  margin-top: 32px;
+  border-top: 1px solid rgba(243, 246, 248, 0.24);
+  padding-top: 18px;
+  color: #d5dde3;
+  font-size: 0.9rem;
+}
+
+.account-access {
+  width: min(100%, 520px);
+  justify-self: center;
+}
+
+.account-form-panel,
+.account-session {
+  border: 1px solid var(--account-line);
+  padding: clamp(24px, 4vw, 42px);
+  background: linear-gradient(180deg, var(--account-surface-raised), var(--account-surface));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 24px 60px rgba(0, 0, 0, 0.46);
+}
+
+.account-form-panel h2,
+.account-session h2 {
+  margin: 7px 0 10px;
+  font-family: var(--account-font-display);
+  font-size: 2rem;
+}
+
+.account-intro {
+  margin: 0 0 24px;
+  color: var(--account-muted);
+  line-height: 1.55;
+}
+
+.account-form {
+  display: grid;
+  gap: 18px;
+}
+
+.account-field {
+  display: grid;
+  gap: 8px;
+  color: var(--account-muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.account-field input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--account-line);
+  border-radius: 4px;
+  padding: 11px 12px;
+  background: #08131f;
+  color: var(--account-text);
+}
+
+.account-field input:focus {
+  border-color: var(--account-blue);
+  outline: 2px solid rgba(46, 127, 198, 0.22);
+  outline-offset: 1px;
+}
+
+.password-rule {
+  margin: -8px 0 0;
+  color: var(--account-muted);
+  font-size: 0.82rem;
+}
+
+.password-visibility {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--account-muted);
+  font-size: 0.86rem;
+}
+
+.account-primary,
+.account-secondary {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--account-blue);
+  border-radius: 4px;
+  padding: 11px 18px;
+  background: linear-gradient(180deg, #2e7fc6, #174f7c);
+  color: white;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.account-secondary {
+  border-color: var(--account-line);
+  background: transparent;
+}
+
+.account-primary:disabled,
+.account-secondary:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.account-switch {
+  margin: 20px 0 0;
+  color: var(--account-muted);
+}
+
+.account-switch a {
+  color: var(--account-blue-lit);
+}
+
+.account-status {
+  min-height: 24px;
+  margin: 18px 0 0;
+  font-size: 0.9rem;
+}
+
+.account-status[data-kind="error"] {
+  color: #ffc1ca;
+}
+
+.account-status[data-kind="success"] {
+  color: #a9ebd3;
+}
+
+.account-status[data-kind="neutral"] {
+  color: var(--account-muted);
+}
+
+.session-email {
+  overflow-wrap: anywhere;
+  color: var(--account-blue-lit);
+}
+
+.session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+@media (max-width: 820px) {
+  .account-header {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 18px 0;
+  }
+
+  .account-nav {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .account-main {
+    grid-template-columns: 1fr;
+    gap: 22px;
+    padding: 28px 0;
+  }
+
+  .account-context {
+    min-height: 240px;
+    padding: 30px 24px;
+  }
+
+  .account-context h1 {
+    font-size: 2.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .account-shell {
+    width: min(100% - 22px, 1180px);
+  }
+
+  .account-nav {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .account-nav a {
+    text-align: center;
+  }
+
+  .account-nav .try-demo {
+    grid-column: 1 / -1;
+  }
+
+  .session-actions {
+    display: grid;
+  }
+}

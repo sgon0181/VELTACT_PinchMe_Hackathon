@@ -33,4 +33,4 @@ services:
       - key: EMAIL_PROVIDER
         value: local_demo
       - key: SMS_PROVIDER
-        value: none
+        value: local_demo

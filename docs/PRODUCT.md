@@ -15,7 +15,7 @@ external expertise.
 
 The product is one workflow:
 
-**Problem evidence -> Need Profile -> solution pathways -> RapidMatch supplier
+**Problem evidence -> Need Profile -> selected solution -> RapidMatch supplier
 response -> Pinch commitment -> delivery progress**
 
 RapidMatch is not a separate product. It is Veltact's supplier-response engine
@@ -34,7 +34,7 @@ The buyer provides the industrial problem once using:
 
 Veltact structures the evidence into a buyer-reviewed Need Profile and returns:
 
-- Cited solution pathways based on current industry evidence.
+- Three cited solution pathways based on current industry evidence.
 - Relevant best-practice considerations.
 - Missing information.
 - Safe preparation the factory can complete internally.
@@ -43,13 +43,13 @@ Veltact structures the evidence into a buyer-reviewed Need Profile and returns:
 Veltact does not diagnose machinery or provide unsafe control instructions.
 Research is decision support, not engineering sign-off.
 
-The buyer chooses one outcome:
+The buyer selects one pathway and can:
 
-- `Use this plan internally`
-- `Find a specialist`
+- `Download report`
+- `Find suppliers`
 
-The first outcome leaves the buyer with a useful action plan. The second passes
-the same Need Profile and selected solution scope into RapidMatch.
+Downloading is a utility, not a lifecycle transition. `Find suppliers` passes
+the same Need Profile and the single selected solution scope into RapidMatch.
 
 ### Connect
 
@@ -57,9 +57,9 @@ RapidMatch converts the approved scope into a standardised request for quote:
 
 1. Explainable supplier matches are produced from catalog and public discovery
    evidence.
-2. The buyer reviews candidates and approves outreach.
-3. Veltact sends a private opportunity link through configured email and SMS
-   channels.
+2. The buyer selects candidates and approves outreach.
+3. Veltact creates a private opportunity link and sends it through the
+   buyer-selected email or SMS channel, or lets the buyer copy it.
 4. Each supplier confirms its identity and submits availability, indicative
    price, relevant experience, proposed approach, assumptions and conditions.
 5. The buyer compares at least two standardised responses.
@@ -71,14 +71,16 @@ requires supplier consent.
 
 ### Deploy
 
-Supplier selection creates one engagement and its first commercial milestone:
+Supplier selection creates one engagement and a commitment milestone:
 
 1. The buyer opens a real Pinch hosted checkout for the commitment milestone.
 2. A browser return never marks payment successful.
 3. Verified webhook or reconciliation evidence marks the supplier secured.
 4. Veltact shows lightweight delivery progress.
 
-The demo-level deployment view contains:
+The commitment reserves supplier attention for diagnosis, an emergency callout
+or a site assessment. It is not presented as supplier settlement. The demo-level
+deployment view contains:
 
 - Overall completion percentage.
 - Current milestone.
@@ -93,7 +95,7 @@ PLC recovery uses:
 
 Robotic integration uses:
 
-`Site assessment -> Design -> Installation -> Commissioning`
+`Site Assessment / Scoping Visit -> Design -> Installation -> Commissioning`
 
 Veltact does not present Pinch billing as escrow. Payment does not itself prove
 that engineering work is complete.
@@ -101,6 +103,7 @@ that engineering work is complete.
 ## Canonical Product Surface
 
 - One public Veltact entry.
+- One public header with `Sign in`, `Create account` and `Try demo`.
 - One RapidMatch-based buyer workspace moving through Find, Connect and Deploy.
 - One private, token-scoped supplier opportunity page.
 - One engagement and deployment record for the selected response.
@@ -120,6 +123,7 @@ not remain a competing public journey.
 - Keep buyer and supplier controls on separate permission surfaces.
 - Preserve truthful labels for fixture, local-demo and live-provider evidence.
 - Keep the PLC and robotic integration scenarios repeatable.
+- Do not ship visible controls that have no working destination.
 
 ## Commercial Model
 
@@ -134,19 +138,21 @@ The unified product is demonstrable when one buyer URL supports:
 
 1. Text, PDF or photo evidence intake.
 2. Buyer-reviewed Need Profile.
-3. Cited solution pathways.
-4. Internal-plan or specialist decision.
-5. Explainable supplier matches.
-6. Buyer-approved email/SMS outreach.
-7. Two standardised supplier responses.
-8. Comparison and selection.
-9. Real Pinch payer and hosted Payment Link.
-10. Backend-verified supplier-secured state.
-11. Lightweight deployment progress.
+3. Three cited, selectable solution pathways.
+4. Downloadable report or specialist decision.
+5. Explainable, selectable supplier matches.
+6. Buyer-controlled email, SMS or copy-link outreach.
+7. Downloadable RFQ and standardised supplier response.
+8. Two standardised supplier responses.
+9. Comparison and selection.
+10. Real Pinch payer and hosted Payment Link.
+11. Backend-verified supplier-secured state.
+12. Commitment-confirmed supplier notification.
+13. Lightweight deployment progress beginning with site assessment.
 
 ## Excluded Scope
 
-- Broad user/password authentication.
+- Account administration beyond minimal sign-in and account creation.
 - General messaging.
 - Supplier analytics.
 - Automated voice escalation.
