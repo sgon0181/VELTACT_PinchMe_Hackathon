@@ -6,6 +6,17 @@ import type {
 
 type LocationFit = "direct" | "regional" | "none";
 
+const supplierShortlistSize = 3;
+const capabilityStopwords = new Set([
+  "and",
+  "for",
+  "of",
+  "or",
+  "service",
+  "services",
+  "the"
+]);
+
 const fixtureLogoPaths: Array<{
   companyPattern: RegExp;
   path: string;
@@ -30,7 +41,7 @@ export function rankDiscoveredSupplierLeads(input: {
   candidates: SupplierLead[];
   publicBaseUrl: string;
 }): SupplierLead[] {
-  return input.candidates
+  const rankedCandidates = input.candidates
     .map((candidate) =>
       explainCandidate({
         profile: input.profile,
@@ -44,6 +55,11 @@ export function rankDiscoveredSupplierLeads(input: {
       }
       return left.companyName.localeCompare(right.companyName);
     });
+
+  return distinctCandidates(rankedCandidates).slice(
+    0,
+    supplierShortlistSize
+  );
 }
 
 function explainCandidate(input: {
@@ -230,7 +246,7 @@ function addSupplierLogo(
   candidate: SupplierLead,
   publicBaseUrl: string
 ): SupplierLead {
-  if (candidate.logoUrl) {
+  if (candidate.logoUrl || candidate.sourceMode !== "fixture") {
     return candidate;
   }
   const fixtureLogo = fixtureLogoPaths.find(({ companyPattern }) =>
@@ -243,6 +259,33 @@ function addSupplierLogo(
     ...candidate,
     logoUrl: new URL(fixtureLogo.path, publicBaseUrl).toString()
   };
+}
+
+function distinctCandidates(candidates: SupplierLead[]): SupplierLead[] {
+  const companyNames = new Set<string>();
+  const websites = new Set<string>();
+
+  return candidates.filter((candidate) => {
+    const companyName = candidate.companyName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+    const website = normaliseWebsite(candidate.website);
+    if (companyNames.has(companyName) || websites.has(website)) {
+      return false;
+    }
+    companyNames.add(companyName);
+    websites.add(website);
+    return true;
+  });
+}
+
+function normaliseWebsite(value: string): string {
+  const url = new URL(value);
+  url.hash = "";
+  url.search = "";
+  url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+  return url.toString();
 }
 
 function assessLocationFit(
@@ -288,8 +331,8 @@ function hasIndustryFit(industry: string, evidence: string): boolean {
 }
 
 function phrasesOverlap(left: string, right: string): boolean {
-  const leftTokens = tokenise(left);
-  const rightTokens = tokenise(right);
+  const leftTokens = capabilityTokens(left);
+  const rightTokens = capabilityTokens(right);
   if (leftTokens.size === 0 || rightTokens.size === 0) {
     return false;
   }
@@ -303,6 +346,12 @@ function phrasesOverlap(left: string, right: string): boolean {
     overlap === leftTokens.size ||
     overlap === rightTokens.size ||
     overlap / Math.min(leftTokens.size, rightTokens.size) >= 0.5
+  );
+}
+
+function capabilityTokens(value: string): Set<string> {
+  return new Set(
+    [...tokenise(value)].filter((token) => !capabilityStopwords.has(token))
   );
 }
 

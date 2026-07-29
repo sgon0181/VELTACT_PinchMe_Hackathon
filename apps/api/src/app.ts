@@ -71,7 +71,14 @@ app.get("/api/health", (_request, response) => {
     application: "veltact-api",
     status: "ok",
     environment: env.NODE_ENV,
+    releaseRevision: env.RELEASE_REVISION,
     paymentProvider: env.PAYMENT_PROVIDER,
+    providerModes: {
+      research: env.VELTACT_RESEARCH_PROVIDER,
+      email: env.EMAIL_PROVIDER,
+      sms: env.SMS_PROVIDER,
+      payment: env.PAYMENT_PROVIDER
+    },
     readiness: {
       persistence: Boolean(env.MARKETPLACE_DATA_FILE),
       v2Persistence: Boolean(env.VELTACT_V2_DATA_FILE),

@@ -5,6 +5,7 @@ export type CreateHostedPaymentLinkInput = {
   buyerEmail: string;
   buyerName?: string;
   amount: number;
+  currency?: string;
   description: string;
   returnUrl: string;
   metadata?: Record<string, string>;
@@ -21,6 +22,11 @@ export type AuthoritativePaymentResult = {
   provider: "pinch";
   paymentId: string;
   status: "approved";
+  paymentLinkId?: string;
+  payerId?: string;
+  amount?: number;
+  currency?: string;
+  metadata?: unknown;
 };
 
 export interface PaymentProvider {

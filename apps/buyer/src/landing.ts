@@ -2,6 +2,7 @@ document.documentElement.classList.add("js");
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const loader = document.querySelector<HTMLElement>("[data-landing-loader]");
+const loaderDwellMs = reducedMotion ? 0 : 520;
 
 function revealLanding() {
   document.body.classList.add("landing-ready");
@@ -16,10 +17,19 @@ function revealLanding() {
   window.setTimeout(() => loader?.remove(), 500);
 }
 
+function scheduleLandingReveal() {
+  if (loaderDwellMs === 0) {
+    revealLanding();
+    return;
+  }
+
+  window.setTimeout(revealLanding, loaderDwellMs);
+}
+
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", revealLanding, { once: true });
+  document.addEventListener("DOMContentLoaded", scheduleLandingReveal, { once: true });
 } else {
-  revealLanding();
+  scheduleLandingReveal();
 }
 
 const revealElements = document.querySelectorAll<HTMLElement>("[data-reveal]");

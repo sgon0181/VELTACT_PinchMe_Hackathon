@@ -44,7 +44,6 @@ const marketplaceCommitmentPersistence: CommitmentPaymentPersistenceAdapter = {
       needProfileId: engagement.needId,
       supplierId: engagement.supplierId,
       buyerEmail: need.buyerEmail,
-      buyerName: need.profile.title,
       commitment: {
         milestoneId: commitment.id,
         title: commitment.title,

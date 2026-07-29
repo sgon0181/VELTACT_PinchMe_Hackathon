@@ -173,11 +173,16 @@ pinchRouter.post("/webhooks", async (request, response) => {
         needProfileId: engagement.needId,
         supplierId: engagement.supplierId,
         milestoneId: commitment.id,
+        payerId: engagement.pinchPayerId,
         amountMinor: commitment.amount.amount,
         currency: commitment.amount.currency
       })
     );
-    if (rapidMatchPayment && matchesCommitment) {
+    if (
+      rapidMatchPayment &&
+      matchesCommitment &&
+      engagement?.paymentStatus === "awaiting_payment"
+    ) {
       const result = recordAuthoritativePinchPayment({
         eventId: rapidMatchPayment.eventId,
         eventType: rapidMatchPayment.eventType,

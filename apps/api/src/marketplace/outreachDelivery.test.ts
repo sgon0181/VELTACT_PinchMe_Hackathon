@@ -28,6 +28,13 @@ let originalOutreachEnv: OutreachEnv;
 
 beforeEach(() => {
   originalOutreachEnv = outreachEnv();
+  Object.assign(env, {
+    NODE_ENV: "test",
+    PUBLIC_BASE_URL: "https://demo.veltact.test",
+    SUPPLIER_OUTREACH_EMAIL_TO: undefined,
+    SUPPLIER_OUTREACH_SMS_TO: undefined,
+    SUPPLIER_OUTREACH_WHATSAPP_TO: undefined
+  });
 });
 
 afterEach(() => {
@@ -74,17 +81,28 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
       SMS_PROVIDER: "local_demo"
     });
 
-    assert.deepEqual(
-      await sendSupplierOpportunity(smsDelivery(), invitation(), need()),
-      {
-        ok: false,
-        outcome: "local_demo",
-        attempted: false,
-        provider: "local_demo",
-        errorMessage:
-          "Local demo only: secure invitation generated; no external SMS was sent."
-      }
-    );
+    const logMessages: string[] = [];
+    const originalConsoleInfo = console.info;
+    console.info = (...values) => {
+      logMessages.push(values.join(" "));
+    };
+    try {
+      assert.deepEqual(
+        await sendSupplierOpportunity(smsDelivery(), invitation(), need()),
+        {
+          ok: false,
+          outcome: "local_demo",
+          attempted: false,
+          provider: "local_demo",
+          errorMessage:
+            "Local demo only: secure invitation generated; no external SMS was sent."
+        }
+      );
+    } finally {
+      console.info = originalConsoleInfo;
+    }
+    assert.equal(logMessages.length, 1);
+    assert.doesNotMatch(logMessages[0], /token-123|supplier\.html/);
 
     Object.assign(env, { NODE_ENV: "production" });
     assert.deepEqual(
@@ -136,6 +154,35 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
       "https://demo.veltact.test/api/supplier-invitations/token-123/rfq.pdf"
     );
     assert.match(supplierEmailHtml(invitation(), need()), /RapidMatch/);
+    assert.match(
+      new Headers(request?.init?.headers).get("idempotency-key") ?? "",
+      /^veltact-opportunity-[a-f0-9]{64}$/
+    );
+  });
+
+  test("coalesces concurrent opportunity sends under one provider request", async () => {
+    Object.assign(env, {
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key"
+    });
+    let providerCalls = 0;
+    globalThis.fetch = async () => {
+      providerCalls += 1;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      return new Response(JSON.stringify({ id: "email-123" }), {
+        status: 200
+      });
+    };
+
+    const [first, duplicate] = await Promise.all([
+      sendSupplierOpportunity(emailDelivery(), invitation(), need()),
+      sendSupplierOpportunity(emailDelivery(), invitation(), need())
+    ]);
+
+    assert.equal(providerCalls, 1);
+    assert.deepEqual(duplicate, first);
+    assert.equal(first.outcome, "sent");
   });
 
   test("sends the secure link through SendGrid when configured", async () => {
@@ -162,6 +209,10 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
     const body = JSON.parse(String(request?.init?.body));
     assert.equal(body.personalizations[0].to[0].email, "supplier@example.com");
     assert.match(body.content[0].value, /Review and respond:/);
+    assert.match(
+      body.custom_args.veltact_idempotency_key,
+      /^veltact-opportunity-[a-f0-9]{64}$/
+    );
   });
 
   test("sends the secure opportunity link through Twilio SMS", async () => {
@@ -197,7 +248,60 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
       /https:\/\/demo\.veltact\.test\/supplier\.html\?token=token-123/
     );
     assert.equal(body.get("Body"), supplierSmsMessage(invitation()));
+    assert.match(body.get("Body") ?? "", /Reply STOP to opt out\./);
     assert.ok((body.get("Body") ?? "").length <= 160);
+  });
+
+  test("does not report sent for malformed or unexpected provider success responses", async () => {
+    Object.assign(env, {
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key"
+    });
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({}), { status: 200 });
+    const resendResult = await sendSupplierOpportunity(
+      emailDelivery(),
+      invitation(),
+      need()
+    );
+
+    Object.assign(env, {
+      EMAIL_PROVIDER: "sendgrid",
+      SENDGRID_API_KEY: "sg_test_key"
+    });
+    globalThis.fetch = async () => new Response(null, { status: 200 });
+    const sendGridResult = await sendSupplierOpportunity(
+      emailDelivery(),
+      invitation(),
+      need()
+    );
+
+    Object.assign(env, {
+      SMS_PROVIDER: "twilio",
+      TWILIO_ACCOUNT_SID: "AC123",
+      TWILIO_AUTH_TOKEN: "twilio_test_token",
+      TWILIO_FROM_NUMBER: "+61400000000"
+    });
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({ sid: "SM123", status: "failed" }),
+        { status: 201 }
+      );
+    const twilioResult = await sendSupplierOpportunity(
+      smsDelivery(),
+      invitation(),
+      need()
+    );
+
+    for (const result of [resendResult, sendGridResult, twilioResult]) {
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.equal(result.outcome, "failed");
+        assert.equal(result.attempted, true);
+        assert.match(result.errorMessage, /invalid acceptance response/);
+      }
+    }
   });
 
   test("attempts only buyer-selected channels and treats copy-link as no delivery", async () => {
@@ -240,6 +344,42 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
     assert.deepEqual(providerUrls, [
       "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json"
     ]);
+  });
+
+  test("builds copyable invitation links from PUBLIC_BASE_URL without provider delivery", async () => {
+    Object.assign(env, {
+      PUBLIC_BASE_URL: "https://staging.veltact.test",
+      SUPPLIER_OUTREACH_EMAIL_TO: "supplier@example.com"
+    });
+    let providerCalled = false;
+    globalThis.fetch = async () => {
+      providerCalled = true;
+      return new Response(null, { status: 200 });
+    };
+
+    const created = createNeed({
+      buyerEmail: "buyer@example.com",
+      profile: need().profile
+    });
+    const selected = await sendSupplierOpportunitiesForChannels(
+      listOutreachDeliveriesForNeed(created.id) ?? [],
+      created.invitations[0],
+      created,
+      []
+    );
+
+    assert.equal(selected.length, 0);
+    assert.equal(providerCalled, false);
+    for (const createdInvitation of created.invitations) {
+      const responseUrl = new URL(createdInvitation.responseUrl);
+      assert.equal(responseUrl.origin, "https://staging.veltact.test");
+      assert.equal(responseUrl.protocol, "https:");
+      assert.equal(responseUrl.pathname, "/supplier.html");
+      assert.equal(
+        responseUrl.searchParams.get("token"),
+        createdInvitation.token
+      );
+    }
   });
 
   test("sends the secure opportunity link through the Twilio WhatsApp Sandbox", async () => {
@@ -347,6 +487,61 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
     assert.equal(providerCalled, false);
   });
 
+  test("blocks live delivery when PUBLIC_BASE_URL or a private link is not canonical HTTPS", async () => {
+    Object.assign(env, {
+      NODE_ENV: "production",
+      PUBLIC_BASE_URL: "https://staging.veltact.test",
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key"
+    });
+    let providerCalled = false;
+    globalThis.fetch = async () => {
+      providerCalled = true;
+      return new Response(JSON.stringify({ id: "email-123" }), {
+        status: 200
+      });
+    };
+    const staleInvitation = {
+      ...invitation(),
+      responseUrl:
+        "https://old-origin.veltact.test/supplier.html?token=token-123"
+    };
+
+    const staleLink = await sendSupplierOpportunity(
+      emailDelivery(),
+      staleInvitation,
+      need()
+    );
+    assert.equal(staleLink.ok, false);
+    if (!staleLink.ok) {
+      assert.equal(staleLink.outcome, "not_configured");
+      assert.equal(staleLink.attempted, false);
+      assert.match(staleLink.errorMessage, /HTTPS PUBLIC_BASE_URL/);
+    }
+
+    Object.assign(env, {
+      PUBLIC_BASE_URL: "http://staging.veltact.test"
+    });
+    const insecureBase = await sendSupplierOpportunity(
+      emailDelivery(),
+      {
+        ...invitation(),
+        responseUrl:
+          "http://staging.veltact.test/supplier.html?token=token-123"
+      },
+      need()
+    );
+    assert.equal(insecureBase.ok, false);
+    if (!insecureBase.ok) {
+      assert.equal(insecureBase.outcome, "not_configured");
+      assert.equal(insecureBase.attempted, false);
+      assert.match(insecureBase.errorMessage, /credential-free HTTPS URL/);
+    }
+
+    assert.equal(providerCalled, false);
+  });
+
   test("returns failed only after provider rejection or a request error", async () => {
     Object.assign(env, {
       EMAIL_PROVIDER: "resend",
@@ -376,6 +571,32 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
       provider: "resend",
       errorMessage: "Resend delivery request failed: provider connection unavailable"
     });
+  });
+
+  test("maps provider timeouts to an attempted failure without exposing request details", async () => {
+    Object.assign(env, {
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key"
+    });
+    globalThis.fetch = async (_input, init) => {
+      assert.ok(init?.signal instanceof AbortSignal);
+      throw new DOMException(
+        "https://demo.veltact.test/supplier.html?token=token-123",
+        "TimeoutError"
+      );
+    };
+
+    assert.deepEqual(
+      await sendSupplierOpportunity(emailDelivery(), invitation(), need()),
+      {
+        ok: false,
+        outcome: "failed",
+        attempted: true,
+        provider: "resend",
+        errorMessage: "Resend delivery request failed: request timed out"
+      }
+    );
   });
 
   test("redacts invitation tokens and provider credentials from failure details", async () => {
@@ -408,6 +629,26 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
       ),
       "https://example.test/supplier.html?token=[redacted]"
     );
+    const basicCredential = Buffer.from(
+      "AC123456:twilio_sensitive_token"
+    ).toString("base64");
+    Object.assign(env, {
+      TWILIO_ACCOUNT_SID: "AC123456",
+      TWILIO_AUTH_TOKEN: "twilio_sensitive_token"
+    });
+    const redacted = redactOutreachError(
+      [
+        '"/api/supplier-invitations/private-rfq-token/rfq.pdf"',
+        '"token":"private-json-token"',
+        "Authorization: Bearer private-bearer-token",
+        `Authorization: Basic ${basicCredential}`
+      ].join(" ")
+    );
+    assert.doesNotMatch(
+      redacted,
+      /private-rfq-token|private-json-token|private-bearer-token|twilio_sensitive_token/
+    );
+    assert.doesNotMatch(redacted, new RegExp(basicCredential));
   });
 
   test("sends commitment confirmation with provider idempotency and no payout claim", async () => {
@@ -456,11 +697,47 @@ describe("supplier outreach provider adapters", { concurrency: false }, () => {
       /supplier has been paid|payout complete/i
     );
   });
+
+  test("does not send commitment email with a stale or insecure response link", async () => {
+    Object.assign(env, {
+      NODE_ENV: "production",
+      PUBLIC_BASE_URL: "https://staging.veltact.test",
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key"
+    });
+    let providerCalled = false;
+    globalThis.fetch = async () => {
+      providerCalled = true;
+      return new Response(JSON.stringify({ id: "email-commitment" }), {
+        status: 200
+      });
+    };
+
+    const result = await sendCommitmentConfirmedEmail({
+      destination: "supplier@example.com",
+      supplierName: "Test Supplier",
+      requirementTitle: "Packaging conveyor PLC recovery",
+      responseUrl:
+        "http://staging.veltact.test/supplier.html?token=token-123",
+      securedAt: "2026-07-28T00:00:00.000Z",
+      idempotencyKey: "commitment-engagement-123"
+    });
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.outcome, "not_configured");
+      assert.equal(result.attempted, false);
+      assert.match(result.errorMessage, /HTTPS PUBLIC_BASE_URL/);
+    }
+    assert.equal(providerCalled, false);
+  });
 });
 
 type OutreachEnv = Pick<
   typeof env,
   | "NODE_ENV"
+  | "PUBLIC_BASE_URL"
   | "EMAIL_PROVIDER"
   | "EMAIL_FROM"
   | "RESEND_API_KEY"
@@ -470,12 +747,15 @@ type OutreachEnv = Pick<
   | "TWILIO_AUTH_TOKEN"
   | "TWILIO_FROM_NUMBER"
   | "TWILIO_WHATSAPP_FROM"
+  | "SUPPLIER_OUTREACH_EMAIL_TO"
+  | "SUPPLIER_OUTREACH_SMS_TO"
   | "SUPPLIER_OUTREACH_WHATSAPP_TO"
 >;
 
 function outreachEnv(): OutreachEnv {
   return {
     NODE_ENV: env.NODE_ENV,
+    PUBLIC_BASE_URL: env.PUBLIC_BASE_URL,
     EMAIL_PROVIDER: env.EMAIL_PROVIDER,
     EMAIL_FROM: env.EMAIL_FROM,
     RESEND_API_KEY: env.RESEND_API_KEY,
@@ -485,6 +765,8 @@ function outreachEnv(): OutreachEnv {
     TWILIO_AUTH_TOKEN: env.TWILIO_AUTH_TOKEN,
     TWILIO_FROM_NUMBER: env.TWILIO_FROM_NUMBER,
     TWILIO_WHATSAPP_FROM: env.TWILIO_WHATSAPP_FROM,
+    SUPPLIER_OUTREACH_EMAIL_TO: env.SUPPLIER_OUTREACH_EMAIL_TO,
+    SUPPLIER_OUTREACH_SMS_TO: env.SUPPLIER_OUTREACH_SMS_TO,
     SUPPLIER_OUTREACH_WHATSAPP_TO: env.SUPPLIER_OUTREACH_WHATSAPP_TO
   };
 }

@@ -33,8 +33,10 @@ Render automatically deploys pushed commits from `Recurssion`.
 1. Run the complete local release gate.
 2. Push the verified commit to `origin/Recurssion`.
 3. Wait for `https://veltact.com/api/health` to return HTTP 200.
-4. Confirm the landing page and buyer workspace contain the new release.
-5. Run the complete live buyer and supplier journey twice.
+4. Confirm `releaseRevision` matches the pushed commit.
+5. Confirm `providerModes` matches the claims planned for the rehearsal.
+6. Confirm the landing page and buyer workspace contain the new release.
+7. Run the complete live buyer and supplier journey twice.
 
 Local release gate:
 
@@ -74,7 +76,7 @@ Verify:
   not require authentication.
 - This configuration is not suitable for commercial data or real payments.
 
-Rollback is application-only: redeploy commit `7d1b7ee`. Do not alter DNS or
+Rollback is application-only: redeploy commit `b41ba82`. Do not alter DNS or
 Google Workspace MX and TXT records.
 
 ## Real Provider Promotion

@@ -156,3 +156,13 @@ test("retains the legacy demo-ID fallback only when explicit provenance is absen
   assert.equal(evidence.evidenceId, "demo_legacy-123");
   assert.equal(evidence.legacyFallback, true);
 });
+
+test("keeps deployment labels aligned with the active scenario milestone", () => {
+  assert.match(mainBundle, /Deploy \/ Active project/);
+  assert.match(
+    mainBundle,
+    /Keep \$\{escapeHtml\(currentMilestoneTitle\)\} status current/
+  );
+  assert.doesNotMatch(mainBundle, /Deploy \/ Site Assessment project/);
+  assert.doesNotMatch(mainBundle, /Keep Site Assessment status current/);
+});

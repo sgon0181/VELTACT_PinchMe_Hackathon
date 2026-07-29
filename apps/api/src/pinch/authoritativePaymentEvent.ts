@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type {
   AuthoritativePaymentRecordResult,
   AuthoritativePinchEvidence
@@ -7,12 +8,13 @@ export type PinchWebhookPaymentEvent = {
   eventId: string;
   eventType: "realtime-payment" | "payment-created";
   engagementId: string;
-  needProfileId?: string;
-  supplierId?: string;
-  milestoneId?: string;
+  needProfileId: string;
+  supplierId: string;
+  milestoneId: string;
   paymentId: string;
-  amountMinor?: number;
-  currency?: string;
+  payerId: string;
+  amountMinor: number;
+  currency: string;
   status: "approved";
 };
 
@@ -21,6 +23,7 @@ export type ExpectedPinchCommitment = {
   needProfileId: string;
   supplierId: string;
   milestoneId: string;
+  payerId: string;
   amountMinor: number;
   currency: string;
 };
@@ -94,60 +97,82 @@ export function extractApprovedPinchPaymentEvent(
 
   const paymentId =
     getNestedString(payment, ["Id"]) ?? getNestedString(payment, ["id"]);
+  const payer =
+    getNestedObject(payment, ["Payer"]) ??
+    getNestedObject(payment, ["payer"]);
+  const payerId = consistentString([
+    getNestedString(payment, ["PayerId"]),
+    getNestedString(payment, ["payerId"]),
+    getNestedString(payer, ["Id"]),
+    getNestedString(payer, ["id"])
+  ]);
   const metadata = parseMetadata(
     getNestedValue(payment, ["Metadata"]) ??
       getNestedValue(payment, ["metadata"])
   );
-  const engagementId =
-    getString(metadata.engagementId) ??
-    getString(metadata.EngagementId) ??
-    getString(metadata.engagement_id);
-  const needProfileId =
-    getString(metadata.needId) ??
-    getString(metadata.NeedId) ??
-    getString(metadata.need_id);
-  const supplierId =
-    getString(metadata.supplierId) ??
-    getString(metadata.SupplierId) ??
-    getString(metadata.supplier_id);
-  const milestoneId =
-    getString(metadata.milestoneId) ??
-    getString(metadata.MilestoneId) ??
-    getString(metadata.milestone_id);
-  const commitmentType =
-    getString(metadata.commitmentType) ??
-    getString(metadata.CommitmentType) ??
-    getString(metadata.commitment_type);
-  const amountMinor =
-    getInteger(getNestedValue(payment, ["Amount"])) ??
-    getInteger(getNestedValue(payment, ["amount"]));
-  const metadataAmountMinor =
-    getInteger(metadata.commitmentAmountMinor) ??
-    getInteger(metadata.CommitmentAmountMinor) ??
-    getInteger(metadata.commitment_amount_minor);
-  const currency = (
-    getNestedString(payment, ["Currency"]) ??
-    getNestedString(payment, ["currency"]) ??
-    ""
-  ).toUpperCase();
-  const metadataCurrency = (
-    getString(metadata.commitmentCurrency) ??
-    getString(metadata.CommitmentCurrency) ??
-    getString(metadata.commitment_currency) ??
-    ""
-  ).toUpperCase();
-  const commitmentMetadataIsConsistent =
-    (commitmentType === undefined ||
-      commitmentType === "commercial_commitment") &&
-    (amountMinor === undefined || amountMinor > 0) &&
-    (metadataAmountMinor === undefined ||
-      amountMinor === undefined ||
-      metadataAmountMinor === amountMinor) &&
-    (currency === "" || currency.length === 3) &&
-    (metadataCurrency === "" ||
-      currency === "" ||
-      metadataCurrency === currency);
-  if (!paymentId || !engagementId || !commitmentMetadataIsConsistent) {
+  if (!metadata) {
+    return undefined;
+  }
+  const engagementId = getAliasedString(metadata, [
+    "engagementId",
+    "EngagementId",
+    "engagement_id"
+  ]);
+  const needProfileId = getAliasedString(metadata, [
+    "needId",
+    "NeedId",
+    "need_id"
+  ]);
+  const supplierId = getAliasedString(metadata, [
+    "supplierId",
+    "SupplierId",
+    "supplier_id"
+  ]);
+  const milestoneId = getAliasedString(metadata, [
+    "milestoneId",
+    "MilestoneId",
+    "milestone_id"
+  ]);
+  const commitmentType = getAliasedString(metadata, [
+    "commitmentType",
+    "CommitmentType",
+    "commitment_type"
+  ]);
+  const amountMinor = getAliasedInteger(payment, ["Amount", "amount"]);
+  const metadataAmountMinor = getAliasedInteger(metadata, [
+    "commitmentAmountMinor",
+    "CommitmentAmountMinor",
+    "commitment_amount_minor"
+  ]);
+  const currency = getAliasedString(
+    payment,
+    ["Currency", "currency"],
+    (value) => value.toUpperCase()
+  );
+  const metadataCurrency = getAliasedString(
+    metadata,
+    [
+      "commitmentCurrency",
+      "CommitmentCurrency",
+      "commitment_currency"
+    ],
+    (value) => value.toUpperCase()
+  );
+  if (
+    !paymentId ||
+    !payerId ||
+    !engagementId ||
+    !needProfileId ||
+    !supplierId ||
+    !milestoneId ||
+    commitmentType !== "commercial_commitment" ||
+    amountMinor === undefined ||
+    amountMinor <= 0 ||
+    metadataAmountMinor !== amountMinor ||
+    currency === undefined ||
+    currency.length !== 3 ||
+    metadataCurrency !== currency
+  ) {
     return undefined;
   }
 
@@ -155,12 +180,13 @@ export function extractApprovedPinchPaymentEvent(
     eventId,
     eventType,
     engagementId,
-    ...(needProfileId ? { needProfileId } : {}),
-    ...(supplierId ? { supplierId } : {}),
-    ...(milestoneId ? { milestoneId } : {}),
+    needProfileId,
+    supplierId,
+    milestoneId,
     paymentId,
-    ...(amountMinor === undefined ? {} : { amountMinor }),
-    ...(currency === "" ? {} : { currency }),
+    payerId,
+    amountMinor,
+    currency,
     status: "approved"
   };
 }
@@ -171,33 +197,40 @@ export function matchesExpectedPinchCommitment(
 ) {
   return (
     event.engagementId === expected.engagementId &&
-    (event.needProfileId === undefined ||
-      event.needProfileId === expected.needProfileId) &&
-    (event.supplierId === undefined ||
-      event.supplierId === expected.supplierId) &&
-    (event.milestoneId === undefined ||
-      event.milestoneId === expected.milestoneId) &&
-    (event.amountMinor === undefined ||
-      event.amountMinor === expected.amountMinor) &&
-    (event.currency === undefined ||
-      event.currency === expected.currency.toUpperCase())
+    event.needProfileId === expected.needProfileId &&
+    event.supplierId === expected.supplierId &&
+    event.milestoneId === expected.milestoneId &&
+    event.payerId === expected.payerId &&
+    event.amountMinor === expected.amountMinor &&
+    event.currency === expected.currency.toUpperCase()
   );
 }
 
-function parseMetadata(value: unknown): Record<string, unknown> {
+function parseMetadata(
+  value: unknown
+): Record<string, unknown> | undefined {
   const parsed = parseJson(value);
   if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
     return parsed as Record<string, unknown>;
   }
   if (!Array.isArray(parsed)) {
-    return {};
+    return undefined;
   }
-  return parsed.reduce<Record<string, unknown>>((metadata, item) => {
+  const metadata: Record<string, unknown> = {};
+  for (const item of parsed) {
     if (typeof item === "object" && item !== null && !Array.isArray(item)) {
-      Object.assign(metadata, item);
+      for (const [key, itemValue] of Object.entries(item)) {
+        if (
+          key in metadata &&
+          !isDeepStrictEqual(metadata[key], itemValue)
+        ) {
+          return undefined;
+        }
+        metadata[key] = itemValue;
+      }
     }
-    return metadata;
-  }, {});
+  }
+  return metadata;
 }
 
 function parseJson(value: unknown): unknown {
@@ -236,6 +269,36 @@ function getNestedValue(payload: unknown, path: string[]): unknown {
 
 function getString(value: unknown) {
   return typeof value === "string" ? value : undefined;
+}
+
+function consistentString(values: Array<string | undefined>) {
+  const present = values.filter(
+    (value): value is string => value !== undefined && value.length > 0
+  );
+  return new Set(present).size === 1 ? present[0] : undefined;
+}
+
+function getAliasedString(
+  record: Record<string, unknown>,
+  keys: string[],
+  normalise: (value: string) => string = (value) => value
+) {
+  return consistentString(
+    keys.map((key) => {
+      const value = getString(record[key]);
+      return value === undefined ? undefined : normalise(value);
+    })
+  );
+}
+
+function getAliasedInteger(
+  record: Record<string, unknown>,
+  keys: string[]
+) {
+  const present = keys
+    .map((key) => getInteger(record[key]))
+    .filter((value): value is number => value !== undefined);
+  return new Set(present).size === 1 ? present[0] : undefined;
 }
 
 function getInteger(value: unknown) {

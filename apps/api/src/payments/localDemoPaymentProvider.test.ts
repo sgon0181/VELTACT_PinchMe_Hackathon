@@ -29,6 +29,7 @@ test("creates a clearly labelled local hosted-link state without a network call"
     supplierId: "supplier-789",
     buyerEmail: "buyer@example.com",
     amount: 1_850_000,
+    currency: "AUD",
     description: "Veltact Diagnosis commitment",
     returnUrl: "http://localhost:4000/api/pinch/return/engagement-123"
   });

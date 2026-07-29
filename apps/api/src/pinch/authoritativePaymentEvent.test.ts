@@ -20,6 +20,7 @@ describe("authoritative Pinch webhook payments", () => {
         supplierId: "supplier-123",
         milestoneId: "eng-123-m1-site-assessment-scoping-visit",
         paymentId: "pmt_123",
+        payerId: "pyr_123",
         amountMinor: 750_000,
         currency: "AUD",
         status: "approved"
@@ -34,6 +35,12 @@ describe("authoritative Pinch webhook payments", () => {
     assert.equal(
       extractApprovedPinchPaymentEvent(
         approvedWebhook({ Metadata: undefined })
+      ),
+      undefined
+    );
+    assert.equal(
+      extractApprovedPinchPaymentEvent(
+        approvedWebhook({ Payer: undefined })
       ),
       undefined
     );
@@ -54,6 +61,7 @@ describe("authoritative Pinch webhook payments", () => {
       needProfileId: "need-123",
       supplierId: "supplier-123",
       milestoneId: "eng-123-m1-site-assessment-scoping-visit",
+      payerId: "pyr_123",
       amountMinor: 750_000,
       currency: "AUD"
     };
@@ -69,9 +77,81 @@ describe("authoritative Pinch webhook payments", () => {
     assert.equal(
       matchesExpectedPinchCommitment(event, {
         ...expected,
+        payerId: "pyr_other"
+      }),
+      false
+    );
+    assert.equal(
+      matchesExpectedPinchCommitment(event, {
+        ...expected,
         amountMinor: 1
       }),
       false
+    );
+  });
+
+  test("accepts the documented camelCase webhook format", () => {
+    assert.deepEqual(
+      extractApprovedPinchPaymentEvent({
+        id: "evt_camel",
+        type: "realtime-payment",
+        eventDate: "2026-07-26T00:00:00.000Z",
+        data: {
+          payment: {
+            id: "pmt_camel",
+            amount: 750_000,
+            currency: "AUD",
+            status: "approved",
+            payer: {
+              id: "pyr_123"
+            },
+            metadata: JSON.stringify(commitmentMetadata())
+          }
+        }
+      }),
+      {
+        eventId: "evt_camel",
+        eventType: "realtime-payment",
+        engagementId: "eng-123",
+        needProfileId: "need-123",
+        supplierId: "supplier-123",
+        milestoneId: "eng-123-m1-site-assessment-scoping-visit",
+        paymentId: "pmt_camel",
+        payerId: "pyr_123",
+        amountMinor: 750_000,
+        currency: "AUD",
+        status: "approved"
+      }
+    );
+  });
+
+  test("requires complete commitment metadata instead of trusting an engagement id alone", () => {
+    assert.equal(
+      extractApprovedPinchPaymentEvent(
+        approvedWebhook({
+          Metadata: JSON.stringify({
+            engagementId: "eng-123"
+          })
+        })
+      ),
+      undefined
+    );
+    assert.equal(
+      extractApprovedPinchPaymentEvent(
+        approvedWebhook({
+          Metadata: JSON.stringify({
+            engagementId: "eng-123",
+            needId: "need-123",
+            supplierId: "supplier-123",
+            milestoneId:
+              "eng-123-m1-site-assessment-scoping-visit",
+            commitmentType: "invoice",
+            commitmentAmountMinor: "750000",
+            commitmentCurrency: "AUD"
+          })
+        })
+      ),
+      undefined
     );
   });
 
@@ -183,17 +263,24 @@ function approvedWebhook(
         Amount: 750_000,
         Currency: "AUD",
         Status: "approved",
-        Metadata: JSON.stringify({
-          engagementId: "eng-123",
-          needId: "need-123",
-          supplierId: "supplier-123",
-          milestoneId: "eng-123-m1-site-assessment-scoping-visit",
-          commitmentType: "commercial_commitment",
-          commitmentAmountMinor: "750000",
-          commitmentCurrency: "AUD"
-        }),
+        Payer: {
+          Id: "pyr_123"
+        },
+        Metadata: JSON.stringify(commitmentMetadata()),
         ...paymentOverrides
       }
     }
+  };
+}
+
+function commitmentMetadata() {
+  return {
+    engagementId: "eng-123",
+    needId: "need-123",
+    supplierId: "supplier-123",
+    milestoneId: "eng-123-m1-site-assessment-scoping-visit",
+    commitmentType: "commercial_commitment",
+    commitmentAmountMinor: "750000",
+    commitmentCurrency: "AUD"
   };
 }

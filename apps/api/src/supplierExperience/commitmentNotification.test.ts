@@ -29,19 +29,30 @@ import {
 
 const originalFetch = globalThis.fetch;
 let originalEmailEnv: {
+  NODE_ENV: typeof env.NODE_ENV;
+  PUBLIC_BASE_URL: typeof env.PUBLIC_BASE_URL;
   EMAIL_PROVIDER: typeof env.EMAIL_PROVIDER;
   EMAIL_FROM: typeof env.EMAIL_FROM;
   RESEND_API_KEY: typeof env.RESEND_API_KEY;
+  SUPPLIER_OUTREACH_EMAIL_TO: typeof env.SUPPLIER_OUTREACH_EMAIL_TO;
   MARKETPLACE_DATA_FILE: typeof env.MARKETPLACE_DATA_FILE;
 };
 
 beforeEach(() => {
   originalEmailEnv = {
+    NODE_ENV: env.NODE_ENV,
+    PUBLIC_BASE_URL: env.PUBLIC_BASE_URL,
     EMAIL_PROVIDER: env.EMAIL_PROVIDER,
     EMAIL_FROM: env.EMAIL_FROM,
     RESEND_API_KEY: env.RESEND_API_KEY,
+    SUPPLIER_OUTREACH_EMAIL_TO: env.SUPPLIER_OUTREACH_EMAIL_TO,
     MARKETPLACE_DATA_FILE: env.MARKETPLACE_DATA_FILE
   };
+  Object.assign(env, {
+    NODE_ENV: "test",
+    PUBLIC_BASE_URL: "https://demo.veltact.test",
+    SUPPLIER_OUTREACH_EMAIL_TO: undefined
+  });
 });
 
 afterEach(() => {
@@ -133,6 +144,49 @@ describe("commitment-confirmed supplier email", { concurrency: false }, () => {
     assert.equal(notification?.deliveryStatus, "not_sent");
     assert.match(notification?.errorMessage ?? "", /RESEND_API_KEY/);
     assert.equal(providerCalled, false);
+  });
+
+  test("keeps authoritative commitment email explicitly unsent in local demo mode", async () => {
+    const engagementId = securedEngagement("pinch");
+    Object.assign(env, {
+      NODE_ENV: "test",
+      EMAIL_PROVIDER: "local_demo"
+    });
+    let providerCalled = false;
+    globalThis.fetch = async () => {
+      providerCalled = true;
+      return new Response(null, { status: 200 });
+    };
+
+    const notification = await notifyCommitmentConfirmed(engagementId);
+
+    assert.equal(notification?.deliveryStatus, "not_sent");
+    assert.equal(notification?.sentAt, undefined);
+    assert.match(notification?.errorMessage ?? "", /Local demo only/);
+    assert.equal(providerCalled, false);
+  });
+
+  test("routes commitment email through the configured staging recipient override", async () => {
+    const engagementId = securedEngagement("pinch");
+    Object.assign(env, {
+      EMAIL_PROVIDER: "resend",
+      EMAIL_FROM: "Veltact <opportunities@veltact.test>",
+      RESEND_API_KEY: "re_test_key",
+      SUPPLIER_OUTREACH_EMAIL_TO: "staging-inbox@example.com"
+    });
+    let requestBody: Record<string, unknown> | undefined;
+    globalThis.fetch = async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ id: "email-123" }), {
+        status: 200
+      });
+    };
+
+    const notification = await notifyCommitmentConfirmed(engagementId);
+
+    assert.equal(notification?.deliveryStatus, "sent");
+    assert.equal(notification?.destination, "staging-inbox@example.com");
+    assert.deepEqual(requestBody?.to, ["staging-inbox@example.com"]);
   });
 
   test("persists sent state and suppresses a duplicate after store reload", async () => {

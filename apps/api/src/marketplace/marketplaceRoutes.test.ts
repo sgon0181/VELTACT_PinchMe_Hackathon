@@ -57,6 +57,7 @@ beforeEach(async () => {
   setPaymentProviderForTest({
     async createHostedPaymentLink(input) {
       assert.equal(input.amount, 1_850_000);
+      assert.equal(input.buyerName, undefined);
       assert.equal(input.metadata?.commitmentType, "commercial_commitment");
       assert.match(input.metadata?.milestoneId ?? "", /-m1-diagnosis$/);
       assert.match(input.returnUrl, new RegExp(`/api/pinch/return/${input.engagementId}$`));
@@ -1900,9 +1901,20 @@ describe("marketplace core routes", () => {
       Data: {
         Payment: {
           Id: "pmt_approved",
+          Amount: 1_850_000,
+          Currency: "AUD",
           Status: "approved",
+          Payer: {
+            Id: `pyr_${selected.body.engagement.id}`
+          },
           Metadata: JSON.stringify({
-            engagementId: selected.body.engagement.id
+            engagementId: selected.body.engagement.id,
+            needId: created.body.need.id,
+            supplierId: selected.body.engagement.supplierId,
+            milestoneId: `${selected.body.engagement.id}-m1-diagnosis`,
+            commitmentType: "commercial_commitment",
+            commitmentAmountMinor: "1850000",
+            commitmentCurrency: "AUD"
           })
         }
       }
@@ -1967,6 +1979,12 @@ describe("marketplace core routes", () => {
 
     const duplicate = await postSignedWebhook(eventPayload);
     assert.equal(duplicate.status, 200);
+    const samePaymentNewEvent = await postSignedWebhook({
+      ...eventPayload,
+      Id: "evt_payment_approved_replayed"
+    });
+    assert.equal(samePaymentNewEvent.status, 200);
+    assert.equal(listPinchWebhookEvidence().length, 1);
 
     const stillSecured = await getJson(`/api/engagements/${selected.body.engagement.id}`);
     assert.equal(stillSecured.body.engagement.securedAt, secured.body.engagement.securedAt);

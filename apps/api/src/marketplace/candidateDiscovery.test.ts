@@ -147,6 +147,143 @@ describe("selected-pathway supplier discovery", () => {
       )
     );
   });
+
+  test("returns exactly three distinct candidates after selected-pathway ranking", () => {
+    const profile = roboticsNeed();
+    const research = createMarketplaceFixtureResearch(
+      "need-robotics-shortlist",
+      profile,
+      generatedAt
+    );
+    const selectedApproach = research.approaches.find((approach) =>
+      approach.id.endsWith(":integration")
+    );
+    assert.ok(selectedApproach);
+    const candidates = createMarketplaceFixtureSupplierLeads(
+      "need-robotics-shortlist",
+      profile,
+      generatedAt
+    );
+    const duplicate = {
+      ...candidates[0],
+      id: `${candidates[0].id}:duplicate`
+    };
+    const unrelated = {
+      ...candidates[1],
+      id: `${candidates[1].id}:unrelated`,
+      companyName: "General Industrial Services (Demo)",
+      website: "https://general-industrial-services-demo.example",
+      location: "Perth, WA",
+      serviceRegions: ["Perth", "WA"],
+      capabilities: ["general electrical services"],
+      matchReasons: [
+        "General industrial services are listed, but selected-pathway fit requires review."
+      ],
+      evidence: candidates[1].evidence.map((evidence) => ({
+        ...evidence,
+        id: `${evidence.id}:unrelated`,
+        title: "General Industrial Services fixture evidence",
+        url: "https://general-industrial-services-demo.example",
+        evidenceNote:
+          "Deterministic fictional general-services evidence for shortlist testing."
+      }))
+    };
+
+    const ranked = rankDiscoveredSupplierLeads({
+      profile,
+      selectedApproach,
+      candidates: [...candidates, duplicate, unrelated],
+      publicBaseUrl
+    });
+
+    assert.equal(ranked.length, 3);
+    assert.equal(new Set(ranked.map((lead) => lead.website)).size, 3);
+    assert.deepEqual(
+      new Set(ranked.map((lead) => lead.companyName)),
+      new Set(candidates.map((lead) => lead.companyName))
+    );
+  });
+
+  test("does not attach a fictional fixture logo to a live candidate", () => {
+    const profile = roboticsNeed();
+    const research = createMarketplaceFixtureResearch(
+      "need-live-logo",
+      profile,
+      generatedAt
+    );
+    const selectedApproach = research.approaches.find((approach) =>
+      approach.id.endsWith(":integration")
+    );
+    assert.ok(selectedApproach);
+    const [fixtureCandidate] = createMarketplaceFixtureSupplierLeads(
+      "need-live-logo",
+      profile,
+      generatedAt
+    );
+    const liveCandidate = {
+      ...fixtureCandidate,
+      id: "need-live-logo:lead:live",
+      sourceMode: "live" as const,
+      evidence: fixtureCandidate.evidence.map((evidence) => ({
+        ...evidence,
+        provider: "openai_web_search" as const
+      }))
+    };
+
+    const [ranked] = rankDiscoveredSupplierLeads({
+      profile,
+      selectedApproach,
+      candidates: [liveCandidate],
+      publicBaseUrl
+    });
+
+    assert.equal(ranked.logoUrl, undefined);
+  });
+
+  test("does not count conjunctions as selected-pathway capability evidence", () => {
+    const profile = roboticsNeed();
+    const research = createMarketplaceFixtureResearch(
+      "need-capability-stopwords",
+      profile,
+      generatedAt
+    );
+    const integrationApproach = research.approaches.find((approach) =>
+      approach.id.endsWith(":integration")
+    );
+    assert.ok(integrationApproach);
+    const selectedApproach = {
+      ...integrationApproach,
+      requiredCapabilities: ["commissioning and training"]
+    };
+    const [fixtureCandidate] = createMarketplaceFixtureSupplierLeads(
+      "need-capability-stopwords",
+      profile,
+      generatedAt
+    );
+    const candidate = {
+      ...fixtureCandidate,
+      capabilities: ["robot commissioning and controls"],
+      matchReasons: [
+        "Public evidence references robot commissioning and controls."
+      ]
+    };
+
+    const [ranked] = rankDiscoveredSupplierLeads({
+      profile,
+      selectedApproach,
+      candidates: [candidate],
+      publicBaseUrl
+    });
+
+    assert.match(
+      ranked.matchReasons[0],
+      /no direct capability overlap is established/
+    );
+    assert.match(
+      ranked.risks.join(" "),
+      /confirm commissioning and training/
+    );
+  });
 });
 
 function plcNeed(): MarketplaceNeedProfile {
