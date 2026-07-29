@@ -212,7 +212,7 @@ that output. The reset is unavailable on strict production staging.
 ## Rollback
 
 The authorized application-only rollback in `docs/DEPLOYMENT.md` is commit
-`7d1b7ee`. Do not alter DNS or Google Workspace MX/TXT records.
+`b41ba82`. Do not alter DNS or Google Workspace MX/TXT records.
 
 That legacy commit predates the required `releaseRevision` and `providerModes`
 health fields, so this readiness command must reject it. Treat it as emergency
