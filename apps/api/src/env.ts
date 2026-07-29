@@ -30,6 +30,8 @@ const optionalBoolean = z.preprocess((value) => {
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  IS_PULL_REQUEST: z.enum(["true", "false"]).optional(),
+  RENDER_EXTERNAL_URL: optionalProviderUrl,
   RENDER_GIT_COMMIT: z.string().trim().regex(/^[0-9a-f]{7,40}$/i).optional(),
   VELTACT_RELEASE_SHA: z.string().trim().regex(/^[0-9a-f]{7,40}$/i).optional(),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -117,8 +119,10 @@ const envSchema = z.object({
 export function parseEnvironment(
   source: Record<string, unknown>
 ) {
+  const previewOverrides = renderPreviewOverrides(source);
   return envSchema.parse({
     ...source,
+    ...previewOverrides,
     PINCH_CLIENT_ID: source.PINCH_CLIENT_ID ?? source.PINCH_APPLICATION_ID
   });
 }
@@ -166,4 +170,37 @@ export const env = {
 
 function resolveApiPath(value: string) {
   return path.isAbsolute(value) ? value : path.resolve(apiRoot, value);
+}
+
+function renderPreviewOverrides(source: Record<string, unknown>) {
+  if (source.IS_PULL_REQUEST !== "true") return {};
+
+  const externalUrl = optionalProviderUrl.parse(source.RENDER_EXTERNAL_URL);
+  if (!externalUrl) {
+    throw new Error(
+      "RENDER_EXTERNAL_URL is required for a Render pull request preview"
+    );
+  }
+
+  const parsed = new URL(externalUrl);
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error(
+      "RENDER_EXTERNAL_URL must be a credential-free HTTPS origin"
+    );
+  }
+
+  const origin = parsed.origin;
+  return {
+    WEB_ORIGIN: origin,
+    PUBLIC_BASE_URL: origin,
+    API_PUBLIC_URL: origin,
+    PINCH_RETURN_URL: new URL("/api/pinch/return", origin).toString()
+  };
 }

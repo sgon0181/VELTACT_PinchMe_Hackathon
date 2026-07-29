@@ -40,6 +40,49 @@ describe("production Pinch environment", () => {
     );
   });
 
+  test("keeps every generated link on the Render preview origin", () => {
+    const result = parseEnvironment({
+      NODE_ENV: "development",
+      IS_PULL_REQUEST: "true",
+      RENDER_EXTERNAL_URL: "https://veltact-pr-2.onrender.com",
+      WEB_ORIGIN: "https://veltact.com",
+      PUBLIC_BASE_URL: "https://veltact.com",
+      API_PUBLIC_URL: "https://veltact.com",
+      PINCH_RETURN_URL: "https://veltact.com/api/pinch/return",
+      PAYMENT_PROVIDER: "local_demo"
+    });
+
+    assert.equal(result.WEB_ORIGIN, "https://veltact-pr-2.onrender.com");
+    assert.equal(result.PUBLIC_BASE_URL, "https://veltact-pr-2.onrender.com");
+    assert.equal(result.API_PUBLIC_URL, "https://veltact-pr-2.onrender.com");
+    assert.equal(
+      result.PINCH_RETURN_URL,
+      "https://veltact-pr-2.onrender.com/api/pinch/return"
+    );
+  });
+
+  test("rejects an unsafe or missing Render preview origin", () => {
+    assert.throws(
+      () =>
+        parseEnvironment({
+          NODE_ENV: "development",
+          IS_PULL_REQUEST: "true",
+          PAYMENT_PROVIDER: "local_demo"
+        }),
+      /RENDER_EXTERNAL_URL is required/
+    );
+    assert.throws(
+      () =>
+        parseEnvironment({
+          NODE_ENV: "development",
+          IS_PULL_REQUEST: "true",
+          RENDER_EXTERNAL_URL: "http://veltact-pr-2.onrender.com",
+          PAYMENT_PROVIDER: "local_demo"
+        }),
+      /credential-free HTTPS origin/
+    );
+  });
+
   test("requires the webhook secret used for authoritative confirmation", () => {
     assert.throws(
       () => parseEnvironment(productionPinchEnvironment),
