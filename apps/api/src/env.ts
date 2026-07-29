@@ -30,6 +30,8 @@ const optionalBoolean = z.preprocess((value) => {
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  RENDER_GIT_COMMIT: z.string().trim().regex(/^[0-9a-f]{7,40}$/i).optional(),
+  VELTACT_RELEASE_SHA: z.string().trim().regex(/^[0-9a-f]{7,40}$/i).optional(),
   PORT: z.coerce.number().int().positive().default(4000),
   WEB_ORIGIN: z.string().url().default("http://localhost:4000"),
   PUBLIC_BASE_URL: z.string().url().optional(),
@@ -125,6 +127,8 @@ const parsedEnv = parseEnvironment(process.env);
 
 export const env = {
   ...parsedEnv,
+  RELEASE_REVISION:
+    parsedEnv.VELTACT_RELEASE_SHA ?? parsedEnv.RENDER_GIT_COMMIT ?? "local",
   PINCH_CLIENT_ID: parsedEnv.PINCH_CLIENT_ID ?? "",
   PINCH_SECRET_KEY: parsedEnv.PINCH_SECRET_KEY ?? "",
   PINCH_AUTH_URL: parsedEnv.PINCH_AUTH_URL ?? "",

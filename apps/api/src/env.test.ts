@@ -15,6 +15,31 @@ const productionPinchEnvironment = {
 };
 
 describe("production Pinch environment", () => {
+  test("accepts a Render revision without requiring a manually configured release id", () => {
+    const result = parseEnvironment({
+      NODE_ENV: "development",
+      PAYMENT_PROVIDER: "local_demo",
+      RENDER_GIT_COMMIT: "7c9a9975d193189a40da6a9d1e4593bac5861b04"
+    });
+
+    assert.equal(
+      result.RENDER_GIT_COMMIT,
+      "7c9a9975d193189a40da6a9d1e4593bac5861b04"
+    );
+  });
+
+  test("rejects malformed release revisions", () => {
+    assert.throws(
+      () =>
+        parseEnvironment({
+          NODE_ENV: "development",
+          PAYMENT_PROVIDER: "local_demo",
+          VELTACT_RELEASE_SHA: "latest"
+        }),
+      /VELTACT_RELEASE_SHA/
+    );
+  });
+
   test("requires the webhook secret used for authoritative confirmation", () => {
     assert.throws(
       () => parseEnvironment(productionPinchEnvironment),

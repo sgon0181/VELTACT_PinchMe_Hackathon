@@ -45,9 +45,23 @@ test("reports account credential persistence readiness", async () => {
   const response = await fetch(`${baseUrl}/api/health`);
   assert.equal(response.status, 200);
   const health = (await response.json()) as {
+    releaseRevision?: string;
+    providerModes?: {
+      email?: string;
+      payment?: string;
+      research?: string;
+      sms?: string;
+    };
     readiness: { accountPersistence?: boolean };
   };
   assert.equal(health.readiness.accountPersistence, true);
+  assert.equal(health.releaseRevision, "local");
+  assert.deepEqual(health.providerModes, {
+    research: "auto",
+    email: "local_demo",
+    sms: "none",
+    payment: "local_demo"
+  });
   const { env } = await import("../env.js");
   assert.equal(env.ACCOUNT_DATA_FILE, configuredAccountDataFile);
 });
