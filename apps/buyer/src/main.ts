@@ -18,8 +18,11 @@ import {
 } from "@veltact/contracts";
 import {
   BackendAiIntakeService,
+  DemoAiIntakeService,
+  type AiIntakeAdapter,
   type IntakeEvidence,
-  type IntakeSourceMode
+  type IntakeSourceMode,
+  type StructureRequirementInput
 } from "./aiIntakeService.js";
 import {
   apiBaseUrl,
@@ -99,6 +102,7 @@ type SocketIoFactory = (
 
 const service = new RapidMatchService();
 const aiIntakeService = new BackendAiIntakeService();
+const localAiIntakeService = new DemoAiIntakeService();
 const app = document.querySelector<HTMLDivElement>("#app");
 const socketWindow = window as Window & { io?: SocketIoFactory };
 const realtimeOrigin = new URL(apiBaseUrl(), window.location.origin).origin;
@@ -116,6 +120,7 @@ const LAST_NEED_KEY = "veltact:rapidmatch:last-need-id";
 const NEW_REQUIREMENT_KEY = "veltact:rapidmatch:new-requirement";
 const CONTEXT_PREFIX = "veltact:rapidmatch:buyer-context:";
 const TOKEN_PREFIX = "veltact:rapidmatch:buyer-token:";
+const AI_INTAKE_TIMEOUT_MS = 12_000;
 const buyerViews = new Set<BuyerView>([
   "intake",
   "plan",
@@ -162,6 +167,8 @@ let isPolling = false;
 let realtimeSocket: RealtimeSocket | undefined;
 let joinedNeedProfileId = "";
 let realtimeClientLoading: Promise<void> | undefined;
+let intakeRevision = 0;
+let activeIntakeRequestId = 0;
 
 const emptyInput: BuyerRequirementInput = {
   companyName: "",
@@ -1952,6 +1959,18 @@ function renderLoadingSkeleton() {
 function bindEvents() {
   const requirementForm =
     document.querySelector<HTMLFormElement>("#requirement-form");
+  requirementForm?.addEventListener("input", (event) => {
+    const target = event.target;
+    if (
+      !(target instanceof HTMLInputElement) &&
+      !(target instanceof HTMLTextAreaElement)
+    ) {
+      return;
+    }
+    if (target.type === "file") return;
+    syncIntakeDraft(requirementForm);
+    intakeRevision += 1;
+  });
   requirementForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     syncIntakeDraft(requirementForm);
@@ -1980,6 +1999,7 @@ function bindEvents() {
     (button) => {
       button.addEventListener("click", () => {
         if (requirementForm) syncIntakeDraft(requirementForm);
+        intakeRevision += 1;
         intakeMode = button.dataset.intakeMode === "manual" ? "manual" : "ai";
         loadState = "idle";
         errorMessage = "";
@@ -2000,6 +2020,7 @@ function bindEvents() {
     (button) => {
       button.addEventListener("click", () => {
         if (requirementForm) syncIntakeDraft(requirementForm);
+        intakeRevision += 1;
         const next = button.dataset.priority as PrioritySignal;
         if (priorities.has(next)) priority = next;
         render();
@@ -2025,6 +2046,7 @@ function bindEvents() {
         if (requirementForm) syncIntakeDraft(requirementForm);
         const index = Number(button.dataset.removeEvidence);
         intakeEvidence = intakeEvidence.filter((_, itemIndex) => itemIndex !== index);
+        intakeRevision += 1;
         aiIntakeResult = undefined;
         render();
       });
@@ -2116,19 +2138,163 @@ function bindEvents() {
 
 async function structureRequirement(form: HTMLFormElement) {
   syncIntakeDraft(form);
-  await runAction("Structuring supplier requirement", async () => {
-    const result = await aiIntakeService.structureRequirement({
-      rawRequirement: intakeDraft.description,
-      evidence: intakeEvidence
-    });
-    aiIntakeResult = result;
-    intakeSourceMode = aiIntakeService.sourceMode();
-    applyStructuredResult(result);
-    liveMessage =
-      intakeSourceMode === "live"
+  const requestRevision = intakeRevision;
+  const requestMode = intakeMode;
+  const requestId = ++activeIntakeRequestId;
+  const input: StructureRequirementInput = {
+    rawRequirement: intakeDraft.description,
+    evidence: intakeEvidence
+  };
+
+  loadState = "loading";
+  loadingLabel = "Structuring supplier requirement";
+  errorMessage = "";
+  liveMessage = "";
+  render();
+
+  try {
+    const outcome = await structureIntakeWithFallback(
+      aiIntakeService,
+      localAiIntakeService,
+      input,
+      AI_INTAKE_TIMEOUT_MS
+    );
+    if (
+      requestId !== activeIntakeRequestId ||
+      !isCurrentIntakeRequest(
+        requestRevision,
+        intakeRevision,
+        requestMode,
+        intakeMode
+      )
+    ) {
+      if (requestId === activeIntakeRequestId) {
+        loadState = "idle";
+        liveMessage =
+          "Your newer intake edits were kept. Structure the updated requirement when ready.";
+        render();
+      }
+      return;
+    }
+    aiIntakeResult = outcome.result;
+    intakeSourceMode = outcome.sourceMode;
+    applyStructuredResult(outcome.result);
+    loadState = "success";
+    liveMessage = outcome.fallbackReason
+      ? localFallbackMessage(outcome.fallbackReason)
+      : intakeSourceMode === "live"
         ? "OpenAI returned a structured draft. Review every field."
         : "Local adapter returned a structured draft. Review every field.";
+  } catch (error) {
+    if (requestId !== activeIntakeRequestId) return;
+    if (
+      !isCurrentIntakeRequest(
+        requestRevision,
+        intakeRevision,
+        requestMode,
+        intakeMode
+      )
+    ) {
+      loadState = "idle";
+      liveMessage =
+        "Your newer intake edits were kept. Structure the updated requirement when ready.";
+    } else {
+      loadState = "error";
+      errorMessage = errorText(error);
+    }
+  }
+  if (requestId === activeIntakeRequestId) render();
+}
+
+type IntakeFallbackReason = "slow" | "unavailable";
+
+type StructuredIntakeOutcome = {
+  result: AiIntakeResult;
+  sourceMode: IntakeSourceMode;
+  fallbackReason?: IntakeFallbackReason;
+};
+
+class IntakeTimeoutError extends Error {
+  constructor() {
+    super("OpenAI intake timed out.");
+  }
+}
+
+async function structureIntakeWithFallback(
+  primary: AiIntakeAdapter,
+  fallback: AiIntakeAdapter,
+  input: StructureRequirementInput,
+  timeoutMs: number
+): Promise<StructuredIntakeOutcome> {
+  try {
+    const result = await withTimeout(
+      primary.structureRequirement(input),
+      timeoutMs
+    );
+    return {
+      result,
+      sourceMode: primary.sourceMode()
+    };
+  } catch (error) {
+    const fallbackReason = intakeFallbackReason(error);
+    if (!fallbackReason) throw error;
+    return {
+      result: await fallback.structureRequirement(input),
+      sourceMode: fallback.sourceMode(),
+      fallbackReason
+    };
+  }
+}
+
+function intakeFallbackReason(
+  error: unknown
+): IntakeFallbackReason | undefined {
+  if (error instanceof IntakeTimeoutError) return "slow";
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" &&
+          error !== null &&
+          "message" in error
+        ? String(error.message)
+        : String(error);
+  return /OpenAI intake|AI intake service returned|structured output|unexpected token|network|failed to fetch|fetch failed/i.test(
+    message
+  )
+    ? "unavailable"
+    : undefined;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutHandle: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutHandle = window.setTimeout(
+      () => reject(new IntakeTimeoutError()),
+      timeoutMs
+    );
   });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutHandle !== undefined) window.clearTimeout(timeoutHandle);
+  });
+}
+
+function isCurrentIntakeRequest(
+  requestRevision: number,
+  currentRevision: number,
+  requestMode: IntakeMode,
+  currentMode: IntakeMode
+) {
+  return (
+    requestRevision === currentRevision &&
+    requestMode === "ai" &&
+    currentMode === "ai"
+  );
+}
+
+function localFallbackMessage(reason: IntakeFallbackReason) {
+  const cause =
+    reason === "slow" ? "OpenAI took too long" : "OpenAI was unavailable";
+  return `${cause}. A local structured draft is ready; attached PDF/photo content remains unprocessed and every field requires buyer review.`;
 }
 
 async function analyseRequirement() {
@@ -2627,6 +2793,7 @@ function isCurrentWorkspaceRefresh(
 }
 
 function loadDemo(input: BuyerRequirementInput, robotics: boolean) {
+  intakeRevision += 1;
   intakeDraft = cloneInput(input);
   priority = robotics ? "technical_fit" : "speed";
   intakeMode = "ai";
@@ -2664,6 +2831,7 @@ async function addEvidenceFromInput(
   if (form) syncIntakeDraft(form);
   const file = input.files?.[0];
   if (!file) return;
+  intakeRevision += 1;
   loadState = "loading";
   loadingLabel = `Reading ${file.name}`;
   render();
@@ -3133,6 +3301,8 @@ function resolveRestoredView(
 }
 
 function startNewRequirement() {
+  intakeRevision += 1;
+  activeIntakeRequestId += 1;
   const needProfileId = workspace?.needProfile?.id;
   if (needProfileId) {
     safeStorageRemove(`${CONTEXT_PREFIX}${needProfileId}`);
