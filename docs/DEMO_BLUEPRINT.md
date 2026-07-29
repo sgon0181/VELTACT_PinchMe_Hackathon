@@ -53,9 +53,11 @@ sticky header:
 
 - `Sign in`
 - `Create account`
-- `Try demo`
+- `Trial Demo`
 
 The demo remains accessible without an account.
+The page body is informative. It does not repeat account or demo CTAs in the
+hero, workflow explanation, role explanation or footer.
 
 ### 1. Find - Describe The Need
 
@@ -64,10 +66,7 @@ Visible controls:
 - One dominant requirement field.
 - Optional PDF evidence.
 - Optional photograph evidence.
-- Location.
-- Urgency.
-- Budget.
-- Buyer priority.
+- Progressively disclosed location, urgency, budget and buyer priority.
 - One primary `Analyse requirement` action.
 
 Company and contact information remain secondary. Demo controls are utilities,
@@ -99,9 +98,16 @@ Show:
 - Three explainable supplier candidates.
 - Public-evidence provenance and risk labels.
 - Buyer selection for one or more candidates.
-- Distinct `Send email`, `Send SMS` and `Copy link` actions.
+- One primary `Connect` action after candidate selection.
+- A channel panel revealed by `Connect` with independent `Link`, `SMS` and
+  `Email` checkboxes.
+- One primary `Send` action. Email and SMS may be selected together.
 - Email and SMS delivery state.
 - Private supplier invitation links in development only.
+
+Selecting `Link` produces one copyable private URL per selected supplier and
+does not create provider-delivery evidence. Selecting Email or SMS attempts only
+those channels. `Send` remains truthful when a provider is in local-demo mode.
 
 The buyer should not see separate profile approval and marketplace activation
 buttons. Any backend consent stages must resolve behind one clear next action.
@@ -145,6 +151,9 @@ Primary action:
 
 `Select supplier`
 
+Supplier responses use single-selection radio controls, not checkboxes, because
+one response creates one engagement.
+
 ### 6. Deploy - Commit And Track
 
 Show:
@@ -164,7 +173,7 @@ Do not claim that the supplier has been paid.
 
 ### 0-6 seconds - Product entry
 
-Show the short loading treatment and select `Try demo`.
+Show the short loading treatment and select `Trial Demo`.
 
 Narration:
 
@@ -194,7 +203,8 @@ Select one pathway and choose `Find suppliers`.
 
 ### 29-41 seconds - Connect
 
-Select three explainable matches and send approved email/SMS invitations.
+Select three explainable matches, choose `Connect`, select Email and SMS, then
+choose `Send`.
 
 Narration:
 
@@ -269,9 +279,11 @@ Final line:
 ## P1 - Demo Clarity
 
 - One primary action per state.
+- Exactly three public header actions and no repeated landing-page CTAs.
 - Live supplier response update.
 - Honest email/SMS status.
 - Clear RapidMatch transition inside Connect.
+- Multi-channel outreach through one `Connect` and one `Send` decision.
 - Decision-focused comparison.
 - Strong selected-to-secured transition.
 - Lightweight milestone progress.

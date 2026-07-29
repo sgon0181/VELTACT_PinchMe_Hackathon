@@ -3,9 +3,17 @@
 Veltact turns industrial requirements into cited solution options, qualified
 supplier responses and controlled deployments with a Pinch commitment payment.
 
-The current product and agent execution baseline is
-[`docs/STAGING_DEMO_CHARTER.md`](docs/STAGING_DEMO_CHARTER.md). Staging
-deployment instructions are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+The active authority chain is:
+
+1. [`docs/PRODUCT.md`](docs/PRODUCT.md)
+2. [`docs/DEMO_BLUEPRINT.md`](docs/DEMO_BLUEPRINT.md)
+3. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+4. [`docs/INTEGRATION_CONTRACT.md`](docs/INTEGRATION_CONTRACT.md)
+5. [`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBOOK.md)
+
+Historical execution plans are retained under [`docs/archive`](docs/archive)
+and are not implementation baselines. Deployment instructions are in
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 For the free hackathon deployment and the `veltact.com` DNS cutover, see
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).

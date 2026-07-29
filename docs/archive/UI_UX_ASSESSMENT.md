@@ -1,4 +1,4 @@
-# Veltact Canonical Journey UI/UX Assessment
+# Archived: Veltact Canonical Journey UI/UX Assessment
 
 Assessment date: 26 July 2026
 

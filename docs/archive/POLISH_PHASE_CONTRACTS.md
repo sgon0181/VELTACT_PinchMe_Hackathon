@@ -1,4 +1,4 @@
-# Polish Phase Contracts
+# Archived: Polish Phase Contracts
 
 This file defines the minimum coordination contracts for the next polish phase. It does not expand the locked RapidMatch workflow in `docs/DEMO_BLUEPRINT.md`.
 

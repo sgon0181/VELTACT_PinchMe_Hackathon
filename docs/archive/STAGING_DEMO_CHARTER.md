@@ -1,4 +1,4 @@
-# Veltact Polished Staging Demo Charter
+# Archived: Veltact Polished Staging Demo Charter
 
 ## Authority
 
