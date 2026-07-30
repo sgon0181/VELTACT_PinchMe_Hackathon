@@ -18,7 +18,10 @@ const industrialTerms = [
   "fault",
   "hmi",
   "hydraulic",
+  "heater band",
   "industrial",
+  "injection molding",
+  "injection moulding",
   "line",
   "machine",
   "maintenance",
@@ -28,6 +31,9 @@ const industrialTerms = [
   "panel",
   "plc",
   "pneumatic",
+  "plastic processing",
+  "polymer processing",
+  "process heating",
   "pump",
   "robot",
   "scada",
@@ -35,7 +41,12 @@ const industrialTerms = [
   "siemens",
   "site",
   "supplier",
-  "technician"
+  "technician",
+  "temperature zone",
+  "thermocouple",
+  "torque alarm",
+  "extruder",
+  "extrusion"
 ];
 
 export function preflightAiIntake(input: StructureRequirementRequest): IntakePreflightResult {

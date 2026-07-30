@@ -8,7 +8,7 @@ import {
   type SupplierLead
 } from "@veltact/contracts";
 
-export type MarketplaceDemoScenario = "plc" | "robotics";
+export type MarketplaceDemoScenario = "plc" | "process_heating" | "robotics";
 
 export function inferMarketplaceDemoScenario(
   profile: MarketplaceNeedProfile
@@ -28,9 +28,17 @@ export function inferMarketplaceDemoScenario(
     .join(" ")
     .toLowerCase();
 
-  return /\brobot|robotic|palletis|cobot|end[- ]of[- ]arm/.test(evidence)
-    ? "robotics"
-    : "plc";
+  if (/\brobot|robotic|palletis|cobot|end[- ]of[- ]arm/.test(evidence)) {
+    return "robotics";
+  }
+  if (
+    /extrud|heater band|barrel heating|plastic processing|polymer processing|(?:plastic|polymer).{0,40}(?:melt|barrel|screw)|(?:screw|barrel).{0,40}(?:torque|heater|plastic|polymer)/.test(
+      evidence
+    )
+  ) {
+    return "process_heating";
+  }
+  return "plc";
 }
 
 export function createMarketplaceFixtureResearch(
@@ -45,7 +53,9 @@ export function createMarketplaceFixtureResearch(
   const approaches =
     scenario === "robotics"
       ? roboticsApproaches(needProfileId, citationIds)
-      : plcApproaches(needProfileId, citationIds);
+      : scenario === "process_heating"
+        ? processHeatingApproaches(needProfileId, citationIds)
+        : plcApproaches(needProfileId, citationIds);
 
   return solutionResearchResultSchema.parse({
     id: `${needProfileId}:research:${scenario}`,
@@ -54,7 +64,9 @@ export function createMarketplaceFixtureResearch(
     overview:
       scenario === "robotics"
         ? "Treat the mixed-carton palletising cell as a staged integration: validate product variation, cycle time and machinery safety before proving the handling process and commissioning the full cell."
-        : "Treat the stopped Siemens PLC line as an evidence-led recovery: preserve the current state, use authorised controls expertise for diagnosis and restoration, then validate the recovered baseline before production handover.",
+        : scenario === "process_heating"
+          ? "Treat the extrusion heating loss and screw high-torque alarm as a cross-system process fault: preserve the available process evidence, use authorised electrical and plastics-equipment expertise to establish the failure boundary, then validate the approved recovery before production handover."
+          : "Treat the stopped Siemens PLC line as an evidence-led recovery: preserve the current state, use authorised controls expertise for diagnosis and restoration, then validate the recovered baseline before production handover.",
     approaches,
     citations,
     missingInformation:
@@ -64,11 +76,18 @@ export function createMarketplaceFixtureResearch(
             "Target cycle time, pallet patterns and quality acceptance measures",
             "Available cell footprint, services and production cutover windows"
           ]
-        : [
-            "Exact Siemens controller family, firmware and visible diagnostic state",
-            "Provenance and date of the last verified PLC backup",
-            "Whether drives, industrial network or safety controls are also affected"
-          ],
+        : scenario === "process_heating"
+          ? [
+              "Extruder make, model and the Zone 3 heater-band electrical rating",
+              "Zone 3 setpoint, indicated temperature and controller or sensor alarm evidence",
+              "Material grade, last known good process settings and screw-torque trend",
+              "Current isolation state plus available electrical and thermal-zone drawings"
+            ]
+          : [
+              "Exact Siemens controller family, firmware and visible diagnostic state",
+              "Provenance and date of the last verified PLC backup",
+              "Whether drives, industrial network or safety controls are also affected"
+            ],
     safetyNotice:
       "Fixture procurement research only. This is not a machinery diagnosis or an instruction to inspect, isolate, program, bypass safeguards or restart industrial equipment.",
     generatedAt
@@ -84,7 +103,9 @@ export function createMarketplaceFixtureSupplierLeads(
   const candidates =
     scenario === "robotics"
       ? roboticsLeads(profile.budgetAud)
-      : plcLeads(profile.budgetAud);
+      : scenario === "process_heating"
+        ? processHeatingLeads(profile.budgetAud)
+        : plcLeads(profile.budgetAud);
 
   return supplierLeadSchema.array().parse(
     candidates.map((candidate, index) => {
@@ -219,6 +240,99 @@ function plcApproaches(
   ];
 }
 
+function processHeatingApproaches(
+  needProfileId: string,
+  citationIds: string[]
+): SolutionApproach[] {
+  return [
+    {
+      id: `${needProfileId}:approach:process-heating:evidence`,
+      needProfileId,
+      title: "Preserve process evidence and define the failed zone",
+      summary:
+        "Capture the available Zone 3 temperature, alarm, material and last-known-good production evidence without opening enclosures or altering the machine.",
+      rationale:
+        "The heating loss and torque alarm may cross thermal, electrical, instrumentation, material and mechanical boundaries, so a clear evidence package prevents a premature single-cause assumption.",
+      localActions: [
+        "Record the visible Zone 3 setpoint, indicated temperature, alarm text and event time from approved operator records.",
+        "Collect the machine model, heater-zone drawings, material grade, last known good settings and recent maintenance history."
+      ],
+      outsourceTriggers: [
+        "The factory cannot establish the heater-zone boundary from approved read-only records.",
+        "Electrical, hot-surface, stored-energy or rotating-equipment hazards require competent specialist assessment."
+      ],
+      requiredCapabilities: [
+        "plastics extrusion maintenance",
+        "process data review",
+        "temperature-control assessment"
+      ],
+      risks: [
+        "Treating the torque alarm as proof of one failed component may hide another process or mechanical condition.",
+        "Uncontrolled resets or parameter changes may remove useful evidence or introduce additional risk."
+      ],
+      confidence: 0.9,
+      citationIds
+    },
+    {
+      id: `${needProfileId}:approach:process-heating:recovery`,
+      needProfileId,
+      title: "Authorised heating-zone and extrusion assessment",
+      summary:
+        "Have competent specialists assess the heater-band circuit, temperature sensing and control, thermal contact and screw-load evidence under the site's isolation and OEM procedures.",
+      rationale:
+        "A structured cross-discipline assessment separates the observed heating failure from secondary torque symptoms before any repair or restart decision.",
+      localActions: [
+        "Nominate the authorised site representative and provide the approved isolation, access and maintenance records.",
+        "Agree the assessment boundary, response timing and evidence required before replacement work is authorised."
+      ],
+      outsourceTriggers: [
+        "Licensed electrical work, heater replacement, instrumentation testing or access to guarded machine components is required.",
+        "The observed screw load suggests material, thermal or mechanical conditions beyond the internal team's competence."
+      ],
+      requiredCapabilities: [
+        "industrial process heating diagnostics",
+        "industrial electrical fault finding",
+        "temperature control and instrumentation",
+        "extrusion equipment diagnostics"
+      ],
+      risks: [
+        "Live electrical work, hot surfaces and unexpected machine movement create serious hazards.",
+        "Replacing a heater without confirming sensor, controller, thermal-contact and process evidence may not resolve the observed condition."
+      ],
+      confidence: 0.94,
+      citationIds
+    },
+    {
+      id: `${needProfileId}:approach:process-heating:validation`,
+      needProfileId,
+      title: "Controlled process validation and maintenance handover",
+      summary:
+        "After an approved repair, validate heating stability, screw-load trend and product quality against an agreed process window before production handover.",
+      rationale:
+        "The job is not complete until the factory has evidence that the thermal zone, extrusion load and product outcome remain stable under controlled operation.",
+      localActions: [
+        "Define the authorised acceptance evidence, production sample and handover owner before validation begins.",
+        "Record the approved final heater, controller, sensor and process baseline in the maintenance system."
+      ],
+      outsourceTriggers: [
+        "The factory lacks extrusion process-validation or temperature-control competence.",
+        "Torque, temperature or product-quality evidence remains outside the approved acceptance window."
+      ],
+      requiredCapabilities: [
+        "extrusion process validation",
+        "heater-band systems",
+        "maintenance handover"
+      ],
+      risks: [
+        "A temporary temperature recovery is accepted without confirming extrusion load or product quality.",
+        "The final thermal-zone configuration and failure evidence are not retained for recurrence prevention."
+      ],
+      confidence: 0.88,
+      citationIds
+    }
+  ];
+}
+
 function roboticsApproaches(
   needProfileId: string,
   citationIds: string[]
@@ -342,29 +456,53 @@ function fixtureCitations(
               "ABB's official robotics portfolio covers industrial robots, controllers, software, application solutions, services and equipment relevant to integration."
           }
         ]
-      : [
-          {
-            title: "SafeWork NSW electrical work guidance",
-            url: "https://www.safework.nsw.gov.au/hazards-a-z/electrical-and-power/electrical-work",
-            sourceType: "standards" as const,
-            evidenceNote:
-              "SafeWork NSW guidance supports competent, authorised work and control of electrical risk."
-          },
-          {
-            title: "SIMATIC controllers",
-            url: "https://www.siemens.com/global/en/products/automation/systems/industrial/plc.html",
-            sourceType: "manufacturer" as const,
-            evidenceNote:
-              "Siemens material supports checking controller family, tooling and lifecycle compatibility before recovery."
-          },
-          {
-            title: "Programmable controllers",
-            url: "https://www.rockwellautomation.com/en-au/products/hardware/allen-bradley/programmable-controllers.html",
-            sourceType: "manufacturer" as const,
-            evidenceNote:
-              "Manufacturer material establishes the controller and engineering-tool context a recovery provider may need."
-          }
-        ];
+      : scenario === "process_heating"
+        ? [
+            {
+              title: "Model Code of Practice: Managing risks of plant in the workplace",
+              url: "https://www.safeworkaustralia.gov.au/doc/model-code-practice-managing-risks-plant-workplace",
+              sourceType: "standards" as const,
+              evidenceNote:
+                "Safe Work Australia guidance supports risk-managed maintenance, competent work and controlled use of machinery and connected plant."
+            },
+            {
+              title: "Electrical risks at the workplace",
+              url: "https://www.safework.nsw.gov.au/resource-library/construction/electrical-services/electrical-risks-at-the-workplace-fact-sheet",
+              sourceType: "standards" as const,
+              evidenceNote:
+                "SafeWork NSW guidance supports controlling electrical risk and using appropriately licensed or registered people for electrical work."
+            },
+            {
+              title: "MI Band Heaters Allow Tighter Temperature Control Than Ceramic Knuckle Band Heaters",
+              url: "https://www.watlow.com/resources-and-support/technical-library/case-studies/tighter-temperature-control",
+              sourceType: "manufacturer" as const,
+              evidenceNote:
+                "Watlow's official application evidence shows that extrusion-barrel heating performance can involve heater construction, thermal transfer and temperature-control behaviour."
+            }
+          ]
+        : [
+            {
+              title: "SafeWork NSW electrical work guidance",
+              url: "https://www.safework.nsw.gov.au/hazards-a-z/electrical-and-power/electrical-work",
+              sourceType: "standards" as const,
+              evidenceNote:
+                "SafeWork NSW guidance supports competent, authorised work and control of electrical risk."
+            },
+            {
+              title: "SIMATIC controllers",
+              url: "https://www.siemens.com/global/en/products/automation/systems/industrial/plc.html",
+              sourceType: "manufacturer" as const,
+              evidenceNote:
+                "Siemens material supports checking controller family, tooling and lifecycle compatibility before recovery."
+            },
+            {
+              title: "Programmable controllers",
+              url: "https://www.rockwellautomation.com/en-au/products/hardware/allen-bradley/programmable-controllers.html",
+              sourceType: "manufacturer" as const,
+              evidenceNote:
+                "Manufacturer material establishes the controller and engineering-tool context a recovery provider may need."
+            }
+          ];
 
   return sources.map((source, index) => ({
     id: `${needProfileId}:research-citation:${scenario}:${index + 1}`,
@@ -459,6 +597,89 @@ function plcLeads(budgetAud: number | undefined) {
       risks: [
         "Verified Siemens backup recovery experience must be confirmed.",
         "Price and same-day availability are not established by public fixture evidence."
+      ]
+    }
+  ];
+}
+
+function processHeatingLeads(budgetAud: number | undefined) {
+  const budget = formatAudBudget(budgetAud);
+
+  return [
+    {
+      slug: "thermalzone-process-demo",
+      companyName: "ThermalZone Process Services (Demo)",
+      contactEmail: "response@thermalzone-process-demo.example",
+      contactPhone: "+61400000301",
+      location: "Western Sydney, NSW",
+      serviceRegions: ["Western Sydney", "Sydney", "NSW"],
+      capabilities: [
+        "industrial process heating diagnostics",
+        "heater-band systems",
+        "temperature control and instrumentation",
+        "breakdown response"
+      ],
+      matchScore: 95,
+      matchReasons: [
+        "Capability fit: process heating, heater-band and temperature-control evidence aligns with the failed extrusion barrel zone.",
+        "Location fit: Western Sydney coverage supports a local assessment, subject to supplier confirmation.",
+        "Technical fit: the service evidence spans heater hardware, instrumentation and control rather than assuming one failed component."
+      ],
+      risks: [
+        "Current response timing and experience with the exact extruder make and heater rating require confirmation.",
+        budget
+          ? `The supplier response must confirm that the assessment can fit the ${budget} budget.`
+          : "Commercial fit is unknown until the supplier responds."
+      ]
+    },
+    {
+      slug: "polymerline-maintenance-demo",
+      companyName: "PolymerLine Maintenance (Demo)",
+      contactEmail: "service@polymerline-maintenance-demo.example",
+      contactPhone: "+61400000302",
+      location: "Sydney, NSW",
+      serviceRegions: ["Sydney", "Western Sydney", "NSW"],
+      capabilities: [
+        "plastics extrusion equipment diagnostics",
+        "extruder barrel heating zones",
+        "extruder screw-drive assessment",
+        "extrusion process validation"
+      ],
+      matchScore: 92,
+      matchReasons: [
+        "Capability fit: plastics extrusion maintenance covers both the barrel heating symptom and the screw-load evidence.",
+        "Process fit: extrusion validation capability supports an evidence-based return to production after approved repair.",
+        "Location fit: Sydney and Western Sydney service regions align with the requested market."
+      ],
+      risks: [
+        "Licensed electrical capability and current site availability must be confirmed.",
+        budget
+          ? `Commercial fit against the ${budget} budget requires a supplier response.`
+          : "Commercial fit requires a supplier response."
+      ]
+    },
+    {
+      slug: "westcircuit-industrial-demo",
+      companyName: "WestCircuit Industrial (Demo)",
+      contactEmail: "support@westcircuit-industrial-demo.example",
+      contactPhone: "+61400000303",
+      location: "Parramatta, NSW",
+      serviceRegions: ["Parramatta", "Western Sydney", "NSW"],
+      capabilities: [
+        "industrial electrical fault finding",
+        "safe isolation",
+        "heater circuits",
+        "temperature instrumentation"
+      ],
+      matchScore: 86,
+      matchReasons: [
+        "Capability fit: industrial electrical fault finding and temperature instrumentation align with an authorised heating-zone assessment.",
+        "Location fit: Parramatta is close to Western Sydney industrial sites.",
+        "Risk fit: safe-isolation capability is relevant to electrical heating equipment and connected plant."
+      ],
+      risks: [
+        "Plastics extrusion and screw-drive experience require confirmation before approval.",
+        "Price and response timing are not established by fixture evidence."
       ]
     }
   ];

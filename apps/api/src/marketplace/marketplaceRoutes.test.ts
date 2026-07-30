@@ -122,6 +122,33 @@ describe("marketplace core routes", () => {
     assert.ok(structured.body.aiIntakeResult.generatedProfile.requiredCapabilities.length > 0);
   });
 
+  test("accepts and structures a plastics-extrusion heater fault", async () => {
+    const structured = await postJson(
+      "/api/ai-intake/structure",
+      {
+        rawRequirement:
+          "Zone 3 heater band on the barrel is dead; the plastic isn't melting right, causing a high-torque alarm on the screw."
+      },
+      { "x-veltact-ai-intake-source": "local_demo" }
+    );
+
+    assert.equal(structured.status, 200);
+    assert.equal(
+      structured.body.aiIntakeResult.generatedProfile.category,
+      "Plastics processing maintenance"
+    );
+    assert.ok(
+      structured.body.aiIntakeResult.generatedProfile.equipmentOrTechnology.includes(
+        "Plastics extrusion machine"
+      )
+    );
+    assert.ok(
+      structured.body.aiIntakeResult.generatedProfile.requiredCapabilities.includes(
+        "Industrial process heating diagnostics"
+      )
+    );
+  });
+
   test("structures and matches the robotic palletiser demo without diagnosing the fault", async () => {
     const structured = await postJson(
       "/api/ai-intake/structure",

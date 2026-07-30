@@ -99,3 +99,52 @@ test("buyer fallback rejects binary-only evidence instead of reading its filenam
     }
   }
 });
+
+test("buyer fallback structures the extrusion heater-band requirement", async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "http://localhost:4001" },
+    setTimeout(callback) {
+      queueMicrotask(callback);
+      return 0;
+    }
+  };
+
+  try {
+    const { DemoAiIntakeService } = await import(
+      `../public/assets/aiIntakeService.js?extrusion-heater=${Date.now()}`
+    );
+    const service = new DemoAiIntakeService();
+    const result = await service.structureRequirement({
+      rawRequirement:
+        "Zone 3 heater band on the barrel is dead; the plastic isn't melting right, causing a high-torque alarm on the screw."
+    });
+
+    assert.equal(
+      result.generatedProfile.title,
+      "Extruder barrel heating fault with high-torque alarm"
+    );
+    assert.equal(
+      result.generatedProfile.category,
+      "Plastics processing maintenance"
+    );
+    assert.ok(
+      result.generatedProfile.equipmentOrTechnology.includes(
+        "Plastics extrusion machine"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial process heating diagnostics"
+      )
+    );
+    assert.equal(result.generatedProfile.urgency, undefined);
+    assert.ok(result.missingFields.includes("required response timing"));
+  } finally {
+    if (previousWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = previousWindow;
+    }
+  }
+});

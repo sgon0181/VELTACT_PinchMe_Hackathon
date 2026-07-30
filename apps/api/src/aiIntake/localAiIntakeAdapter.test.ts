@@ -161,4 +161,48 @@ describe("structureRequirementLocally", () => {
     assert.equal(result.generatedProfile.urgency, "Within 60 days");
     assert.ok(!result.missingFields.includes("required response timing"));
   });
+
+  test("structures an extrusion heater-band fault without inventing response timing", () => {
+    const result = structureRequirementLocally({
+      rawRequirement:
+        "Zone 3 heater band on the barrel is dead; the plastic isn't melting right, causing a high-torque alarm on the screw."
+    });
+
+    assert.equal(
+      result.generatedProfile.title,
+      "Extruder barrel heating fault with high-torque alarm"
+    );
+    assert.equal(
+      result.generatedProfile.category,
+      "Plastics processing maintenance"
+    );
+    assert.deepEqual(
+      new Set(result.generatedProfile.equipmentOrTechnology),
+      new Set([
+        "Plastics extrusion machine",
+        "Extruder barrel heating zone",
+        "Extruder screw drive"
+      ])
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial process heating diagnostics"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial electrical fault finding"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Extruder screw-drive assessment"
+      )
+    );
+    assert.equal(result.generatedProfile.urgency, undefined);
+    assert.equal(result.generatedProfile.buyerPriority, undefined);
+    assert.ok(result.missingFields.includes("required response timing"));
+    assert.ok(!result.missingFields.includes("equipment or technology"));
+    assert.ok(!result.missingFields.includes("required supplier capability"));
+  });
 });

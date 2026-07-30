@@ -97,11 +97,16 @@ export class DemoAiIntakeService implements AiIntakeAdapter {
       /\b(?:today|urgent|immediate|stopped|down|line stop|fault)\b/.test(
         normalised
       );
+    const requiresRecovery =
+      isUrgent ||
+      /\b(?:alarm|dead|failed|failure|not working)\b|(?:is not|isn't|isnt)\s+(?:heating|melting|working)/.test(
+        normalised
+      );
     const equipmentOrTechnology = detectEquipment(normalised);
     const requiredCapabilities = detectCapabilities(
       normalised,
       equipmentOrTechnology,
-      isUrgent
+      requiresRecovery
     );
     const location = detectLocation(normalised);
     const urgency = detectUrgency(rawRequirement, isUrgent);
@@ -114,7 +119,7 @@ export class DemoAiIntakeService implements AiIntakeAdapter {
         title: titleFromRequirement(
           rawRequirement,
           equipmentOrTechnology,
-          isUrgent
+          requiresRecovery
         ),
         problemSummary: rawRequirement,
         category: categoryFromEquipment(equipmentOrTechnology),
@@ -150,6 +155,21 @@ function delay(ms: number) {
 
 function detectEquipment(normalised: string) {
   const equipment = new Set<string>();
+  if (isProcessHeatingRequirement(normalised)) {
+    equipment.add("Plastics extrusion machine");
+  }
+  if (
+    isProcessHeatingRequirement(normalised) &&
+    /heater band|barrel|temperature zone|zone \d+/.test(normalised)
+  ) {
+    equipment.add("Extruder barrel heating zone");
+  }
+  if (
+    isProcessHeatingRequirement(normalised) &&
+    /\bscrew\b|torque/.test(normalised)
+  ) {
+    equipment.add("Extruder screw drive");
+  }
   if (normalised.includes("abb")) equipment.add("ABB robotic arm");
   if (normalised.includes("robot")) equipment.add("Robotic cell");
   if (/palletis|palletiz|pallet(?:\s+|-)?load/.test(normalised)) {
@@ -168,22 +188,47 @@ function detectEquipment(normalised: string) {
 function detectCapabilities(
   normalised: string,
   equipmentOrTechnology: string[],
-  isUrgent: boolean
+  requiresRecovery: boolean
 ) {
   const capabilities = new Set<string>();
+  if (isProcessHeatingRequirement(normalised)) {
+    capabilities.add(
+      requiresRecovery
+        ? "Plastics extrusion equipment diagnostics"
+        : "Plastics extrusion process engineering"
+    );
+  }
+  if (/heater band|barrel|process heating|temperature zone/.test(normalised)) {
+    capabilities.add("Industrial process heating diagnostics");
+    capabilities.add("Temperature control and instrumentation");
+  }
+  if (
+    isProcessHeatingRequirement(normalised) &&
+    /\b(?:dead|failed|failure|alarm)\b|(?:is not|isn't|isnt)\s+(?:heating|melting|working)/.test(
+      normalised
+    )
+  ) {
+    capabilities.add("Industrial electrical fault finding");
+  }
+  if (
+    isProcessHeatingRequirement(normalised) &&
+    /\bscrew\b|torque/.test(normalised)
+  ) {
+    capabilities.add("Extruder screw-drive assessment");
+  }
   if (normalised.includes("robot")) {
     capabilities.add(
-      isUrgent ? "Robotic cell fault recovery" : "Robotic systems integration"
+      requiresRecovery ? "Robotic cell fault recovery" : "Robotic systems integration"
     );
   }
   if (normalised.includes("abb")) {
     capabilities.add(
-      isUrgent ? "ABB robot diagnostics" : "ABB robot programming"
+      requiresRecovery ? "ABB robot diagnostics" : "ABB robot programming"
     );
   }
   if (/palletis|palletiz|pallet(?:\s+|-)?load/.test(normalised)) {
     capabilities.add(
-      isUrgent ? "Palletising cell recovery" : "Palletising cell integration"
+      requiresRecovery ? "Palletising cell recovery" : "Palletising cell integration"
     );
   }
   if (normalised.includes("vision")) {
@@ -191,15 +236,15 @@ function detectCapabilities(
   }
   if (normalised.includes("siemens")) {
     capabilities.add(
-      isUrgent ? "Siemens PLC diagnostics" : "Siemens controls integration"
+      requiresRecovery ? "Siemens PLC diagnostics" : "Siemens controls integration"
     );
   }
   if (normalised.includes("plc")) {
-    capabilities.add(isUrgent ? "PLC fault finding" : "PLC integration");
+    capabilities.add(requiresRecovery ? "PLC fault finding" : "PLC integration");
   }
   if (normalised.includes("conveyor")) {
     capabilities.add(
-      isUrgent ? "Conveyor fault recovery" : "Conveyor integration"
+      requiresRecovery ? "Conveyor fault recovery" : "Conveyor integration"
     );
   }
   if (
@@ -207,7 +252,7 @@ function detectCapabilities(
     /\bsafe\s*guard|\bsafeguard|\bguarding/.test(normalised)
   ) {
     capabilities.add(
-      isUrgent ? "Safety circuit diagnostics" : "Machinery safety"
+      requiresRecovery ? "Safety circuit diagnostics" : "Machinery safety"
     );
   }
   if (/end[- ]of[- ]arm|tooling/.test(normalised)) {
@@ -216,7 +261,7 @@ function detectCapabilities(
   if (/operator training|\btraining\b/.test(normalised)) {
     capabilities.add("Operator training");
   }
-  if (!isUrgent && /commission|integration|integrated/.test(normalised)) {
+  if (!requiresRecovery && /commission|integration|integrated/.test(normalised)) {
     capabilities.add("Site commissioning");
   }
   if (normalised.includes("today") || normalised.includes("urgent") || normalised.includes("stopped")) {
@@ -298,21 +343,30 @@ function detectConstraints(normalised: string, isUrgent: boolean, evidence: Inta
 function titleFromRequirement(
   rawRequirement: string,
   equipmentOrTechnology: string[],
-  isUrgent: boolean
+  requiresRecovery: boolean
 ) {
+  if (
+    equipmentOrTechnology.some((item) =>
+      item.includes("Plastics extrusion machine")
+    )
+  ) {
+    return requiresRecovery
+      ? "Extruder barrel heating fault with high-torque alarm"
+      : "Plastics extrusion process-heating support";
+  }
   if (equipmentOrTechnology.some((item) => item.includes("ABB robotic arm"))) {
-    return isUrgent
+    return requiresRecovery
       ? "Urgent robotic palletiser recovery"
       : "Robotic palletiser integration for dispatch line";
   }
   if (
-    !isUrgent &&
+    !requiresRecovery &&
     equipmentOrTechnology.some((item) => item.includes("Palletising cell"))
   ) {
     return "Robotic palletising cell integration";
   }
   if (equipmentOrTechnology.some((item) => item.includes("Siemens PLC"))) {
-    return isUrgent
+    return requiresRecovery
       ? "Urgent Siemens PLC fault on packaging line"
       : "Siemens PLC integration for packaging line";
   }
@@ -321,6 +375,13 @@ function titleFromRequirement(
 }
 
 function categoryFromEquipment(equipmentOrTechnology: string[]) {
+  if (
+    equipmentOrTechnology.some((item) =>
+      /extrusion|barrel heating|screw drive/i.test(item)
+    )
+  ) {
+    return "Plastics processing maintenance";
+  }
   if (
     equipmentOrTechnology.some((item) =>
       /robot|palletis|machine vision/i.test(item)
@@ -333,6 +394,12 @@ function categoryFromEquipment(equipmentOrTechnology: string[]) {
   )
     ? "Industrial automation"
     : "Industrial services";
+}
+
+function isProcessHeatingRequirement(normalised: string) {
+  return /extrud|heater band|barrel heating|plastic processing|polymer processing|(?:plastic|polymer).{0,40}(?:melt|barrel|screw)|(?:screw|barrel).{0,40}(?:torque|heater|plastic|polymer)/.test(
+    normalised
+  );
 }
 
 function formatAmount(value: string) {
