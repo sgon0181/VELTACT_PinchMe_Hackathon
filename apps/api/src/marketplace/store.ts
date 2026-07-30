@@ -31,9 +31,14 @@ import {
 } from "./needReport.js";
 import {
   supplierCommitmentNotificationSchema,
+  supplierRegistryEntrySchema,
   type DeploymentSummary,
   type SupplierCommitmentNotification,
-  type OutreachChannel
+  type OutreachChannel,
+  type SupplierRegistryEntry,
+  type SupplierRegistryProvenanceState,
+  type SupplierRegistryResponse,
+  type SupplierRegistrySource
 } from "@veltact/contracts";
 import { syncCommitmentPayment } from "../deployment/templates.js";
 import type {
@@ -113,6 +118,10 @@ const deployments = new Map<string, DeploymentSummary>(
     deployment.engagementId,
     deployment
   ]) ?? []
+);
+const supplierRegistryEntries = new Map<string, SupplierRegistryEntry>(
+  initialSnapshot?.supplierRegistryEntries.map((entry) => [entry.id, entry]) ??
+    []
 );
 const processedPinchEventIds = new Set<string>(
   initialSnapshot?.processedPinchEventIds ?? []
@@ -270,6 +279,19 @@ export function createNeed(
   };
   needs.set(id, need);
   issuedBuyerAccessTokens.set(id, buyerAccessToken);
+  for (const match of matches) {
+    upsertSupplierRegistryEntry({
+      buyerEmail: need.buyerEmail,
+      needProfileId: need.id,
+      supplierName: match.supplier.companyName,
+      contactEmail: match.supplier.contactEmail,
+      location: match.supplier.serviceRegions[0] ?? need.profile.location,
+      capabilities: match.supplier.capabilities,
+      provenanceState: "discovered",
+      source: "catalog",
+      occurredAt: createdAt
+    });
+  }
   commitMarketplaceMutation({
     eventType: "need.created",
     actorType: "buyer",
@@ -315,6 +337,133 @@ export function listPinchWebhookEvidence() {
 
 export function listLocalDemoPaymentEvidence() {
   return [...localDemoPaymentEvidence.values()];
+}
+
+export type SupplierRegistryUpsertInput = {
+  buyerEmail: string;
+  needProfileId: string;
+  supplierName: string;
+  website?: string;
+  contactEmail?: string;
+  location: string;
+  capabilities: string[];
+  provenanceState: SupplierRegistryProvenanceState;
+  source: SupplierRegistrySource;
+  evidence?: Array<{
+    url: string;
+    title: string;
+    retrievedAt: string;
+  }>;
+  engagementId?: string;
+  responsePrice?: {
+    amount: number;
+    currency: string;
+  };
+  occurredAt?: string;
+};
+
+export function upsertSupplierRegistryEntry(
+  input: SupplierRegistryUpsertInput
+): SupplierRegistryEntry {
+  const occurredAt = input.occurredAt ?? new Date().toISOString();
+  const accountScopeKey = supplierRegistryAccountScope(input.buyerEmail);
+  const normalizedDomain = normalizedSupplierDomain(
+    input.website,
+    input.contactEmail
+  );
+  const identityKey =
+    normalizedDomain ??
+    `${normalizedSupplierText(input.supplierName)}:${normalizedSupplierText(input.location)}`;
+  const id = `registry_${createHash("sha256")
+    .update(`${accountScopeKey}:${identityKey}`)
+    .digest("hex")
+    .slice(0, 24)}`;
+  const existing = supplierRegistryEntries.get(id);
+  const existingHistory = existing?.engagementHistory.find(
+    (history) => history.needProfileId === input.needProfileId
+  );
+  const engagementHistory = existingHistory
+    ? existing?.engagementHistory.map((history) =>
+        history.needProfileId === input.needProfileId
+          ? registryHistoryAtState(history, input, occurredAt)
+          : history
+      ) ?? []
+    : [
+        ...(existing?.engagementHistory ?? []),
+        registryHistoryAtState(
+          {
+            needProfileId: input.needProfileId,
+            secured: false,
+            delivered: false,
+            discoveredAt: occurredAt,
+            lastActivityAt: occurredAt
+          },
+          input,
+          occurredAt
+        )
+      ];
+  const provenanceState =
+    existing &&
+    registryStateRank(existing.provenanceState) >
+      registryStateRank(input.provenanceState)
+      ? existing.provenanceState
+      : input.provenanceState;
+  const evidence = mergeRegistryEvidence(
+    existing?.evidence ?? [],
+    input.evidence ?? []
+  );
+  const entry = supplierRegistryEntrySchema.parse({
+    schemaVersion: 1,
+    id,
+    accountScopeKey,
+    supplierName: input.supplierName,
+    normalizedDomain,
+    location: input.location,
+    capabilities: [
+      ...new Set([
+        ...(existing?.capabilities ?? []),
+        ...input.capabilities
+      ].map((capability) => capability.trim()).filter(Boolean))
+    ],
+    provenanceState,
+    source: preferredRegistrySource(existing?.source, input.source),
+    evidence,
+    engagementHistory,
+    createdAt: existing?.createdAt ?? occurredAt,
+    updatedAt: occurredAt
+  });
+  supplierRegistryEntries.set(entry.id, entry);
+  return structuredClone(entry);
+}
+
+export function getSupplierRegistryForNeed(
+  needId: string
+): SupplierRegistryResponse | undefined {
+  const need = needs.get(needId);
+  if (!need) {
+    return undefined;
+  }
+  const accountScopeKey = supplierRegistryAccountScope(need.buyerEmail);
+  const entries = [...supplierRegistryEntries.values()]
+    .filter((entry) => entry.accountScopeKey === accountScopeKey)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .map((entry) => structuredClone(entry));
+  const summary = {
+    total: entries.length,
+    discovered: 0,
+    contacted: 0,
+    responded: 0,
+    secured: 0,
+    delivered: 0
+  };
+  for (const entry of entries) {
+    summary[entry.provenanceState] += 1;
+  }
+  return {
+    schemaVersion: 1,
+    entries,
+    summary
+  };
 }
 
 export function getNeed(id: string): NeedRecord | undefined {
@@ -683,6 +832,9 @@ export async function discoverNeedSuppliers(
   }
   for (const lead of execution.value) {
     supplierLeads.set(lead.id, lead);
+    recordRegistryStageForSupplier(need, lead.id, "discovered", {
+      occurredAt: lead.createdAt
+    });
   }
   need.providerWarnings = {
     ...need.providerWarnings,
@@ -776,6 +928,9 @@ export function seedMarketplaceDemoFindState(
   needReports.set(needId, report);
   for (const lead of discoveredLeads) {
     supplierLeads.set(lead.id, lead);
+    recordRegistryStageForSupplier(need, lead.id, "discovered", {
+      occurredAt: lead.createdAt
+    });
   }
   need.providerWarnings = undefined;
   need.updatedAt = currentTime.toISOString();
@@ -1227,6 +1382,10 @@ export function submitSupplierResponse(
     invitation.respondedAt = updatedAt;
     invitation.updatedAt = updatedAt;
     updateMatchResponseStatus(invitation, input.canHelp, updatedAt);
+    recordRegistryStageForSupplier(need, invitation.supplierId, "responded", {
+      occurredAt: updatedAt,
+      responsePrice: existingResponse.indicativePrice
+    });
     commitMarketplaceMutation({
       eventType: "response.updated",
       actorType: "supplier",
@@ -1270,6 +1429,10 @@ export function submitSupplierResponse(
   invitation.updatedAt = submittedAt;
   responses.set(response.id, response);
   updateMatchResponseStatus(invitation, input.canHelp, submittedAt);
+  recordRegistryStageForSupplier(need, invitation.supplierId, "responded", {
+    occurredAt: submittedAt,
+    responsePrice: response.indicativePrice
+  });
   commitMarketplaceMutation({
     eventType: "response.submitted",
     actorType: "supplier",
@@ -1414,6 +1577,12 @@ async function sendOutreachDelivery(
     if (invitation.status === "pending") {
       invitation.status = "sent";
     }
+    recordRegistryStageForSupplier(
+      need,
+      invitation.supplierId,
+      "contacted",
+      { occurredAt: sentAt }
+    );
   }
   updatedNeedTimestamp(need);
   updates.push({ ...delivery });
@@ -1584,6 +1753,21 @@ export function saveDeployment(
 ): DeploymentSummary {
   const saved = structuredClone(deployment);
   deployments.set(saved.engagementId, saved);
+  if (saved.status === "completed") {
+    const engagement = engagements.get(saved.engagementId);
+    const need = engagement ? needs.get(engagement.needId) : undefined;
+    if (engagement && need) {
+      recordRegistryStageForSupplier(
+        need,
+        engagement.supplierId,
+        "delivered",
+        {
+          occurredAt: saved.updatedAt,
+          engagementId: engagement.id
+        }
+      );
+    }
+  }
   commitMarketplaceMutation({
     eventType: "deployment.updated",
     actorType: "buyer",
@@ -1720,6 +1904,10 @@ export function recordAuthoritativePinchPayment(input: {
   if (need) {
     need.status = "secured";
     need.updatedAt = receivedAt;
+    recordRegistryStageForSupplier(need, engagement.supplierId, "secured", {
+      occurredAt: receivedAt,
+      engagementId: engagement.id
+    });
   }
 
   commitMarketplaceMutation({
@@ -1802,6 +1990,10 @@ export function recordLocalDemoPayment(input: {
   if (need) {
     need.status = "secured";
     need.updatedAt = receivedAt;
+    recordRegistryStageForSupplier(need, engagement.supplierId, "secured", {
+      occurredAt: receivedAt,
+      engagementId: engagement.id
+    });
   }
 
   commitMarketplaceMutation({
@@ -1834,6 +2026,7 @@ export function resetMarketplaceStore(options: { preserveAudit?: boolean } = {})
   engagements.clear();
   commitmentNotifications.clear();
   deployments.clear();
+  supplierRegistryEntries.clear();
   processedPinchEventIds.clear();
   pinchWebhookEvidence.clear();
   localDemoPaymentEvidence.clear();
@@ -1931,6 +2124,10 @@ export function reloadMarketplaceStore(
       deployment
     ])
   );
+  replaceMap(
+    supplierRegistryEntries,
+    snapshot.supplierRegistryEntries.map((entry) => [entry.id, entry])
+  );
   processedPinchEventIds.clear();
   for (const eventId of snapshot.processedPinchEventIds) {
     processedPinchEventIds.add(eventId);
@@ -1952,6 +2149,152 @@ export function reloadMarketplaceStore(
   auditEvents.splice(0, auditEvents.length, ...snapshot.auditEvents);
   issuedBuyerAccessTokens.clear();
   return true;
+}
+
+function recordRegistryStageForSupplier(
+  need: NeedRecord,
+  supplierId: string,
+  provenanceState: SupplierRegistryProvenanceState,
+  details: {
+    occurredAt: string;
+    engagementId?: string;
+    responsePrice?: {
+      amount: number;
+      currency: string;
+    };
+  }
+) {
+  const lead = supplierLeads.get(supplierId);
+  if (lead) {
+    return upsertSupplierRegistryEntry({
+      buyerEmail: need.buyerEmail,
+      needProfileId: need.id,
+      supplierName: lead.companyName,
+      website: lead.website,
+      contactEmail: lead.contactEmail,
+      location: lead.location,
+      capabilities: lead.capabilities,
+      provenanceState,
+      source: lead.sourceMode === "live" ? "live_discovery" : "fixture",
+      evidence: lead.evidence.map((citation) => ({
+        url: citation.url,
+        title: citation.title,
+        retrievedAt: citation.accessedAt
+      })),
+      ...details
+    });
+  }
+
+  const supplier = need.matches.find(
+    (match) => match.supplier.id === supplierId
+  )?.supplier;
+  if (!supplier) {
+    return undefined;
+  }
+  return upsertSupplierRegistryEntry({
+    buyerEmail: need.buyerEmail,
+    needProfileId: need.id,
+    supplierName: supplier.companyName,
+    contactEmail: supplier.contactEmail,
+    location: supplier.serviceRegions[0] ?? need.profile.location,
+    capabilities: supplier.capabilities,
+    provenanceState,
+    source: "catalog",
+    ...details
+  });
+}
+
+function supplierRegistryAccountScope(buyerEmail: string) {
+  return `buyer_${createHash("sha256")
+    .update(buyerEmail.trim().toLowerCase())
+    .digest("hex")
+    .slice(0, 24)}`;
+}
+
+function normalizedSupplierDomain(website?: string, contactEmail?: string) {
+  if (website) {
+    try {
+      return new URL(website).hostname.toLowerCase().replace(/^www\./, "");
+    } catch {
+      // Supplier Lead contracts validate URLs; retain the email fallback for old data.
+    }
+  }
+  const emailDomain = contactEmail?.split("@")[1]?.trim().toLowerCase();
+  return emailDomain?.replace(/^www\./, "") || undefined;
+}
+
+function normalizedSupplierText(value: string) {
+  return value
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function registryStateRank(state: SupplierRegistryProvenanceState) {
+  return [
+    "discovered",
+    "contacted",
+    "responded",
+    "secured",
+    "delivered"
+  ].indexOf(state);
+}
+
+function registryHistoryAtState(
+  existing: SupplierRegistryEntry["engagementHistory"][number],
+  input: SupplierRegistryUpsertInput,
+  occurredAt: string
+): SupplierRegistryEntry["engagementHistory"][number] {
+  const rank = registryStateRank(input.provenanceState);
+  return {
+    ...existing,
+    engagementId: input.engagementId ?? existing.engagementId,
+    responsePrice: input.responsePrice ?? existing.responsePrice,
+    secured: existing.secured || rank >= registryStateRank("secured"),
+    delivered: existing.delivered || rank >= registryStateRank("delivered"),
+    contactedAt:
+      existing.contactedAt ??
+      (rank >= registryStateRank("contacted") ? occurredAt : undefined),
+    respondedAt:
+      existing.respondedAt ??
+      (rank >= registryStateRank("responded") ? occurredAt : undefined),
+    securedAt:
+      existing.securedAt ??
+      (rank >= registryStateRank("secured") ? occurredAt : undefined),
+    deliveredAt:
+      existing.deliveredAt ??
+      (rank >= registryStateRank("delivered") ? occurredAt : undefined),
+    lastActivityAt:
+      occurredAt > existing.lastActivityAt
+        ? occurredAt
+        : existing.lastActivityAt
+  };
+}
+
+function mergeRegistryEvidence(
+  existing: SupplierRegistryEntry["evidence"],
+  incoming: SupplierRegistryEntry["evidence"]
+) {
+  const byUrl = new Map(existing.map((evidence) => [evidence.url, evidence]));
+  for (const evidence of incoming) {
+    byUrl.set(evidence.url, evidence);
+  }
+  return [...byUrl.values()];
+}
+
+function preferredRegistrySource(
+  existing: SupplierRegistrySource | undefined,
+  incoming: SupplierRegistrySource
+): SupplierRegistrySource {
+  const ranking: Record<SupplierRegistrySource, number> = {
+    fixture: 0,
+    catalog: 1,
+    live_discovery: 2
+  };
+  return existing && ranking[existing] > ranking[incoming]
+    ? existing
+    : incoming;
 }
 
 function secureAccessToken() {
@@ -1978,7 +2321,7 @@ function commitMarketplaceMutation(
 
 function persistMarketplaceState() {
   saveMarketplaceSnapshot(env.MARKETPLACE_DATA_FILE, {
-    version: 2,
+    version: 3,
     needs: [...needs.values()],
     researchResults: [...researchResults.values()],
     solutionDecisions: [...solutionDecisions.values()],
@@ -1991,6 +2334,7 @@ function persistMarketplaceState() {
     engagements: [...engagements.values()],
     commitmentNotifications: [...commitmentNotifications.values()],
     deployments: [...deployments.values()],
+    supplierRegistryEntries: [...supplierRegistryEntries.values()],
     processedPinchEventIds: [...processedPinchEventIds],
     pinchWebhookEvidence: [...pinchWebhookEvidence.values()],
     localDemoPaymentEvidence: [...localDemoPaymentEvidence.values()],

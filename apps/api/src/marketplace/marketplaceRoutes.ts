@@ -23,6 +23,7 @@ import {
   getOrCreateNeedReport,
   getProviderWarningsForNeed,
   getResearchResultForNeed,
+  getSupplierRegistryForNeed,
   getResponseForInvitation,
   getSolutionDecisionForNeed,
   getSupplierClaim,
@@ -150,6 +151,10 @@ const demoResetSchema = z.object({
 
 const createEngagementSchema = z.object({
   supplierResponseId: z.string().trim().min(1)
+});
+
+const supplierRegistryQuerySchema = z.object({
+  needProfileId: z.string().trim().min(1)
 });
 
 marketplaceRouter.post("/needs", (request, response) => {
@@ -550,6 +555,30 @@ marketplaceRouter.get("/need-profiles/:needProfileId", (request, response) => {
     deployment: workspace.deployment,
     providerWarnings: getProviderWarningsForNeed(need.id)
   });
+});
+
+marketplaceRouter.get("/registry", (request, response) => {
+  const parsed = supplierRegistryQuerySchema.safeParse(request.query);
+  if (!parsed.success) {
+    response.status(400).json({
+      status: "error",
+      message: "needProfileId is required",
+      issues: parsed.error.flatten().fieldErrors
+    });
+    return;
+  }
+  if (!requireBuyerAccess(request, response, parsed.data.needProfileId)) {
+    return;
+  }
+  const registry = getSupplierRegistryForNeed(parsed.data.needProfileId);
+  if (!registry) {
+    response.status(404).json({
+      status: "error",
+      message: "Need profile not found"
+    });
+    return;
+  }
+  response.json(registry);
 });
 
 marketplaceRouter.get("/need-profiles/:needProfileId/responses", (request, response) => {

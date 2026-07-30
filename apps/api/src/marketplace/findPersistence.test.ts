@@ -106,7 +106,7 @@ describe("canonical Marketplace Find persistence", { concurrency: false }, () =>
         supplierLeads: unknown[];
         supplierClaims: unknown[];
       };
-      assert.equal(persisted.version, 2);
+      assert.equal(persisted.version, 3);
       assert.equal(persisted.researchResults.length, 1);
       assert.equal(persisted.solutionDecisions.length, 1);
       assert.equal(persisted.needReports.length, 1);

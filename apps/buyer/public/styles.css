@@ -142,6 +142,12 @@ span {
   color: var(--ink);
 }
 
+.product-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -208,6 +214,100 @@ span {
   justify-content: space-between;
   gap: 14px;
 }
+
+.registry-panel {
+  overflow: hidden;
+}
+
+.registry-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 22px 0;
+  border: 1px solid var(--line);
+}
+
+.registry-summary > div {
+  min-width: 0;
+  padding: 14px 16px;
+  border-right: 1px solid var(--line);
+}
+
+.registry-summary > div:last-child {
+  border-right: 0;
+}
+
+.registry-summary dt,
+.registry-summary dd {
+  margin: 0;
+}
+
+.registry-summary dt {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.registry-summary dd {
+  margin-top: 5px;
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+.registry-table {
+  border: 1px solid var(--line);
+}
+
+.registry-row {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.25fr) minmax(120px, 0.65fr) minmax(240px, 1.5fr) minmax(150px, 0.8fr);
+  gap: 16px;
+  align-items: center;
+  min-height: 78px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.registry-row:last-child {
+  border-bottom: 0;
+}
+
+.registry-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.registry-row small {
+  color: var(--muted);
+}
+
+.registry-heading {
+  min-height: 42px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.registry-state {
+  width: fit-content;
+  border: 1px solid var(--line-strong);
+  padding: 5px 8px;
+  color: var(--charcoal-soft);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.registry-state-secured,
+.registry-state-delivered {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue-dark);
+}
+
 
 .workspace-status span {
   color: var(--faint);
@@ -2452,6 +2552,30 @@ dl .is-missing dd,
   }
 
   .product-context span {
+    display: none;
+  }
+
+  .product-header-meta {
+    gap: 8px;
+  }
+
+  .registry-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .registry-summary > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .registry-summary > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .registry-row {
+    grid-template-columns: 1fr;
+  }
+
+  .registry-heading {
     display: none;
   }
 

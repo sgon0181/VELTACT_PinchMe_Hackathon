@@ -387,6 +387,64 @@ export const supplierLeadSchema = z.object({
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema
 });
+export const supplierRegistryProvenanceStateSchema = z.enum([
+    "discovered",
+    "contacted",
+    "responded",
+    "secured",
+    "delivered"
+]);
+export const supplierRegistrySourceSchema = z.enum([
+    "catalog",
+    "live_discovery",
+    "fixture"
+]);
+export const supplierRegistryEvidenceSchema = z.object({
+    url: z.string().url(),
+    title: z.string().trim().min(1),
+    retrievedAt: isoDateTimeSchema
+});
+export const supplierRegistryEngagementSchema = z.object({
+    needProfileId: z.string().min(1),
+    engagementId: z.string().min(1).optional(),
+    responsePrice: moneySchema.optional(),
+    secured: z.boolean().default(false),
+    delivered: z.boolean().default(false),
+    discoveredAt: isoDateTimeSchema,
+    contactedAt: isoDateTimeSchema.optional(),
+    respondedAt: isoDateTimeSchema.optional(),
+    securedAt: isoDateTimeSchema.optional(),
+    deliveredAt: isoDateTimeSchema.optional(),
+    lastActivityAt: isoDateTimeSchema
+});
+export const supplierRegistryEntrySchema = z.object({
+    schemaVersion: z.literal(1),
+    id: z.string().min(1),
+    accountScopeKey: z.string().min(1),
+    supplierName: z.string().trim().min(1),
+    normalizedDomain: z.string().trim().min(1).optional(),
+    location: z.string().trim().min(1),
+    capabilities: z.array(z.string().trim().min(1)).default([]),
+    provenanceState: supplierRegistryProvenanceStateSchema,
+    source: supplierRegistrySourceSchema,
+    evidence: z.array(supplierRegistryEvidenceSchema).default([]),
+    engagementHistory: z.array(supplierRegistryEngagementSchema).default([]),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema
+});
+export const supplierRegistrySummarySchema = z.object({
+    total: z.number().int().nonnegative(),
+    discovered: z.number().int().nonnegative(),
+    contacted: z.number().int().nonnegative(),
+    responded: z.number().int().nonnegative(),
+    secured: z.number().int().nonnegative(),
+    delivered: z.number().int().nonnegative()
+});
+export const supplierRegistryResponseSchema = z.object({
+    schemaVersion: z.literal(1),
+    entries: z.array(supplierRegistryEntrySchema),
+    summary: supplierRegistrySummarySchema
+});
 export const supplierClaimStatusSchema = z.enum([
     "pending",
     "claimed",
@@ -764,6 +822,7 @@ export const rapidMatchApiRoute = {
     commitmentNotification: "/api/engagements/:engagementId/commitment-notification",
     deployment: "/api/engagements/:engagementId/deployment",
     deploymentMilestone: "/api/engagements/:engagementId/deployment/milestones/:milestoneId",
+    supplierRegistry: "/api/registry",
     supplierInvitation: "/api/supplier-invitations/:token",
     supplierClaim: "/api/supplier-invitations/:token/claim",
     supplierResponse: "/api/supplier-invitations/:token/responses",

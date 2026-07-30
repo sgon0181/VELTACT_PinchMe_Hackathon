@@ -17,6 +17,7 @@ import {
   type SupplierLead,
   type SupplierMatch,
   type SupplierOutreachDelivery,
+  type SupplierRegistryResponse,
   type SupplierResponse
 } from "@veltact/contracts";
 import {
@@ -50,7 +51,8 @@ type BuyerView =
   | "compare"
   | "selected"
   | "payment"
-  | "deployment";
+  | "deployment"
+  | "registry";
 type JourneyPhase = "find" | "connect" | "deploy";
 type IntakeMode = "ai" | "manual";
 type LoadState = "idle" | "loading" | "error" | "success";
@@ -138,7 +140,8 @@ const buyerViews = new Set<BuyerView>([
   "compare",
   "selected",
   "payment",
-  "deployment"
+  "deployment",
+  "registry"
 ]);
 const priorities = new Set<PrioritySignal>([
   "speed",
@@ -167,6 +170,8 @@ let selectedOutreachChoices = new Set<OutreachChoice>();
 let outreachPanelOpen = false;
 let selectedResponseId = "";
 let workspace: BuyerWorkspace | undefined;
+let supplierRegistry: SupplierRegistryResponse | undefined;
+let registryReturnView: BuyerView = "intake";
 let aiIntakeResult: AiIntakeResult | undefined;
 let intakeSourceMode: IntakeSourceMode = "fixture";
 let intakeEvidence: IntakeEvidence[] = [];
@@ -399,9 +404,16 @@ function render() {
         <span class="product-wordmark-notch" aria-hidden="true"></span>
         <span>Veltact</span>
       </a>
-      <div class="product-context">
-        <strong>RapidMatch</strong>
-        <span>Buyer workspace</span>
+      <div class="product-header-meta">
+        <div class="product-context">
+          <strong>RapidMatch</strong>
+          <span>Buyer workspace</span>
+        </div>
+        ${
+          workspace
+            ? `<button class="button button-quiet button-small" type="button" data-open-registry>Your suppliers</button>`
+            : ""
+        }
       </div>
     </header>
 
@@ -529,7 +541,79 @@ function renderCurrentView() {
   if (view === "compare") return renderComparison(workspace);
   if (view === "selected") return renderSelected(workspace);
   if (view === "payment") return renderPayment(workspace);
+  if (view === "registry") return renderSupplierRegistry();
   return renderDeployment(workspace);
+}
+
+function renderSupplierRegistry() {
+  const entries = supplierRegistry?.entries ?? [];
+  const summary = supplierRegistry?.summary;
+  return `
+    <section class="panel registry-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Private supplier bench</p>
+          <h2>Your suppliers</h2>
+          <p>Your supplier bench builds itself as you use Veltact.</p>
+        </div>
+        <button class="button button-secondary" type="button" data-close-registry>Back to requirement</button>
+      </div>
+      ${
+        summary
+          ? `<dl class="registry-summary" aria-label="Supplier registry summary">
+              ${fact("Total suppliers", String(summary.total))}
+              ${fact("Responded", String(summary.responded))}
+              ${fact("Secured", String(summary.secured))}
+              ${fact("Delivered", String(summary.delivered))}
+            </dl>`
+          : ""
+      }
+      ${
+        entries.length
+          ? `<div class="registry-table" role="table" aria-label="Your suppliers">
+              <div class="registry-row registry-heading" role="row">
+                <span role="columnheader">Supplier</span>
+                <span role="columnheader">Relationship</span>
+                <span role="columnheader">Capabilities</span>
+                <span role="columnheader">Activity</span>
+              </div>
+              ${entries
+                .map(
+                  (entry) => `
+                    <div class="registry-row" role="row">
+                      <div role="cell">
+                        <strong>${escapeHtml(entry.supplierName)}</strong>
+                        <small>${escapeHtml(entry.location)}</small>
+                        <small>${escapeHtml(
+                          entry.source === "live_discovery"
+                            ? "Live public evidence"
+                            : entry.source === "catalog"
+                              ? "Veltact catalog"
+                              : "Labelled demo fixture"
+                        )}</small>
+                      </div>
+                      <div role="cell">
+                        <span class="registry-state registry-state-${escapeHtml(entry.provenanceState)}">${escapeHtml(statusLabel(entry.provenanceState))}</span>
+                      </div>
+                      <div role="cell">
+                        ${tagList(entry.capabilities.slice(0, 4))}
+                      </div>
+                      <div role="cell">
+                        <strong>${entry.engagementHistory.length} requirement${entry.engagementHistory.length === 1 ? "" : "s"}</strong>
+                        <small>Last activity ${escapeHtml(formatTime(entry.updatedAt))}</small>
+                      </div>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>`
+          : renderInlineEmpty(
+              "No suppliers in your bench yet",
+              "Suppliers appear here automatically as Veltact discovers, contacts and secures them for your requirements."
+            )
+      }
+    </section>
+  `;
 }
 
 function renderWorkspaceStatus() {
@@ -818,10 +902,9 @@ function renderPlan(data: BuyerWorkspace) {
   const selectedApproach = approaches.find(
     (approach) => approach.id === selectedApproachId
   );
-  const missing = uniqueStrings([
-    ...intakeMissingFields(),
-    ...research.missingInformation
-  ]);
+  const missing = dedupeSimilarStrings(
+    uniqueStrings([...intakeMissingFields(), ...research.missingInformation])
+  );
   return `
     <div class="view-stack">
       <article class="need-report" aria-label="Veltact Need Profile report">
@@ -2349,6 +2432,8 @@ function bindEvents() {
   bindClick("[data-demo-payment]", completeDemoPayment);
   bindClick("[data-refresh-deployment]", refreshDeployment);
   bindClick("[data-start-new]", startNewRequirement);
+  bindClick("[data-open-registry]", openSupplierRegistry);
+  bindClick("[data-close-registry]", closeSupplierRegistry);
 
   document
     .querySelectorAll<HTMLInputElement>("input[name='supplier-response']")
@@ -2835,6 +2920,26 @@ async function runAction(label: string, action: () => Promise<void>) {
   }
   render();
   if (view !== startingView) scrollBuyerWorkspaceToTop();
+}
+
+async function openSupplierRegistry() {
+  const needProfileId = workspace?.needProfile?.id;
+  if (!needProfileId) return;
+  if (view !== "registry") {
+    registryReturnView = view;
+  }
+  view = "registry";
+  await runAction("Loading your supplier bench", async () => {
+    supplierRegistry = await service.loadSupplierRegistry(needProfileId);
+    persistContext();
+  });
+}
+
+function closeSupplierRegistry() {
+  if (!workspace) return;
+  view = resolveLegalBuyerView(workspace, registryReturnView);
+  persistContext();
+  render();
 }
 
 function configurePolling() {
@@ -3661,6 +3766,7 @@ function resolveRestoredView(
   data: BuyerWorkspace,
   storedView?: BuyerView
 ): BuyerView {
+  if (storedView === "registry") return "registry";
   const engagement = data.engagement;
   if (engagement?.status === "supplier_secured") return "deployment";
   if (engagement) {
@@ -3710,6 +3816,7 @@ function resetRequirementState(needProfileId?: string) {
   safeSessionStorageSet(NEW_REQUIREMENT_KEY, "1");
   workspaceEpoch += 1;
   workspace = undefined;
+  supplierRegistry = undefined;
   aiIntakeResult = undefined;
   intakeEvidence = [];
   milestoneUpdateDraft = "";
@@ -3745,6 +3852,9 @@ function startNewRequirement() {
 }
 
 function currentPhase(): JourneyPhase {
+  if (view === "registry" && workspace) {
+    return workflowJourneyPhase(workspace);
+  }
   if (
     view === "candidates" ||
     view === "outreach" ||
@@ -3829,6 +3939,9 @@ function resolveLegalBuyerView(
   data: BuyerWorkspace,
   requestedView: BuyerView
 ): BuyerView {
+  if (requestedView === "registry") {
+    return "registry";
+  }
   if (requestedView === "plan" && data.researchResult) {
     return "plan";
   }
@@ -4309,9 +4422,15 @@ function priorityLabel(value: PrioritySignal) {
 }
 
 function humanFieldName(value: string) {
-  return value
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const spaced = value.replaceAll("_", " ").trim();
+  // Live intake/research can return full sentences; title-casing is only for
+  // short field-style labels like "contact email".
+  const looksLikeSentence =
+    spaced.split(/\s+/).length > 5 || /[.:;,]/.test(spaced);
+  if (looksLikeSentence) {
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  }
+  return spaced.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function statusLabel(value: string) {
@@ -4422,6 +4541,37 @@ function uniqueStrings(values: string[]) {
     seen.add(key);
     return true;
   });
+}
+
+// Live intake and live research each contribute missing-information items that
+// often overlap semantically without matching exactly ("Specific gearbox make
+// and model" vs "Gearbox make/model, ratio, and mounting arrangement."). Keep
+// the first phrasing and drop later items whose significant words mostly
+// repeat an earlier item.
+function dedupeSimilarStrings(values: string[]) {
+  const kept: { value: string; tokens: Set<string> }[] = [];
+  const tokensOf = (value: string) =>
+    new Set(
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9\s/-]/g, " ")
+        .split(/[\s/-]+/)
+        .filter((word) => word.length > 3)
+    );
+  for (const value of values) {
+    const tokens = tokensOf(value);
+    const isNearDuplicate =
+      tokens.size > 0 &&
+      kept.some((entry) => {
+        let shared = 0;
+        for (const token of tokens) {
+          if (entry.tokens.has(token)) shared += 1;
+        }
+        return shared / Math.min(tokens.size, entry.tokens.size || 1) >= 0.6;
+      });
+    if (!isNearDuplicate) kept.push({ value, tokens });
+  }
+  return kept.map((entry) => entry.value);
 }
 
 function stringValue(value: unknown) {

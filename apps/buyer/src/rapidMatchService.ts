@@ -4,6 +4,7 @@ import {
   parseIntakeBudgetAmount,
   rapidMatchApiRoute,
   rapidMatchBuyerWorkspaceSchema,
+  supplierRegistryResponseSchema,
   solutionDecisionSchema,
   solutionResearchResultSchema,
   supplierResponseSchema,
@@ -22,6 +23,7 @@ import {
   type SupplierInvitation,
   type SupplierMatch,
   type SupplierOutreachDelivery,
+  type SupplierRegistryResponse,
   type SupplierResponse
 } from "@veltact/contracts";
 import { apiBaseUrl } from "./apiBase.js";
@@ -98,6 +100,21 @@ export class RapidMatchService {
 
   buyerAccessTokenForNeed(needProfileId: string) {
     return this.buyerAccessTokens.get(needProfileId);
+  }
+
+  async loadSupplierRegistry(
+    needProfileId: string
+  ): Promise<SupplierRegistryResponse> {
+    const payload = await requestJson<unknown>(
+      `${rapidMatchApiRoute.supplierRegistry}?needProfileId=${encodeURIComponent(
+        needProfileId
+      )}`,
+      {
+        method: "GET",
+        buyerAccessToken: this.buyerAccessTokens.get(needProfileId)
+      }
+    );
+    return supplierRegistryResponseSchema.parse(payload);
   }
 
   async createNeedProfile(

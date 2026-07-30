@@ -9,7 +9,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
   DeploymentSummary,
-  SupplierCommitmentNotification
+  SupplierCommitmentNotification,
+  SupplierRegistryEntry
 } from "@veltact/contracts";
 import type {
   Engagement,
@@ -28,7 +29,7 @@ import type {
 } from "./types.js";
 
 export type MarketplaceSnapshot = {
-  version: 2;
+  version: 3;
   needs: NeedRecord[];
   researchResults: SolutionResearchResult[];
   solutionDecisions: SolutionDecision[];
@@ -41,6 +42,7 @@ export type MarketplaceSnapshot = {
   engagements: Engagement[];
   commitmentNotifications: SupplierCommitmentNotification[];
   deployments: DeploymentSummary[];
+  supplierRegistryEntries: SupplierRegistryEntry[];
   processedPinchEventIds: string[];
   pinchWebhookEvidence: PinchWebhookEvidence[];
   localDemoPaymentEvidence: LocalDemoPaymentEvidence[];
@@ -50,7 +52,7 @@ export type MarketplaceSnapshot = {
 type PersistedMarketplaceSnapshot = Partial<
   Omit<MarketplaceSnapshot, "version">
 > & {
-  version?: 1 | 2;
+  version?: 1 | 2 | 3;
 };
 
 export function loadMarketplaceSnapshot(
@@ -62,7 +64,7 @@ export function loadMarketplaceSnapshot(
 
   const parsed = JSON.parse(readFileSync(filePath, "utf8")) as PersistedMarketplaceSnapshot;
   if (
-    (parsed.version !== 1 && parsed.version !== 2) ||
+    ![1, 2, 3].includes(parsed.version ?? 0) ||
     !Array.isArray(parsed.needs) ||
     !Array.isArray(parsed.invitations) ||
     !Array.isArray(parsed.outreachDeliveries) ||
@@ -72,11 +74,11 @@ export function loadMarketplaceSnapshot(
     !Array.isArray(parsed.pinchWebhookEvidence) ||
     !Array.isArray(parsed.auditEvents)
   ) {
-    throw new Error(`Marketplace data file is not a valid version 1 or 2 snapshot: ${filePath}`);
+    throw new Error(`Marketplace data file is not a valid version 1, 2 or 3 snapshot: ${filePath}`);
   }
 
   return {
-    version: 2,
+    version: 3,
     needs: parsed.needs,
     researchResults: arrayOrEmpty(parsed.researchResults),
     solutionDecisions: arrayOrEmpty(parsed.solutionDecisions),
@@ -91,6 +93,7 @@ export function loadMarketplaceSnapshot(
       parsed.commitmentNotifications
     ),
     deployments: arrayOrEmpty(parsed.deployments),
+    supplierRegistryEntries: arrayOrEmpty(parsed.supplierRegistryEntries),
     processedPinchEventIds: parsed.processedPinchEventIds,
     pinchWebhookEvidence: parsed.pinchWebhookEvidence,
     localDemoPaymentEvidence: arrayOrEmpty(parsed.localDemoPaymentEvidence),

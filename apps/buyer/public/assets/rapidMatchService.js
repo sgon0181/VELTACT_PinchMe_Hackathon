@@ -1,4 +1,4 @@
-import { detectIntakeLocation, deploymentSummarySchema, parseIntakeBudgetAmount, rapidMatchApiRoute, rapidMatchBuyerWorkspaceSchema, solutionDecisionSchema, solutionResearchResultSchema, supplierResponseSchema } from "@veltact/contracts";
+import { detectIntakeLocation, deploymentSummarySchema, parseIntakeBudgetAmount, rapidMatchApiRoute, rapidMatchBuyerWorkspaceSchema, supplierRegistryResponseSchema, solutionDecisionSchema, solutionResearchResultSchema, supplierResponseSchema } from "@veltact/contracts";
 import { apiBaseUrl } from "./apiBase.js";
 import { parseUrgencyDays } from "./urgency.js";
 const runtimeWindow = window;
@@ -14,6 +14,13 @@ export class RapidMatchService {
     }
     buyerAccessTokenForNeed(needProfileId) {
         return this.buyerAccessTokens.get(needProfileId);
+    }
+    async loadSupplierRegistry(needProfileId) {
+        const payload = await requestJson(`${rapidMatchApiRoute.supplierRegistry}?needProfileId=${encodeURIComponent(needProfileId)}`, {
+            method: "GET",
+            buyerAccessToken: this.buyerAccessTokens.get(needProfileId)
+        });
+        return supplierRegistryResponseSchema.parse(payload);
     }
     async createNeedProfile(input, priority, evidence) {
         const profile = requirementToMarketplaceProfile(input, priority);
