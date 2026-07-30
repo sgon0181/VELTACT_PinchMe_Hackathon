@@ -63,9 +63,8 @@ function cameraCurveAt(progress, keyframes, curve, target) {
     return target.set(...keyframes[keyframes.length - 1][1]);
 }
 function panelOpacity(progress, start, end) {
-    const fadeIn = start <= 0 ? 1 : segment(progress, start, start + 0.025);
-    const fadeOut = end >= 1 ? 1 : 1 - segment(progress, end - 0.025, end);
-    return Math.min(fadeIn, fadeOut);
+    const withinWindow = progress >= start && (end >= 1 ? progress <= 1 : progress < end);
+    return withinWindow ? 1 : 0;
 }
 function requiredElement(root, selector) {
     const element = root.querySelector(selector);
@@ -649,11 +648,11 @@ export function createFactoryStory(root) {
         [0.878, [46.3, 0.62, 3.4]],
     ];
     const panelWindows = new Map([
-        ["intro", [0, 0.11]],
-        ["find", [0.09, 0.39]],
-        ["connect", [0.37, 0.71]],
-        ["deploy", [0.69, 0.94]],
-        ["outcome", [0.92, 1]],
+        ["intro", [0, 0.1]],
+        ["find", [0.1, 0.38]],
+        ["connect", [0.38, 0.7]],
+        ["deploy", [0.7, 0.93]],
+        ["outcome", [0.93, 1]],
     ]);
     const findModelGroup = new THREE.Group();
     scene.add(findModelGroup);
@@ -913,7 +912,7 @@ export function createFactoryStory(root) {
             panel.style.setProperty("--story-shift", `${((1 - opacity) * 16).toFixed(1)}px`);
             panel.setAttribute("aria-hidden", opacity >= 0.5 ? "false" : "true");
         }
-        const activePhase = progress < 0.37 ? "find" : progress < 0.69 ? "connect" : "deploy";
+        const activePhase = progress < 0.38 ? "find" : progress < 0.7 ? "connect" : "deploy";
         const phaseOrder = [
             "find",
             "connect",

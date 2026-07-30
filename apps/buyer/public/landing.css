@@ -340,8 +340,9 @@ body.landing-ready .landing-loader {
   z-index: 1;
   pointer-events: none;
   background:
-    linear-gradient(90deg, rgba(4, 10, 17, 0.72), transparent 52%),
-    linear-gradient(0deg, rgba(4, 10, 17, 0.48), transparent 32%);
+    linear-gradient(90deg, rgba(4, 10, 17, 0.62), rgba(4, 10, 17, 0.06) 62%),
+    linear-gradient(0deg, rgba(4, 10, 17, 0.42), rgba(18, 58, 90, 0.08) 42%);
+  background-color: rgba(18, 58, 90, 0.14);
 }
 
 .factory-story-overlay {
@@ -509,6 +510,10 @@ body.landing-ready .landing-loader {
   left: 32px;
   display: flex;
   justify-content: space-between;
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  background: rgba(4, 10, 17, 0.9);
+  backdrop-filter: blur(10px);
 }
 
 .factory-story[data-story-state="animated"] .factory-story-panel {
@@ -521,7 +526,7 @@ body.landing-ready .landing-loader {
   opacity: var(--story-opacity);
   pointer-events: none;
   transform: translateY(calc(-50% + var(--story-shift)));
-  transition: opacity 120ms linear;
+  transition: none;
 }
 
 .factory-story[data-story-state="animated"] .factory-story-rail {
@@ -534,6 +539,10 @@ body.landing-ready .landing-loader {
   min-height: 230px;
   transform: translateY(-50%);
   grid-template-rows: repeat(3, 1fr);
+  border: 1px solid var(--line);
+  padding: 8px;
+  background: rgba(4, 10, 17, 0.88);
+  backdrop-filter: blur(10px);
 }
 
 .factory-story[data-story-state="animated"] .factory-story-rail li {

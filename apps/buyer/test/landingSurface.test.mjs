@@ -122,6 +122,14 @@ test("landing factory story is local, progressive and accessible", async () => {
   assert.match(sceneSource, /forceContextLoss/);
   assert.match(sceneSource, /new THREE\.CatmullRomCurve3/);
   assert.match(sceneSource, /"centripetal"/);
+  assert.match(
+    sceneSource,
+    /return withinWindow \? 1 : 0;/,
+  );
+  assert.match(
+    sceneSource,
+    /\["intro", \[0, 0\.1\]\][\s\S]*?\["find", \[0\.1, 0\.38\]\][\s\S]*?\["connect", \[0\.38, 0\.7\]\][\s\S]*?\["deploy", \[0\.7, 0\.93\]\][\s\S]*?\["outcome", \[0\.93, 1\]\]/,
+  );
   assert.doesNotMatch(sceneSource, /const cameraPosition = vectorAt/);
   assert.match(sceneSource, /\[gripperReleaseProgress, gripperReleasePosition\]/);
   assert.match(sceneSource, /THREE\.ACESFilmicToneMapping/);
@@ -170,6 +178,14 @@ test("landing preserves visible focus, readable contrast and mobile fit", async 
   assert.match(
     landingCss,
     /\.factory-story-panel\s*\{[\s\S]*?background: var\(--midnight-deep\);/,
+  );
+  assert.match(
+    landingCss,
+    /\.factory-story\[data-story-state="animated"\] \.factory-story-meta\s*\{[\s\S]*?background: rgba\(4, 10, 17, 0\.9\);[\s\S]*?backdrop-filter: blur\(10px\);/,
+  );
+  assert.match(
+    landingCss,
+    /\.factory-story\[data-story-state="animated"\] \.factory-story-rail\s*\{[\s\S]*?background: rgba\(4, 10, 17, 0\.88\);[\s\S]*?backdrop-filter: blur\(10px\);/,
   );
   assert.match(
     landingCss,

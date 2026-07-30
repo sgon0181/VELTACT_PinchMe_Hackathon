@@ -239,6 +239,32 @@ span {
   color: var(--faint);
 }
 
+button.journey-step {
+  width: 100%;
+  border-top: 0;
+  border-bottom: 0;
+  border-left: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+
+button.journey-step.is-reachable {
+  cursor: pointer;
+}
+
+button.journey-step.is-reachable:hover {
+  box-shadow: inset 0 -4px 0 var(--blue);
+  color: var(--ink);
+}
+
+button.journey-step.is-reachable:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid rgba(29, 103, 161, 0.3);
+  outline-offset: -3px;
+}
+
 .journey-step:last-child {
   border-right: 0;
 }
@@ -251,6 +277,10 @@ span {
 .journey-step.is-complete {
   background: var(--green-soft);
   color: var(--green);
+}
+
+.journey-step.is-workflow-current {
+  color: var(--ink);
 }
 
 .journey-number {
@@ -764,6 +794,10 @@ span {
 
 .warning-strip {
   margin: 16px 0;
+}
+
+.historical-view-notice {
+  margin-top: 18px;
 }
 
 .manual-fields {

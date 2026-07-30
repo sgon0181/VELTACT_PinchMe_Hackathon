@@ -49,6 +49,7 @@ type BuyerView =
   | "selected"
   | "payment"
   | "deployment";
+type JourneyPhase = "find" | "connect" | "deploy";
 type IntakeMode = "ai" | "manual";
 type LoadState = "idle" | "loading" | "error" | "success";
 type OutreachChoice = OutreachChannel | "link";
@@ -126,6 +127,7 @@ const NEW_REQUIREMENT_KEY = "veltact:rapidmatch:new-requirement";
 const CONTEXT_PREFIX = "veltact:rapidmatch:buyer-context:";
 const TOKEN_PREFIX = "veltact:rapidmatch:buyer-token:";
 const AI_INTAKE_TIMEOUT_MS = 12_000;
+const BUYER_VIEW_HISTORY_KEY = "veltactBuyerView";
 const buyerViews = new Set<BuyerView>([
   "intake",
   "plan",
@@ -184,6 +186,10 @@ let joinedNeedProfileId = "";
 let realtimeClientLoading: Promise<void> | undefined;
 let intakeRevision = 0;
 let activeIntakeRequestId = 0;
+let historyReady = false;
+let historyView: BuyerView | undefined;
+let handlingPopState = false;
+let lastFocusedView: BuyerView | undefined;
 
 const emptyInput: BuyerRequirementInput = {
   companyName: "",
@@ -259,6 +265,7 @@ const roboticsDemoInput: BuyerRequirementInput = {
 };
 
 render();
+window.addEventListener("popstate", handleBuyerPopState);
 void bootstrap();
 
 async function bootstrap() {
@@ -277,6 +284,7 @@ async function bootstrap() {
       outreachOverrideGate
     ]);
     booting = false;
+    initialiseBuyerHistory();
     render();
     return;
   }
@@ -366,12 +374,17 @@ async function bootstrap() {
       outreachOverrideGate
     ]);
     booting = false;
+    initialiseBuyerHistory();
     render();
   }
 }
 
 function render() {
   if (!app) return;
+  if (!booting && workspace) {
+    view = resolveLegalBuyerView(workspace, view);
+  }
+  syncBuyerHistory();
   const phase = currentPhase();
   if (phase === "deploy") {
     document.body.dataset.phase = "deploy";
@@ -399,7 +412,10 @@ function render() {
       ${workspace ? renderWorkspaceStatus() : ""}
     </section>
 
-    ${renderJourney(phase)}
+    ${renderJourney(
+      phase,
+      workspace ? workflowJourneyPhase(workspace) : "find"
+    )}
     ${renderBanner()}
 
     <section class="workspace" aria-busy="${loadState === "loading"}">
@@ -409,6 +425,7 @@ function render() {
   bindEvents();
   configurePolling();
   configureRealtime();
+  focusPrimaryHeadingAfterViewChange();
 }
 
 function scrollBuyerWorkspaceToTop() {
@@ -419,30 +436,55 @@ function scrollBuyerWorkspaceToTop() {
   });
 }
 
-function renderJourney(phase: "find" | "connect" | "deploy") {
+function renderJourney(phase: JourneyPhase, workflowPhase: JourneyPhase) {
   const phases = [
     ["find", "Find", "Structure and choose a path"],
     ["connect", "Connect", "Match, invite and compare"],
     ["deploy", "Deploy", "Commit and track delivery"]
   ] as const;
   const activeIndex = phases.findIndex(([key]) => key === phase);
+  const workflowIndex = phases.findIndex(([key]) => key === workflowPhase);
   return `
     <nav class="journey" aria-label="RapidMatch journey">
       ${phases
-        .map(
-          ([key, label, description], index) => `
-            <div class="journey-step ${index < activeIndex ? "is-complete" : ""} ${index === activeIndex ? "is-current" : ""}">
+        .map(([key, label, description], index) => {
+          const reachable =
+            Boolean(workspace) &&
+            index <= workflowIndex &&
+            index !== activeIndex;
+          const classes = [
+            "journey-step",
+            index < workflowIndex ? "is-complete" : "",
+            index === activeIndex ? "is-current" : "",
+            index === workflowIndex ? "is-workflow-current" : "",
+            reachable ? "is-reachable" : ""
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const content = `
               <span class="journey-number">${index + 1}</span>
               <span>
                 <strong>${label}</strong>
                 <small>${description}</small>
               </span>
-            </div>
-          `
-        )
+          `;
+          return reachable
+            ? `<button class="${classes}" type="button" data-journey-phase="${key}" aria-label="View ${label} stage">${content}</button>`
+            : `<div class="${classes}" ${index === activeIndex ? 'aria-current="step"' : ""}>${content}</div>`;
+        })
         .join("")}
     </nav>
   `;
+}
+
+function focusPrimaryHeadingAfterViewChange() {
+  if (booting || lastFocusedView === view) return;
+  const heading = app?.querySelector<HTMLElement>(".workspace h1, .workspace h2");
+  if (!heading) return;
+  heading.tabIndex = -1;
+  heading.focus({ preventScroll: true });
+  lastFocusedView = view;
+  scrollBuyerWorkspaceToTop();
 }
 
 function renderBanner() {
@@ -748,6 +790,7 @@ function renderManualFields(open: boolean, missing: string[]) {
 function renderPlan(data: BuyerWorkspace) {
   const profile = requireNeedProfile(data);
   const research = data.researchResult;
+  const readOnly = isHistoricalJourneyPhase(data, "find");
   if (!research) {
     return renderUnavailable(
       "Solution analysis unavailable",
@@ -809,18 +852,23 @@ function renderPlan(data: BuyerWorkspace) {
           <div class="solution-report-heading">
             <div>
               <p class="eyebrow">Decision pathways</p>
-              <h2>Select one supplier-ready solution</h2>
+              <h2>${readOnly ? "Selected supplier-ready solution" : "Select one supplier-ready solution"}</h2>
             </div>
             <span class="solution-count">3 pathways</span>
           </div>
-          <p class="section-intro">The highest-confidence path is recommended, but all three remain available for buyer review. Selecting a path does not contact suppliers.</p>
+          <p class="section-intro">${
+            readOnly
+              ? "This completed Find record preserves the buyer-selected pathway used for supplier matching."
+              : "The highest-confidence path is recommended, but all three remain available for buyer review. Selecting a path does not contact suppliers."
+          }</p>
           <div class="solution-grid" role="radiogroup" aria-label="Solution pathways">
             ${approaches
               .map((approach, index) =>
                 renderSolutionOption(
                   approach,
                   research.citations,
-                  index === 0
+                  index === 0,
+                  readOnly
                 )
               )
               .join("")}
@@ -829,6 +877,16 @@ function renderPlan(data: BuyerWorkspace) {
             <span>Selected supplier scope</span>
             <strong>${selectedApproach ? escapeHtml(selectedApproach.title) : "Select one pathway"}</strong>
           </div>
+          ${
+            readOnly
+              ? `
+                <div class="complete-strip historical-view-notice">
+                  <strong>Find complete</strong>
+                  <span>This is a read-only record. Return to the current journey stage to continue.</span>
+                </div>
+              `
+              : ""
+          }
         </section>
 
         <section class="report-evidence">
@@ -857,17 +915,18 @@ function renderPlan(data: BuyerWorkspace) {
 
       <section class="outcome-band report-outcomes">
         <div>
-          <p class="eyebrow">Report ready</p>
-          <h2>Keep the report or continue to suppliers</h2>
-          <p>Download is a report utility. Supplier discovery begins only when you choose Find suppliers.</p>
+          <p class="eyebrow">${readOnly ? "Completed stage" : "Report ready"}</p>
+          <h2>${readOnly ? "Find decisions are locked" : "Keep the report or continue to suppliers"}</h2>
+          <p>${readOnly ? "The selected pathway and its evidence remain visible without reopening supplier discovery." : "Download is a report utility. Supplier discovery begins only when you choose Find suppliers."}</p>
         </div>
         <div class="outcome-actions">
-          <button class="button button-secondary button-large" type="button" data-download-report ${selectedApproach ? "" : "disabled"}>
+          <button class="button button-secondary button-large" type="button" data-download-report ${selectedApproach && !readOnly ? "" : "disabled"}>
             Download report
           </button>
-          <button class="button button-primary button-large" type="button" data-find-suppliers ${selectedApproach ? "" : "disabled"}>
+          <button class="button button-primary button-large" type="button" data-find-suppliers ${selectedApproach && !readOnly ? "" : "disabled"}>
             Find suppliers
           </button>
+          ${readOnly ? `<span class="status-chip is-ready">Read-only history</span>` : ""}
         </div>
       </section>
     </div>
@@ -877,7 +936,8 @@ function renderPlan(data: BuyerWorkspace) {
 function renderSolutionOption(
   approach: SolutionApproach,
   citations: ResearchCitation[],
-  recommended: boolean
+  recommended: boolean,
+  readOnly = false
 ) {
   const selected = approach.id === selectedApproachId;
   return `
@@ -888,6 +948,7 @@ function renderSolutionOption(
           name="solution-pathway"
           value="${escapeHtml(approach.id)}"
           ${selected ? "checked" : ""}
+          ${readOnly ? "disabled" : ""}
         />
         <span class="solution-choice-copy">
           <span class="solution-option-meta">
@@ -1230,6 +1291,7 @@ function renderOutreachChoice(
 function renderOutreach(data: BuyerWorkspace) {
   const responded = submittedResponses(data).length;
   const readyToCompare = responded >= 2;
+  const singleComparable = hasSingleComparableResponse(data);
   return `
     <div class="view-stack">
       <section class="panel">
@@ -1264,7 +1326,16 @@ function renderOutreach(data: BuyerWorkspace) {
         ${
           readyToCompare
             ? `<button class="button button-primary button-large" type="button" data-compare>Compare responses</button>`
-            : `<button class="button button-primary" type="button" data-refresh-workspace>Refresh responses</button>`
+            : `
+              <div class="outcome-actions">
+                <button class="button button-primary" type="button" data-refresh-workspace>Refresh responses</button>
+                ${
+                  singleComparable
+                    ? `<button class="button button-secondary" type="button" data-compare-single>Review the single response (1 of 2)</button>`
+                    : ""
+                }
+              </div>
+            `
         }
       </section>
     </div>
@@ -1364,7 +1435,13 @@ function renderComparison(data: BuyerWorkspace) {
   const responses = submittedResponses(data);
   const selectable = responses.filter(isSelectableSupplierResponse);
   const hasMinimum = responses.length >= 2;
-  const selected = selectable.find((item) => item.id === selectedResponseId);
+  const singleResponseMode =
+    responses.length === 1 && selectable.length === 1;
+  const readOnly = isHistoricalJourneyPhase(data, "connect");
+  const activeResponseId =
+    data.engagement?.supplierResponseId ?? selectedResponseId;
+  const selected = selectable.find((item) => item.id === activeResponseId);
+  const selectionAllowed = canSelectSupplierFromComparison(data);
   return `
     <div class="view-stack">
       <section class="panel">
@@ -1376,8 +1453,22 @@ function renderComparison(data: BuyerWorkspace) {
           <span class="response-count ${hasMinimum ? "is-ready" : ""}">${responses.length} submitted</span>
         </div>
         ${
-          hasMinimum
+          readOnly
+            ? `
+              <div class="complete-strip historical-view-notice">
+                <strong>Connect complete</strong>
+                <span>This comparison is read-only because a supplier engagement already exists.</span>
+              </div>
+            `
+            : hasMinimum
             ? `<p class="section-intro">Every response uses the same decision fields. Select one credible supplier to create a single engagement.</p>`
+            : singleResponseMode
+              ? `
+                <div class="warning-strip">
+                  <strong>Only one comparable response was received.</strong>
+                  <span>Standard flow compares at least two.</span>
+                </div>
+              `
             : `
               <div class="warning-strip">
                 <strong>A second response is still required for comparison.</strong>
@@ -1388,7 +1479,14 @@ function renderComparison(data: BuyerWorkspace) {
         ${
           responses.length
             ? `<div class="response-grid">${responses
-                .map((response) => renderResponseCard(data, response))
+                .map((response) =>
+                  renderResponseCard(
+                    data,
+                    response,
+                    readOnly,
+                    activeResponseId
+                  )
+                )
                 .join("")}</div>`
             : renderInlineEmpty(
                 "No submitted responses",
@@ -1403,7 +1501,9 @@ function renderComparison(data: BuyerWorkspace) {
           <span>Selection creates the engagement. It does not mark payment complete or secure the supplier.</span>
         </div>
         ${
-          hasMinimum
+          readOnly
+            ? `<button class="button button-primary button-large" type="button" disabled>Supplier already selected</button>`
+            : selectionAllowed
             ? `<button class="button button-primary button-large" type="button" data-select-supplier ${selected ? "" : "disabled"}>Select supplier</button>`
             : `<button class="button button-primary" type="button" data-back-outreach>Return to outreach</button>`
         }
@@ -1414,14 +1514,16 @@ function renderComparison(data: BuyerWorkspace) {
 
 function renderResponseCard(
   data: BuyerWorkspace,
-  response: SupplierResponse
+  response: SupplierResponse,
+  readOnly = false,
+  activeResponseId = selectedResponseId
 ) {
   const supplier = supplierFor(data, response.supplierId);
   const match = matchForSupplier(data, response.supplierId);
   const canHelp = response.decision === "can_help";
   const validPrice = (response.indicativePrice?.amount ?? 0) > 0;
   const selectable = canHelp && validPrice;
-  const selected = selectable && response.id === selectedResponseId;
+  const selected = selectable && response.id === activeResponseId;
   return `
     <article class="response-card ${selected ? "is-selected" : ""} ${selectable ? "" : canHelp ? "is-invalid" : "is-declined"}">
       <label class="response-select">
@@ -1430,7 +1532,7 @@ function renderResponseCard(
           name="supplier-response"
           value="${escapeHtml(response.id)}"
           ${selected ? "checked" : ""}
-          ${selectable ? "" : "disabled"}
+          ${selectable && !readOnly ? "" : "disabled"}
         />
         <span>
           <strong>${renderCompanyIdentity(supplierName(supplier, response.supplierId), true)}</strong>
@@ -1633,8 +1735,6 @@ function renderPayment(data: BuyerWorkspace): string {
   }
   const secured = engagement.status === "supplier_secured";
   if (secured) {
-    view = "deployment";
-    persistContext();
     return renderDeployment(data);
   }
   const hostedUrl = engagement.hostedCheckoutUrl;
@@ -1894,7 +1994,6 @@ function renderDeployment(data: BuyerWorkspace): string {
     );
   }
   if (engagement.status !== "supplier_secured") {
-    view = "payment";
     return renderPayment(data);
   }
   const deployment = data.deployment;
@@ -2085,6 +2184,21 @@ function renderLoadingSkeleton() {
 }
 
 function bindEvents() {
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-journey-phase]")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        const phase = button.dataset.journeyPhase;
+        if (
+          phase === "find" ||
+          phase === "connect" ||
+          phase === "deploy"
+        ) {
+          navigateToJourneyPhase(phase);
+        }
+      });
+    });
+
   const requirementForm =
     document.querySelector<HTMLFormElement>("#requirement-form");
   requirementForm?.addEventListener("input", (event) => {
@@ -2219,12 +2333,8 @@ function bindEvents() {
     render();
   });
   bindClick("[data-send-outreach]", sendOutreach);
-  bindClick("[data-compare]", () => {
-    view = "compare";
-    persistContext();
-    render();
-    scrollBuyerWorkspaceToTop();
-  });
+  bindClick("[data-compare]", openSupplierComparison);
+  bindClick("[data-compare-single]", openSupplierComparison);
   bindClick("[data-back-outreach]", () => {
     view = "outreach";
     persistContext();
@@ -2259,6 +2369,13 @@ function bindEvents() {
         });
       });
     });
+}
+
+function openSupplierComparison() {
+  if (!workspace || !canReviewSupplierComparison(workspace)) return;
+  view = "compare";
+  persistContext();
+  render();
 }
 
 async function structureRequirement(
@@ -3300,6 +3417,75 @@ function readWorkspaceIdentity() {
   };
 }
 
+function initialiseBuyerHistory() {
+  historyReady = true;
+  historyView = view;
+  replaceBuyerHistoryView(view);
+}
+
+function syncBuyerHistory() {
+  if (!historyReady) return;
+  if (handlingPopState) {
+    historyView = view;
+    return;
+  }
+  if (historyView === view) return;
+  window.history.pushState(
+    {
+      ...buyerHistoryState(window.history.state),
+      [BUYER_VIEW_HISTORY_KEY]: view
+    },
+    "",
+    `${window.location.pathname}${window.location.search}${window.location.hash}`
+  );
+  historyView = view;
+}
+
+function replaceBuyerHistoryView(nextView: BuyerView) {
+  window.history.replaceState(
+    {
+      ...buyerHistoryState(window.history.state),
+      [BUYER_VIEW_HISTORY_KEY]: nextView
+    },
+    "",
+    `${window.location.pathname}${window.location.search}${window.location.hash}`
+  );
+}
+
+function buyerHistoryState(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function buyerViewFromHistory(value: unknown): BuyerView | undefined {
+  const state = buyerHistoryState(value);
+  const candidate = state[BUYER_VIEW_HISTORY_KEY];
+  return typeof candidate === "string" &&
+    buyerViews.has(candidate as BuyerView)
+    ? (candidate as BuyerView)
+    : undefined;
+}
+
+function handleBuyerPopState(event: PopStateEvent) {
+  const requested = buyerViewFromHistory(event.state);
+  const nextView = workspace
+    ? resolveLegalBuyerView(
+        workspace,
+        requested ?? resolveRestoredView(workspace)
+      )
+    : "intake";
+  handlingPopState = true;
+  view = nextView;
+  historyView = nextView;
+  if (requested !== nextView) {
+    replaceBuyerHistoryView(nextView);
+  }
+  persistContext();
+  render();
+  handlingPopState = false;
+}
+
 function resolveRestoredNeedProfileId(
   explicitNeedProfileId: string | undefined,
   lastNeedProfileId: string | undefined,
@@ -3315,7 +3501,14 @@ function setNeedProfileUrl(needProfileId: string) {
   const url = new URL(window.location.href);
   url.search = "";
   url.searchParams.set("needId", needProfileId);
-  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  window.history.replaceState(
+    {
+      ...buyerHistoryState(window.history.state),
+      [BUYER_VIEW_HISTORY_KEY]: view
+    },
+    "",
+    `${url.pathname}${url.search}`
+  );
   safeSessionStorageRemove(NEW_REQUIREMENT_KEY);
   safeStorageSet(LAST_NEED_KEY, needProfileId);
 }
@@ -3470,8 +3663,13 @@ function resolveRestoredView(
   }
   if (submittedResponses(data).length >= 2) return "compare";
   if (
+    storedView === "compare" &&
+    hasSingleComparableResponse(data)
+  ) {
+    return "compare";
+  }
+  if (
     storedView === "outreach" ||
-    storedView === "compare" ||
     data.outreachDeliveries.some(
       (item) =>
         item.deliveryStatus !== "not_sent" ||
@@ -3481,7 +3679,7 @@ function resolveRestoredView(
       ["opened", "responded"].includes(item.status)
     )
   ) {
-    return storedView === "compare" ? "compare" : "outreach";
+    return "outreach";
   }
   if (
     data.solutionDecision &&
@@ -3522,7 +3720,15 @@ function resetRequirementState(needProfileId?: string) {
   loadState = "idle";
   errorMessage = "";
   liveMessage = "";
-  window.history.replaceState({}, "", window.location.pathname);
+  historyView = "intake";
+  lastFocusedView = undefined;
+  window.history.replaceState(
+    {
+      [BUYER_VIEW_HISTORY_KEY]: "intake"
+    },
+    "",
+    window.location.pathname
+  );
 }
 
 function startNewRequirement() {
@@ -3531,7 +3737,7 @@ function startNewRequirement() {
   scrollBuyerWorkspaceToTop();
 }
 
-function currentPhase(): "find" | "connect" | "deploy" {
+function currentPhase(): JourneyPhase {
   if (
     view === "candidates" ||
     view === "outreach" ||
@@ -3547,6 +3753,134 @@ function currentPhase(): "find" | "connect" | "deploy" {
     return "deploy";
   }
   return "find";
+}
+
+function workflowJourneyPhase(data: BuyerWorkspace): JourneyPhase {
+  if (data.engagement) return "deploy";
+  return data.phase;
+}
+
+function journeyPhaseIndex(phase: JourneyPhase) {
+  return phase === "find" ? 0 : phase === "connect" ? 1 : 2;
+}
+
+function isHistoricalJourneyPhase(
+  data: BuyerWorkspace,
+  phase: JourneyPhase
+) {
+  return (
+    journeyPhaseIndex(phase) <
+    journeyPhaseIndex(workflowJourneyPhase(data))
+  );
+}
+
+function hasSingleComparableResponse(data: BuyerWorkspace) {
+  const responses = submittedResponses(data);
+  return (
+    responses.length === 1 &&
+    responses.filter(isSelectableSupplierResponse).length === 1
+  );
+}
+
+function canReviewSupplierComparison(data: BuyerWorkspace) {
+  return (
+    canSelectSupplierFromComparison(data) ||
+    Boolean(data.engagement)
+  );
+}
+
+function canSelectSupplierFromComparison(data: BuyerWorkspace) {
+  return (
+    submittedResponses(data).length >= 2 ||
+    hasSingleComparableResponse(data)
+  );
+}
+
+function journeyViewForPhase(
+  data: BuyerWorkspace,
+  phase: JourneyPhase
+): BuyerView {
+  if (phase === "find") {
+    return data.researchResult ? "plan" : "intake";
+  }
+  if (phase === "connect") {
+    if (canReviewSupplierComparison(data)) return "compare";
+    if (
+      data.status === "supplier_outreach" ||
+      data.status === "supplier_responses" ||
+      data.nextAction === "await_responses"
+    ) {
+      return "outreach";
+    }
+    return "candidates";
+  }
+  if (data.engagement?.status === "supplier_secured") return "deployment";
+  return data.engagement?.hostedCheckoutUrl ? "payment" : "selected";
+}
+
+function resolveLegalBuyerView(
+  data: BuyerWorkspace,
+  requestedView: BuyerView
+): BuyerView {
+  if (requestedView === "plan" && data.researchResult) {
+    return "plan";
+  }
+  if (
+    requestedView === "compare" &&
+    canReviewSupplierComparison(data)
+  ) {
+    return "compare";
+  }
+  if (data.engagement?.status === "supplier_secured") {
+    return "deployment";
+  }
+  if (data.engagement) {
+    if (requestedView === "payment" || data.engagement.hostedCheckoutUrl) {
+      return "payment";
+    }
+    return "selected";
+  }
+  if (
+    requestedView === "outreach" &&
+    data.invitations.length > 0 &&
+    [
+      "supplier_outreach",
+      "supplier_responses",
+      "supplier_selection"
+    ].includes(data.status)
+  ) {
+    return "outreach";
+  }
+  if (
+    requestedView === "candidates" &&
+    data.phase === "connect" &&
+    ["approve_outreach", "send_invitations"].includes(data.nextAction) &&
+    (data.discoveredSuppliers.length > 0 || data.matches.length > 0)
+  ) {
+    return "candidates";
+  }
+  if (
+    requestedView === "intake" &&
+    !data.researchResult &&
+    data.phase === "find"
+  ) {
+    return "intake";
+  }
+  return resolveRestoredView(data);
+}
+
+function navigateToJourneyPhase(phase: JourneyPhase) {
+  if (!workspace) return;
+  const workflowIndex = journeyPhaseIndex(workflowJourneyPhase(workspace));
+  if (journeyPhaseIndex(phase) > workflowIndex) return;
+  const nextView = resolveLegalBuyerView(
+    workspace,
+    journeyViewForPhase(workspace, phase)
+  );
+  if (nextView === view) return;
+  view = nextView;
+  persistContext();
+  render();
 }
 
 function selectedSupplier(data: BuyerWorkspace) {
