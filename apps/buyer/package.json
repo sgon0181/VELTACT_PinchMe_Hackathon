@@ -4,15 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-three.mjs",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test test/*.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@veltact/contracts": "0.1.0"
+    "@veltact/contracts": "0.1.0",
+    "three": "0.161.0"
   },
   "devDependencies": {
+    "@types/three": "0.161.2",
     "typescript": "^5.7.2"
   }
 }

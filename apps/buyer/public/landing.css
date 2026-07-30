@@ -301,6 +301,272 @@ body.landing-ready .landing-loader {
   font-size: 0.72rem;
 }
 
+.factory-story {
+  position: relative;
+  overflow: clip;
+  border-bottom: 1px solid var(--line);
+  background:
+    linear-gradient(rgba(4, 10, 17, 0.78), rgba(4, 10, 17, 0.94)),
+    url("./assets/brand/brushed-steel.jpg") center / cover;
+}
+
+.factory-story-stage {
+  position: relative;
+  min-height: calc(100svh - 72px);
+  overflow: hidden;
+}
+
+.factory-story-canvas,
+.factory-story-shade {
+  position: absolute;
+  inset: 0;
+}
+
+.factory-story-canvas {
+  background:
+    radial-gradient(circle at 72% 26%, rgba(46, 127, 198, 0.18), transparent 34%),
+    var(--midnight-deep);
+}
+
+.factory-story-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.factory-story-shade {
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(4, 10, 17, 0.72), transparent 52%),
+    linear-gradient(0deg, rgba(4, 10, 17, 0.48), transparent 32%);
+}
+
+.factory-story-overlay {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: var(--content);
+  margin: 0 auto;
+  padding: 86px 0 96px;
+  gap: 24px;
+}
+
+.factory-story-meta,
+.factory-story-phase,
+.factory-story-output,
+.factory-story-hint,
+.factory-story-fallback-note,
+.factory-story-rail {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+
+.factory-story-meta {
+  display: none;
+  color: var(--faint);
+  font-size: 0.65rem;
+  letter-spacing: 0;
+}
+
+.factory-story-panel {
+  max-width: 680px;
+  border-left: 2px solid var(--signal-red);
+  padding: 24px 28px;
+  background: rgba(4, 10, 17, 0.82);
+  box-shadow: 0 24px 64px rgba(4, 10, 17, 0.44);
+}
+
+.factory-story-panel h1,
+.factory-story-panel h2 {
+  margin: 0;
+  color: var(--white);
+  font-family: var(--font-display);
+  font-weight: 800;
+}
+
+.factory-story-panel h1 {
+  font-size: 6.5rem;
+  line-height: 0.95;
+  text-transform: uppercase;
+}
+
+.factory-story-panel h2 {
+  margin-top: 15px;
+  font-size: 2.65rem;
+  line-height: 1.04;
+}
+
+.factory-story-panel p {
+  max-width: 620px;
+  margin: 17px 0 0;
+  color: var(--silver);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.factory-story-panel .factory-story-lead {
+  color: var(--white);
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  font-weight: 500;
+  line-height: 1.18;
+}
+
+.factory-story-phase {
+  color: var(--signal-red-readable);
+  font-size: 0.72rem;
+}
+
+.factory-story-output {
+  display: block;
+  margin-top: 21px;
+  border-top: 1px solid var(--line);
+  padding-top: 13px;
+  color: var(--faint);
+  font-size: 0.66rem;
+}
+
+.factory-story-rail {
+  display: none;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.factory-story-rail li {
+  color: var(--faint);
+}
+
+.factory-story-rail span,
+.factory-story-rail strong {
+  display: block;
+}
+
+.factory-story-rail span {
+  font-size: 0.6rem;
+}
+
+.factory-story-rail strong {
+  margin-top: 3px;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+}
+
+.factory-story-hint,
+.factory-story-fallback-note {
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  bottom: 24px;
+  left: 0;
+  margin: 0;
+  color: var(--faint);
+  font-size: 0.62rem;
+  text-align: center;
+}
+
+.factory-story-fallback-note {
+  display: none;
+  position: relative;
+  bottom: auto;
+  padding: 0 20px 32px;
+}
+
+.factory-story[data-story-state="fallback"] .factory-story-fallback-note {
+  display: block;
+}
+
+.factory-story[data-story-state="static"] .factory-story-canvas,
+.factory-story[data-story-state="fallback"] .factory-story-canvas,
+.factory-story[data-story-state="static"] .factory-story-shade,
+.factory-story[data-story-state="fallback"] .factory-story-shade,
+.factory-story[data-story-state="static"] .factory-story-hint,
+.factory-story[data-story-state="fallback"] .factory-story-hint {
+  display: none;
+}
+
+.factory-story[data-story-state="animated"] {
+  height: 720svh;
+  background: var(--midnight-deep);
+}
+
+.factory-story[data-story-state="animated"] .factory-story-stage {
+  position: sticky;
+  top: 72px;
+  height: calc(100svh - 72px);
+  min-height: 520px;
+}
+
+.factory-story[data-story-state="animated"] .factory-story-overlay {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: auto;
+  margin: 0;
+  padding: 0;
+}
+
+.factory-story[data-story-state="animated"] .factory-story-meta {
+  position: absolute;
+  top: 24px;
+  right: 32px;
+  left: 32px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.factory-story[data-story-state="animated"] .factory-story-panel {
+  --story-opacity: 0;
+  --story-shift: 16px;
+  position: absolute;
+  top: 50%;
+  left: max(32px, calc((100vw - 1180px) / 2));
+  width: min(620px, calc(100vw - 190px));
+  opacity: var(--story-opacity);
+  pointer-events: none;
+  transform: translateY(calc(-50% + var(--story-shift)));
+  transition: opacity 120ms linear;
+}
+
+.factory-story[data-story-state="animated"] .factory-story-rail {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  right: max(28px, calc((100vw - 1180px) / 2));
+  display: grid;
+  height: 34vh;
+  min-height: 230px;
+  transform: translateY(-50%);
+  grid-template-rows: repeat(3, 1fr);
+}
+
+.factory-story[data-story-state="animated"] .factory-story-rail li {
+  display: grid;
+  min-width: 96px;
+  align-content: center;
+  border-right: 2px solid var(--line-strong);
+  padding-right: 17px;
+  text-align: right;
+  opacity: 0.48;
+  transition: border-color 120ms linear, color 120ms linear, opacity 120ms linear;
+}
+
+.factory-story[data-story-state="animated"] .factory-story-rail li.is-active {
+  border-color: var(--signal-red);
+  color: var(--white);
+  opacity: 1;
+}
+
+.factory-story[data-story-state="animated"] .factory-story-rail li.is-complete {
+  border-color: var(--crimson);
+  opacity: 0.72;
+}
+
+.factory-story[data-story-state="animated"] .factory-story-hint {
+  display: block;
+}
+
 .hero {
   position: relative;
   min-height: calc(100svh - 132px);
@@ -888,6 +1154,88 @@ body.landing-ready .landing-loader {
     font-size: 0.65rem;
   }
 
+  .factory-story-stage {
+    min-height: calc(100svh - 64px);
+  }
+
+  .factory-story-overlay {
+    padding: 58px 0 68px;
+  }
+
+  .factory-story-panel {
+    padding: 21px 19px;
+  }
+
+  .factory-story-panel h1 {
+    font-size: 3.8rem;
+  }
+
+  .factory-story-panel h2 {
+    font-size: 1.9rem;
+  }
+
+  .factory-story-panel .factory-story-lead {
+    font-size: 1.32rem;
+  }
+
+  .factory-story[data-story-state="animated"] {
+    height: 640svh;
+  }
+
+  .factory-story[data-story-state="animated"] .factory-story-stage {
+    top: 64px;
+    height: calc(100svh - 64px);
+    min-height: 500px;
+  }
+
+  .factory-story[data-story-state="animated"] .factory-story-meta {
+    top: 17px;
+    right: 16px;
+    left: 16px;
+    font-size: 0.58rem;
+  }
+
+  .factory-story[data-story-state="animated"] .factory-story-panel {
+    top: auto;
+    right: 16px;
+    bottom: 34px;
+    left: 16px;
+    width: auto;
+    transform: translateY(var(--story-shift));
+  }
+
+  .factory-story[data-story-state="animated"] .factory-story-panel p {
+    font-size: 0.9rem;
+    line-height: 1.55;
+  }
+
+  .factory-story[data-story-state="animated"] .factory-story-rail {
+    top: 58px;
+    right: 16px;
+    left: 16px;
+    height: auto;
+    min-height: 0;
+    transform: none;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: none;
+  }
+
+  .factory-story[data-story-state="animated"] .factory-story-rail li {
+    min-width: 0;
+    border-top: 2px solid var(--line-strong);
+    border-right: 0;
+    padding: 9px 0 0;
+    text-align: left;
+  }
+
+  .factory-story[data-story-state="animated"] .factory-story-rail li + li {
+    padding-left: 10px;
+  }
+
+  .factory-story[data-story-state="animated"] .factory-story-hint {
+    display: none;
+  }
+
   .hero {
     min-height: calc(100svh - 104px);
     padding: 48px 0 50px;
@@ -1010,6 +1358,25 @@ body.landing-ready .landing-loader {
     min-height: 44px;
     padding: 0 8px;
     font-size: 0.61rem;
+  }
+
+  .factory-story-panel h1 {
+    font-size: 3.2rem;
+  }
+
+  .factory-story-panel h2 {
+    font-size: 1.72rem;
+  }
+
+  .factory-story[data-story-state="animated"] .factory-story-panel {
+    right: 12px;
+    bottom: 24px;
+    left: 12px;
+    padding: 18px 16px;
+  }
+
+  .factory-story[data-story-state="animated"] .factory-story-panel p {
+    font-size: 0.84rem;
   }
 
   .hero h1 {

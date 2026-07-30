@@ -5,6 +5,7 @@ import test from "node:test";
 const landingHtmlUrl = new URL("../public/landing.html", import.meta.url);
 const landingCssUrl = new URL("../public/landing.css", import.meta.url);
 const landingSourceUrl = new URL("../src/landing.ts", import.meta.url);
+const landingSceneSourceUrl = new URL("../src/landingScene.ts", import.meta.url);
 
 function relativeLuminance(hex) {
   const channels = hex
@@ -56,7 +57,7 @@ test("landing includes a non-blocking reduced-motion loading treatment", async (
   ]);
 
   assert.match(html, /data-landing-loader/);
-  assert.match(html, /assets\/brand\/brushed-steel\.jpg|class="hero-material"/);
+  assert.match(html, /class="factory-story-canvas"/);
   assert.match(landingCss, /\.landing-loader\s*\{/);
   assert.match(landingCss, /body\.landing-ready \.landing-loader/);
   assert.match(landingCss, /\.landing-loader\s*\{[\s\S]*?pointer-events: none;/);
@@ -83,6 +84,31 @@ test("landing tells the canonical Find, Connect and Deploy story", async () => {
   assert.match(html, /03 \/ Deploy/);
   assert.match(html, /Pinch-hosted checkout/);
   assert.match(html, /Payment is confirmed only by backend evidence/);
+});
+
+test("landing factory story is local, progressive and accessible", async () => {
+  const [html, source, sceneSource] = await Promise.all([
+    readFile(landingHtmlUrl, "utf8"),
+    readFile(landingSourceUrl, "utf8"),
+    readFile(landingSceneSourceUrl, "utf8"),
+  ]);
+
+  assert.match(html, /"three": "\.\/assets\/vendor\/three\/three\.module\.min\.js"/);
+  assert.match(html, /data-factory-story\s+data-story-state="static"/);
+  assert.equal([...html.matchAll(/class="factory-story-panel/g)].length, 5);
+  assert.doesNotMatch(html, /support\.js|DCLogic|cdn\.jsdelivr\.net|unpkg\.com/);
+
+  assert.match(source, /const reducedMotion = window\.matchMedia/);
+  assert.match(source, /supportsWebGL\(\)/);
+  assert.match(source, /import\("\.\/landingScene\.js"\)/);
+  assert.match(source, /factoryStory\.dataset\.storyState = "fallback"/);
+
+  assert.match(sceneSource, /import \* as THREE from "three"/);
+  assert.match(sceneSource, /new IntersectionObserver/);
+  assert.match(sceneSource, /new ResizeObserver/);
+  assert.match(sceneSource, /window\.devicePixelRatio/);
+  assert.match(sceneSource, /visibilitychange/);
+  assert.match(sceneSource, /forceContextLoss/);
 });
 
 test("landing preserves visible focus, readable contrast and mobile fit", async () => {

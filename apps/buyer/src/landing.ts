@@ -58,3 +58,29 @@ const year = document.querySelector<HTMLElement>("#year");
 if (year) {
   year.textContent = String(new Date().getFullYear());
 }
+
+const factoryStory = document.querySelector<HTMLElement>("[data-factory-story]");
+
+function supportsWebGL() {
+  try {
+    const canvas = document.createElement("canvas");
+    return Boolean(canvas.getContext("webgl2") || canvas.getContext("webgl"));
+  } catch {
+    return false;
+  }
+}
+
+if (factoryStory && !reducedMotion) {
+  if (!supportsWebGL()) {
+    factoryStory.dataset.storyState = "fallback";
+  } else {
+    void import("./landingScene.js")
+      .then(({ createFactoryStory }) => {
+        const controller = createFactoryStory(factoryStory);
+        window.addEventListener("pagehide", () => controller.destroy(), { once: true });
+      })
+      .catch(() => {
+        factoryStory.dataset.storyState = "fallback";
+      });
+  }
+}
