@@ -282,7 +282,7 @@ export function createFactoryStory(root) {
     const heroCrimson = new THREE.Color(0x7a1425);
     const heroWarmWhite = new THREE.Color(0xfff3dc);
     const heroWarmGlow = new THREE.Color(0xffd9a0);
-    const bulbScale = 0.2;
+    const bulbScale = 0.13;
     const bulbAttachmentOffset = 1.18 * bulbScale;
     const makeBulb = (glassMaterial, baseMaterial = materials.base) => {
         const group = new THREE.Group();
@@ -593,8 +593,8 @@ export function createFactoryStory(root) {
         [0.31, [6, 4.4, 10.5]],
         [0.4, [16, 4.2, 10]],
         [0.47, [27.5, 4.4, 9.5]],
-        [0.55, [28.6, 5.2, 7.2]],
-        [0.62, [27.4, 5.4, 6]],
+        [0.55, [26.2, 4.8, 5.6]],
+        [0.62, [25.8, 4.9, 4.8]],
         [0.68, [28, 4.6, 10.5]],
         [0.75, [42.5, 5, 13.5]],
         [0.82, [46, 4.8, 13]],
@@ -640,7 +640,7 @@ export function createFactoryStory(root) {
         [0.7, [24, 2.3, 0]],
         [0.755, [42, 2.3, 0]],
         [0.775, [43, 2.15, 0]],
-        [0.795, [43, 1.65, 0]],
+        [0.795, [43, 1.62, 0]],
     ];
     const cratePositions = [
         [0, [43, 1.5, 0]],
@@ -703,6 +703,8 @@ export function createFactoryStory(root) {
                 findModelGroup.add(robotModel);
                 proceduralRobot.visible = false;
                 solveArm(vectorAt(gripperReleaseProgress, armKeyframes));
+                updateRobotVisual(0.06);
+                robotModel.position.add(new THREE.Vector3(4, 2.54, 0).sub(visualTipWorld));
                 updateRobotVisual(0.06);
                 gripperReleasePosition[0] = visualTipWorld.x;
                 gripperReleasePosition[1] = visualTipWorld.y - bulbAttachmentOffset;

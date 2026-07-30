@@ -85,6 +85,14 @@ test("landing tells the canonical Find, Connect and Deploy story", async () => {
   assert.match(html, /03 \/ Deploy/);
   assert.match(html, /Pinch-hosted checkout/);
   assert.match(html, /Payment is confirmed only by backend evidence/);
+
+  const storyPanels = [...html.matchAll(/<article class="factory-story-panel[^"]*"[^>]*>([\s\S]*?)<\/article>/g)];
+  assert.equal(storyPanels.length, 5);
+  storyPanels.forEach(([, panel]) => {
+    assert.equal([...panel.matchAll(/<h[12][^>]*>/g)].length, 1);
+    assert.equal([...panel.matchAll(/<p(?:\s|>)/g)].length, 1);
+  });
+  assert.doesNotMatch(html, /factory-story-output/);
 });
 
 test("landing factory story is local, progressive and accessible", async () => {
@@ -122,6 +130,7 @@ test("landing factory story is local, progressive and accessible", async () => {
   assert.match(sceneSource, /new UnrealBloomPass/);
   assert.match(sceneSource, /new ShaderPass\(VignetteShader\)/);
   assert.match(sceneSource, /composer\.render\(0\)/);
+  assert.match(sceneSource, /const bulbScale = 0\.13;/);
   assert.match(sceneSource, /new GLTFLoader/);
   assert.match(sceneSource, /factoryAssetManifest\.robotArm/);
   assert.match(sceneSource, /factoryAssetManifest\.conveyor/);
@@ -154,7 +163,14 @@ test("landing preserves visible focus, readable contrast and mobile fit", async 
   assert.match(landingCss, /\.hero h1\s*\{[\s\S]*?line-height: 1\.08;/);
   assert.match(landingCss, /\.factory-story-stage\s*\{[\s\S]*?isolation: isolate;/);
   assert.match(landingCss, /\.factory-story-canvas\s*\{[\s\S]*?z-index: 0;/);
-  assert.match(landingCss, /\.factory-story-overlay\s*\{[\s\S]*?z-index: 4;/);
+  assert.match(
+    landingCss,
+    /\.factory-story-overlay\s*\{[\s\S]*?z-index: 4;[\s\S]*?transform: translate3d\(0, 0, 1px\);/,
+  );
+  assert.match(
+    landingCss,
+    /\.factory-story-panel\s*\{[\s\S]*?background: var\(--midnight-deep\);/,
+  );
   assert.match(
     landingCss,
     /@media \(max-width: 640px\)[\s\S]*?\.header-link\s*\{[\s\S]*?min-width: 44px;[\s\S]*?min-height: 44px;/,

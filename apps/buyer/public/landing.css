@@ -352,11 +352,13 @@ body.landing-ready .landing-loader {
   margin: 0 auto;
   padding: 86px 0 96px;
   gap: 24px;
+  backface-visibility: hidden;
+  transform: translate3d(0, 0, 1px);
+  will-change: transform;
 }
 
 .factory-story-meta,
 .factory-story-phase,
-.factory-story-output,
 .factory-story-hint,
 .factory-story-fallback-note,
 .factory-story-rail {
@@ -375,7 +377,7 @@ body.landing-ready .landing-loader {
   max-width: 680px;
   border-left: 2px solid var(--signal-red);
   padding: 24px 28px;
-  background: rgba(4, 10, 17, 0.82);
+  background: var(--midnight-deep);
   box-shadow: 0 24px 64px rgba(4, 10, 17, 0.44);
 }
 
@@ -418,15 +420,6 @@ body.landing-ready .landing-loader {
 .factory-story-phase {
   color: var(--signal-red-readable);
   font-size: 0.72rem;
-}
-
-.factory-story-output {
-  display: block;
-  margin-top: 21px;
-  border-top: 1px solid var(--line);
-  padding-top: 13px;
-  color: var(--faint);
-  font-size: 0.66rem;
 }
 
 .factory-story-rail {
