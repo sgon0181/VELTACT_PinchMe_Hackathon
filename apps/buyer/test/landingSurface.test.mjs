@@ -60,9 +60,13 @@ test("landing animation remains separate from the real product workflow", async 
 
   assert.deepEqual(chapters, ["intro", "find", "connect", "deploy", "outcome"]);
   assert.deepEqual(jumpTargets, ["find", "connect", "deploy"]);
-  assert.match(html, /Find title placeholder\./);
-  assert.match(html, /Connect title placeholder\./);
-  assert.match(html, /Deploy title placeholder\./);
+  assert.match(html, /Turn the problem into a plan\./);
+  assert.match(html, /Make the right suppliers respond\./);
+  assert.match(html, /Secure the supplier\. Start the work\./);
+  assert.match(
+    html,
+    /Find the path\. Connect with the right supplier\. Deploy with control\./,
+  );
   assert.match(html, /type="button"[\s\S]*?data-story-jump="find"/);
   assert.match(html, /type="button"[\s\S]*?data-story-jump="connect"/);
   assert.match(html, /type="button"[\s\S]*?data-story-jump="deploy"/);
