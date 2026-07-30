@@ -16,7 +16,10 @@ import {
   createMarketplaceFixtureResearch,
   createMarketplaceFixtureSupplierLeads
 } from "./findFixtures.js";
-import { rankDiscoveredSupplierLeads } from "./candidateDiscovery.js";
+import {
+  rankDiscoveredSupplierLeads,
+  type SupplierRecommendationHistory
+} from "./candidateDiscovery.js";
 
 const httpUrlSchema = z
   .string()
@@ -146,7 +149,11 @@ export async function runSupplierDiscovery(
   profile: MarketplaceNeedProfile,
   selectedApproach: SolutionApproach,
   registryCandidates: SupplierLead[] = [],
-  onActivity?: ProviderActivityReporter
+  onActivity?: ProviderActivityReporter,
+  recommendationHistoryBySupplierId: ReadonlyMap<
+    string,
+    SupplierRecommendationHistory
+  > = new Map()
 ): Promise<MarketplaceProviderExecution<SupplierLead[]>> {
   const rankCandidates = (candidates: SupplierLead[]) =>
     rankDiscoveredSupplierLeads({
@@ -154,9 +161,7 @@ export async function runSupplierDiscovery(
       selectedApproach,
       candidates,
       publicBaseUrl: env.PUBLIC_BASE_URL,
-      preferredSupplierIds: new Set(
-        registryCandidates.map((candidate) => candidate.id)
-      )
+      recommendationHistoryBySupplierId
     });
   const requireCompleteShortlist = (
     provider: string,

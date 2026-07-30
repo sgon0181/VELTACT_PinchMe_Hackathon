@@ -24,7 +24,10 @@ import {
   createMarketplaceFixtureSupplierLeads,
   inferMarketplaceDemoScenario
 } from "./findFixtures.js";
-import { rankDiscoveredSupplierLeads } from "./candidateDiscovery.js";
+import {
+  rankDiscoveredSupplierLeads,
+  type SupplierRecommendationHistory
+} from "./candidateDiscovery.js";
 import {
   createNeedReportRecord,
   readNeedReportPdf
@@ -842,12 +845,19 @@ export async function discoverNeedSuppliers(
   }
 
   beginAgentActivity(need, "discovery");
+  const registryCandidates = registryCandidatesForNeed(
+    need,
+    selectedApproach
+  );
   const execution = await runSupplierDiscovery(
     needId,
     need.profile,
     selectedApproach,
-    registryCandidatesForNeed(need, selectedApproach),
-    createAgentActivityReporter(need, onActivity)
+    registryCandidates.map(({ lead }) => lead),
+    createAgentActivityReporter(need, onActivity),
+    new Map(
+      registryCandidates.map(({ lead, history }) => [lead.id, history])
+    )
   );
   if (needs.get(needId) !== need) {
     return { status: "not_found" };
@@ -2609,7 +2619,10 @@ function registryCandidatesForNeed(
   selectedApproach: {
     requiredCapabilities: string[];
   }
-): SupplierLead[] {
+): Array<{
+  lead: SupplierLead;
+  history: SupplierRecommendationHistory;
+}> {
   const registry = getSupplierRegistryForNeed(need.id);
   if (!registry) return [];
   const now = new Date().toISOString();
@@ -2648,49 +2661,56 @@ function registryCandidatesForNeed(
             ? `was secured for ${securedCount} previous requirement${securedCount === 1 ? "" : "s"}`
             : `responded to ${respondedCount || previousHistory.length} previous requirement${respondedCount === 1 ? "" : "s"}`;
       return {
-        id: `${need.id}:registry:${entry.id}`,
-        needProfileId: need.id,
-        companyName: entry.supplierName,
-        website,
-        location: entry.location,
-        serviceRegions: [entry.location],
-        capabilities: entry.capabilities,
-        matchScore: 0,
-        matchReasons: [`In your supplier bench: ${priorSignal}.`],
-        risks: [
-          "Prior Veltact history does not confirm current capability, availability or commercial terms."
-        ],
-        evidence:
-          entry.evidence.length > 0
-            ? entry.evidence.map((evidence) => ({
-                id: randomUUID(),
-                title: evidence.title,
-                url: evidence.url,
-                sourceType: "supplier_website" as const,
-                provider: "manual" as const,
-                evidenceNote:
-                  "Public source retained with the private supplier registry entry.",
-                accessedAt: evidence.retrievedAt
-              }))
-            : [
-                {
+        lead: {
+          id: `${need.id}:registry:${entry.id}`,
+          needProfileId: need.id,
+          companyName: entry.supplierName,
+          website,
+          location: entry.location,
+          serviceRegions: [entry.location],
+          capabilities: entry.capabilities,
+          matchScore: 0,
+          matchReasons: [`In your supplier bench: ${priorSignal}.`],
+          risks: [
+            "Prior Veltact history does not confirm current capability, availability or commercial terms."
+          ],
+          evidence:
+            entry.evidence.length > 0
+              ? entry.evidence.map((evidence) => ({
                   id: randomUUID(),
-                  title: `${entry.supplierName} supplier registry record`,
-                  url: website,
-                  sourceType: "other" as const,
+                  title: evidence.title,
+                  url: evidence.url,
+                  sourceType: "supplier_website" as const,
                   provider: "manual" as const,
                   evidenceNote:
-                    "Private Veltact relationship history; current supplier details require reconfirmation.",
-                  accessedAt: entry.updatedAt
-                }
-              ],
-        sourceMode:
-          entry.source === "live_discovery"
-            ? ("live" as const)
-            : ("fixture" as const),
-        lifecycleStatus: "discovered" as const,
-        createdAt: now,
-        updatedAt: now
+                    "Public source retained with the private supplier registry entry.",
+                  accessedAt: evidence.retrievedAt
+                }))
+              : [
+                  {
+                    id: randomUUID(),
+                    title: `${entry.supplierName} supplier registry record`,
+                    url: website,
+                    sourceType: "other" as const,
+                    provider: "manual" as const,
+                    evidenceNote:
+                      "Private Veltact relationship history; current supplier details require reconfirmation.",
+                    accessedAt: entry.updatedAt
+                  }
+                ],
+          sourceMode:
+            entry.source === "live_discovery"
+              ? ("live" as const)
+              : ("fixture" as const),
+          lifecycleStatus: "discovered" as const,
+          createdAt: now,
+          updatedAt: now
+        },
+        history: {
+          respondedEngagements: respondedCount,
+          securedEngagements: securedCount,
+          deliveredEngagements: deliveredCount
+        }
       };
     });
 }

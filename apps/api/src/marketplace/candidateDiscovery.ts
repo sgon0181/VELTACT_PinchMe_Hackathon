@@ -35,12 +35,21 @@ const fixtureLogoPaths: Array<{
   }
 ];
 
+export type SupplierRecommendationHistory = {
+  respondedEngagements: number;
+  securedEngagements: number;
+  deliveredEngagements: number;
+};
+
 export function rankDiscoveredSupplierLeads(input: {
   profile: MarketplaceNeedProfile;
   selectedApproach: SolutionApproach;
   candidates: SupplierLead[];
   publicBaseUrl: string;
-  preferredSupplierIds?: Set<string>;
+  recommendationHistoryBySupplierId?: ReadonlyMap<
+    string,
+    SupplierRecommendationHistory
+  >;
 }): SupplierLead[] {
   const rankedCandidates = input.candidates
     .map((candidate) =>
@@ -48,7 +57,8 @@ export function rankDiscoveredSupplierLeads(input: {
         profile: input.profile,
         selectedApproach: input.selectedApproach,
         candidate: addSupplierLogo(candidate, input.publicBaseUrl),
-        fromRegistry: input.preferredSupplierIds?.has(candidate.id) ?? false
+        recommendationHistory:
+          input.recommendationHistoryBySupplierId?.get(candidate.id)
       })
     )
     .sort((left, right) => {
@@ -68,9 +78,14 @@ function explainCandidate(input: {
   profile: MarketplaceNeedProfile;
   selectedApproach: SolutionApproach;
   candidate: SupplierLead;
-  fromRegistry: boolean;
+  recommendationHistory?: SupplierRecommendationHistory;
 }): SupplierLead {
-  const { profile, selectedApproach, candidate, fromRegistry } = input;
+  const {
+    profile,
+    selectedApproach,
+    candidate,
+    recommendationHistory
+  } = input;
   const requiredCapabilities = selectedApproach.requiredCapabilities;
   const matchedRequiredCapabilities = requiredCapabilities.filter(
     (required) =>
@@ -105,6 +120,10 @@ function explainCandidate(input: {
   );
   const capabilityCoverage =
     matchedRequiredCapabilities.length / requiredCapabilities.length;
+  const historySignal =
+    matchedRequiredCapabilities.length > 0
+      ? recommendationHistorySignal(recommendationHistory)
+      : undefined;
 
   let score = 25;
   score += Math.round(capabilityCoverage * 40);
@@ -121,21 +140,14 @@ function explainCandidate(input: {
   if (profile.buyerPriority === "speed" && rapidResponseEvidence) {
     score += 5;
   }
-  if (fromRegistry && matchedRequiredCapabilities.length > 0) {
-    score += 12;
-  }
+  score += historySignal?.boost ?? 0;
   score = Math.min(98, score);
 
   const evidenceLabel =
     candidate.sourceMode === "fixture" ? "Fixture evidence" : "Public evidence";
   const reasons: string[] = [];
-  if (fromRegistry && matchedRequiredCapabilities.length > 0) {
-    reasons.push(
-      candidate.matchReasons.find((reason) =>
-        reason.startsWith("In your supplier bench:")
-      ) ??
-        "In your supplier bench: this supplier has relevant prior Veltact history."
-    );
+  if (historySignal) {
+    reasons.push(historySignal.reason);
   }
   if (matchedRequiredCapabilities.length > 0) {
     reasons.push(
@@ -254,6 +266,41 @@ function explainCandidate(input: {
     risks: deduplicate(risks),
     updatedAt: candidate.updatedAt
   };
+}
+
+function recommendationHistorySignal(
+  history?: SupplierRecommendationHistory
+): { boost: number; reason: string } | undefined {
+  if (!history) {
+    return undefined;
+  }
+  if (history.deliveredEngagements > 0) {
+    return {
+      boost: 12,
+      reason: `Delivered for you before — ${history.deliveredEngagements} engagement${
+        history.deliveredEngagements === 1 ? "" : "s"
+      } completed.`
+    };
+  }
+  if (history.securedEngagements > 0) {
+    return {
+      boost: 8,
+      reason: `Secured by you before — ${history.securedEngagements} engagement${
+        history.securedEngagements === 1 ? "" : "s"
+      } funded.`
+    };
+  }
+  if (history.respondedEngagements > 0) {
+    return {
+      boost: 4,
+      reason: `In your supplier bench: responded to ${
+        history.respondedEngagements
+      } previous requirement${
+        history.respondedEngagements === 1 ? "" : "s"
+      }.`
+    };
+  }
+  return undefined;
 }
 
 function addSupplierLogo(
