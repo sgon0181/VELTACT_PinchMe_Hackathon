@@ -195,6 +195,19 @@ export function createFactoryStory(root) {
             return null;
         }
     };
+    const disposeModels = (models) => {
+        for (const model of models) {
+            model?.traverse((object) => {
+                if (object instanceof THREE.Mesh) {
+                    object.geometry.dispose();
+                    const objectMaterials = Array.isArray(object.material)
+                        ? object.material
+                        : [object.material];
+                    objectMaterials.forEach((objectMaterial) => objectMaterial.dispose());
+                }
+            });
+        }
+    };
     const box = (width, height, depth, boxMaterial, x, y, z, parent = scene, noShadow = false) => {
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), boxMaterial);
         mesh.position.set(x, y, z);
@@ -644,17 +657,7 @@ export function createFactoryStory(root) {
             loadModel(factoryAssetManifest.scanner),
         ]);
         if (destroyed) {
-            for (const model of [robotModel, conveyorModel, scannerModel]) {
-                model?.traverse((object) => {
-                    if (object instanceof THREE.Mesh) {
-                        object.geometry.dispose();
-                        const objectMaterials = Array.isArray(object.material)
-                            ? object.material
-                            : [object.material];
-                        objectMaterials.forEach((objectMaterial) => objectMaterial.dispose());
-                    }
-                });
-            }
+            disposeModels([robotModel, conveyorModel, scannerModel]);
             return;
         }
         if (robotModel) {
@@ -715,6 +718,67 @@ export function createFactoryStory(root) {
             scannerModel.rotation.y = Math.PI / 2;
             scannerModel.scale.setScalar(1.2);
             findModelGroup.add(scannerModel);
+        }
+        updateScene(progress);
+        requestRender();
+    };
+    const connectModelGroup = new THREE.Group();
+    scene.add(connectModelGroup);
+    const loadConnectModels = async () => {
+        const [machineModel, shelfModel, palletModel, boxModel] = await Promise.all([
+            loadModel(factoryAssetManifest.machineWindow),
+            loadModel(factoryAssetManifest.shelf),
+            loadModel(factoryAssetManifest.pallet),
+            loadModel(factoryAssetManifest.shippingBoxWide),
+        ]);
+        if (destroyed) {
+            disposeModels([machineModel, shelfModel, palletModel, boxModel]);
+            return;
+        }
+        if (machineModel) {
+            styleModel(machineModel, () => materials.machine);
+            for (const x of [20.5, 27.5]) {
+                const machine = machineModel.clone(true);
+                machine.position.set(x, 0.02, -2.55);
+                machine.scale.setScalar(1.65);
+                connectModelGroup.add(machine);
+            }
+        }
+        if (shelfModel) {
+            styleModel(shelfModel, () => materials.machineDark);
+            for (const x of [17.5, 31]) {
+                const shelf = shelfModel.clone(true);
+                shelf.position.set(x, 0.02, -3.25);
+                shelf.scale.setScalar(2.25);
+                connectModelGroup.add(shelf);
+            }
+        }
+        if (palletModel) {
+            styleModel(palletModel, () => materials.metal);
+            for (const [x, z, rotation] of [
+                [19, -2.2, 0.08],
+                [29.5, -2.35, -0.1],
+            ]) {
+                const pallet = palletModel.clone(true);
+                pallet.position.set(x, 0.05, z);
+                pallet.rotation.y = rotation;
+                pallet.scale.setScalar(1.15);
+                connectModelGroup.add(pallet);
+            }
+        }
+        if (boxModel) {
+            styleModel(boxModel, () => materials.machineDark);
+            for (const [x, y, z, rotation] of [
+                [19, 0.22, -2.2, 0.08],
+                [19.25, 0.72, -2.25, -0.04],
+                [29.5, 0.22, -2.35, -0.1],
+            ]) {
+                const shippingBox = boxModel.clone(true);
+                shippingBox.position.set(x, y, z);
+                shippingBox.rotation.y = rotation;
+                shippingBox.scale.setScalar(0.85);
+                connectModelGroup.add(shippingBox);
+            }
         }
         updateScene(progress);
         requestRender();
@@ -926,6 +990,7 @@ export function createFactoryStory(root) {
     resize();
     onScroll();
     void loadFindModels();
+    void loadConnectModels();
     return {
         destroy() {
             if (destroyed) {

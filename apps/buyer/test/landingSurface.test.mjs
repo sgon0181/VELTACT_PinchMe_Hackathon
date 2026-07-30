@@ -125,6 +125,9 @@ test("landing factory story is local, progressive and accessible", async () => {
   assert.match(sceneSource, /new GLTFLoader/);
   assert.match(sceneSource, /factoryAssetManifest\.robotArm/);
   assert.match(sceneSource, /factoryAssetManifest\.conveyor/);
+  assert.match(sceneSource, /factoryAssetManifest\.machineWindow/);
+  assert.match(sceneSource, /factoryAssetManifest\.shelf/);
+  assert.match(sceneSource, /factoryAssetManifest\.pallet/);
 
   const modelPaths = [...assetSource.matchAll(/"(\.\/assets\/models\/[^"]+\.glb)"/g)].map(
     ([, path]) => new URL(`../public/${path.slice(2)}`, import.meta.url),
