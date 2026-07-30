@@ -3,6 +3,7 @@ import {
   evidenceSourceTypeSchema,
   solutionResearchResultSchema,
   supplierLeadSchema,
+  type AgentActivityEvent,
   type MarketplaceNeedProfile,
   type ResearchCitation,
   type SolutionApproach,
@@ -81,26 +82,60 @@ export type MarketplaceProviderExecution<T> = {
   warning?: string;
 };
 
+export type ProviderActivityUpdate = Pick<
+  AgentActivityEvent,
+  | "operation"
+  | "stage"
+  | "message"
+  | "detail"
+  | "sourceMode"
+  | "sourceUrl"
+>;
+export type ProviderActivityReporter = (
+  update: ProviderActivityUpdate
+) => void;
+
 export async function runSolutionResearch(
   needProfileId: string,
-  profile: MarketplaceNeedProfile
+  profile: MarketplaceNeedProfile,
+  onActivity?: ProviderActivityReporter
 ): Promise<MarketplaceProviderExecution<SolutionResearchResult>> {
   if (shouldUseFixture()) {
+    const value = createMarketplaceFixtureResearch(needProfileId, profile);
+    reportResearchActivity(value, onActivity);
     return {
-      value: createMarketplaceFixtureResearch(needProfileId, profile)
+      value
     };
   }
 
+  onActivity?.({
+    operation: "research",
+    stage: "query_formulation",
+    message: "Formulated industrial solution research queries.",
+    detail: `${profile.category} in ${profile.location}`,
+    sourceMode: "live"
+  });
   try {
+    const value = await researchWithOpenAi(needProfileId, profile);
+    reportResearchActivity(value, onActivity, true);
     return {
-      value: await researchWithOpenAi(needProfileId, profile)
+      value
     };
   } catch (error) {
     if (env.VELTACT_RESEARCH_PROVIDER === "openai") {
       throw error;
     }
+    onActivity?.({
+      operation: "research",
+      stage: "fallback",
+      message: "Live research was unavailable; switched to labelled fixtures.",
+      detail: errorMessage(error),
+      sourceMode: "fixture"
+    });
+    const value = createMarketplaceFixtureResearch(needProfileId, profile);
+    reportResearchActivity(value, onActivity, false, true);
     return {
-      value: createMarketplaceFixtureResearch(needProfileId, profile),
+      value,
       warning: `Live research was unavailable; deterministic fixture evidence was used. ${errorMessage(error)}`
     };
   }
@@ -110,7 +145,8 @@ export async function runSupplierDiscovery(
   needProfileId: string,
   profile: MarketplaceNeedProfile,
   selectedApproach: SolutionApproach,
-  registryCandidates: SupplierLead[] = []
+  registryCandidates: SupplierLead[] = [],
+  onActivity?: ProviderActivityReporter
 ): Promise<MarketplaceProviderExecution<SupplierLead[]>> {
   const rankCandidates = (candidates: SupplierLead[]) =>
     rankDiscoveredSupplierLeads({
@@ -137,16 +173,29 @@ export async function runSupplierDiscovery(
 
   const discoveryProvider = selectedDiscoveryProvider();
   if (discoveryProvider === "fixture") {
+    const fixtures = createMarketplaceFixtureSupplierLeads(
+      needProfileId,
+      profile
+    );
+    const value = rankCandidates([...registryCandidates, ...fixtures]);
+    reportDiscoveryActivity({
+      rawCandidates: [...registryCandidates, ...fixtures],
+      acceptedCandidates: value,
+      sourceMode: "fixture",
+      onActivity
+    });
     return {
-      value: rankCandidates(
-        [
-          ...registryCandidates,
-          ...createMarketplaceFixtureSupplierLeads(needProfileId, profile)
-        ]
-      )
+      value
     };
   }
 
+  onActivity?.({
+    operation: "discovery",
+    stage: "query_formulation",
+    message: "Formulated supplier discovery queries for the selected pathway.",
+    detail: selectedApproach.requiredCapabilities.join(", "),
+    sourceMode: "live"
+  });
   const discoverySignal = AbortSignal.timeout(20_000);
   try {
     const discovered =
@@ -163,12 +212,19 @@ export async function runSupplierDiscovery(
             selectedApproach,
             discoverySignal
           );
-    return {
-      value: requireCompleteShortlist(
-        `${discoveryProvider} supplier discovery`,
-        [...registryCandidates, ...discovered]
-      )
-    };
+    const rawCandidates = [...registryCandidates, ...discovered];
+    const value = requireCompleteShortlist(
+      `${discoveryProvider} supplier discovery`,
+      rawCandidates
+    );
+    reportDiscoveryActivity({
+      rawCandidates,
+      acceptedCandidates: value,
+      sourceMode: "live",
+      onActivity,
+      skipQuery: true
+    });
+    return { value };
   } catch (error) {
     if (
       env.VELTACT_DISCOVERY_PROVIDER === "auto" &&
@@ -186,6 +242,20 @@ export async function runSupplierDiscovery(
           ...firecrawlLeads
         ]);
         if (rankedFirecrawlLeads.length === 3) {
+          onActivity?.({
+            operation: "discovery",
+            stage: "fallback",
+            message: "OpenAI discovery was unavailable; used Firecrawl search evidence.",
+            detail: errorMessage(error),
+            sourceMode: "live"
+          });
+          reportDiscoveryActivity({
+            rawCandidates: [...registryCandidates, ...firecrawlLeads],
+            acceptedCandidates: rankedFirecrawlLeads,
+            sourceMode: "live",
+            onActivity,
+            skipQuery: true
+          });
           return {
             value: rankedFirecrawlLeads,
             warning:
@@ -199,16 +269,157 @@ export async function runSupplierDiscovery(
     if (env.VELTACT_DISCOVERY_PROVIDER !== "auto") {
       throw error;
     }
+    onActivity?.({
+      operation: "discovery",
+      stage: "fallback",
+      message: "Live discovery was unavailable; switched to labelled fixtures.",
+      detail: errorMessage(error),
+      sourceMode: "fixture"
+    });
+    const fixtures = createMarketplaceFixtureSupplierLeads(
+      needProfileId,
+      profile
+    );
+    const rawCandidates = [...registryCandidates, ...fixtures];
+    const value = rankCandidates(rawCandidates);
+    reportDiscoveryActivity({
+      rawCandidates,
+      acceptedCandidates: value,
+      sourceMode: "fixture",
+      onActivity,
+      skipQuery: true
+    });
     return {
-      value: rankCandidates(
-        [
-          ...registryCandidates,
-          ...createMarketplaceFixtureSupplierLeads(needProfileId, profile)
-        ]
-      ),
+      value,
       warning: `Live supplier discovery was unavailable; deterministic fixture candidates were used. ${errorMessage(error)}`
     };
   }
+}
+
+function reportResearchActivity(
+  result: SolutionResearchResult,
+  onActivity: ProviderActivityReporter | undefined,
+  skipQuery = false,
+  fallback = false
+) {
+  if (!onActivity) return;
+  if (!skipQuery) {
+    onActivity({
+      operation: "research",
+      stage: "query_formulation",
+      message: fallback
+        ? "Prepared deterministic fallback research for this requirement."
+        : "Prepared industrial solution research for this requirement.",
+      sourceMode: result.sourceMode
+    });
+  }
+  for (const citation of result.citations.slice(0, 2)) {
+    onActivity({
+      operation: "research",
+      stage: "source_read",
+      message: `Read ${citation.title}.`,
+      detail: citation.evidenceNote,
+      sourceMode: result.sourceMode,
+      sourceUrl: citation.url
+    });
+  }
+  for (const approach of result.approaches.slice(0, 3)) {
+    onActivity({
+      operation: "research",
+      stage: "candidate_considered",
+      message: `Evaluated pathway: ${approach.title}.`,
+      detail: approach.rationale,
+      sourceMode: result.sourceMode
+    });
+  }
+  onActivity({
+    operation: "research",
+    stage: "completed",
+    message: `Prepared ${result.approaches.length} buyer-reviewable solution pathways.`,
+    sourceMode: result.sourceMode
+  });
+}
+
+function reportDiscoveryActivity(input: {
+  rawCandidates: SupplierLead[];
+  acceptedCandidates: SupplierLead[];
+  sourceMode: "live" | "fixture";
+  onActivity?: ProviderActivityReporter;
+  skipQuery?: boolean;
+}) {
+  if (!input.onActivity) return;
+  if (!input.skipQuery) {
+    input.onActivity({
+      operation: "discovery",
+      stage: "query_formulation",
+      message: "Prepared supplier queries from the approved solution pathway.",
+      sourceMode: input.sourceMode
+    });
+  }
+  const evidence = input.rawCandidates
+    .flatMap((candidate) => candidate.evidence)
+    .filter(
+      (citation, index, values) =>
+        values.findIndex((item) => item.url === citation.url) === index
+    )
+    .slice(0, 2);
+  for (const citation of evidence) {
+    input.onActivity({
+      operation: "discovery",
+      stage: "source_read",
+      message: `Read supplier source: ${citation.title}.`,
+      detail: citation.evidenceNote,
+      sourceMode: input.sourceMode,
+      sourceUrl: citation.url
+    });
+  }
+  for (const candidate of input.rawCandidates.slice(0, 8)) {
+    input.onActivity({
+      operation: "discovery",
+      stage: "candidate_considered",
+      message: `Considered ${candidate.companyName}.`,
+      detail:
+        candidate.matchReasons[0] ??
+        "Candidate fit required further review.",
+      sourceMode: input.sourceMode,
+      sourceUrl: candidate.website
+    });
+  }
+  const acceptedIds = new Set(
+    input.acceptedCandidates.map((candidate) => candidate.id)
+  );
+  for (const candidate of input.acceptedCandidates) {
+    input.onActivity({
+      operation: "discovery",
+      stage: "candidate_accepted",
+      message: `Accepted ${candidate.companyName} for buyer review.`,
+      detail:
+        candidate.matchReasons[0] ??
+        "Candidate met the shortlist threshold.",
+      sourceMode: input.sourceMode,
+      sourceUrl: candidate.website
+    });
+  }
+  for (const candidate of input.rawCandidates.filter(
+    (item) => !acceptedIds.has(item.id)
+  )) {
+    input.onActivity({
+      operation: "discovery",
+      stage: "candidate_rejected",
+      message: `Held ${candidate.companyName} outside the shortlist.`,
+      detail:
+        candidate.risks[0] ??
+        "Other candidates showed stronger selected-pathway fit.",
+      sourceMode: input.sourceMode,
+      sourceUrl: candidate.website
+    });
+  }
+  input.onActivity({
+    operation: "discovery",
+    stage: "completed",
+    message: `Prepared ${input.acceptedCandidates.length} explainable supplier matches.`,
+    sourceMode: input.sourceMode
+  });
 }
 
 async function researchWithOpenAi(

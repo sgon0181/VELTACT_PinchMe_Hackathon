@@ -282,6 +282,7 @@ export const rapidMatchSocketEvent = {
     paymentStatusUpdated: "rapidmatch:payment.status_updated",
     engagementSecured: "rapidmatch:engagement.secured",
     commitmentNotificationUpdated: "rapidmatch:commitment.notification_updated",
+    agentActivityUpdated: "rapidmatch:agent.activity_updated",
     deploymentUpdated: "rapidmatch:deployment.updated"
 };
 export const evidenceProviderSchema = z.enum([
@@ -323,6 +324,31 @@ export const solutionApproachSchema = z.object({
     confidence: z.number().min(0).max(1),
     citationIds: z.array(z.string().min(1)).min(1)
 });
+export const agentActivityOperationSchema = z.enum([
+    "research",
+    "discovery"
+]);
+export const agentActivityStageSchema = z.enum([
+    "query_formulation",
+    "source_read",
+    "candidate_considered",
+    "candidate_accepted",
+    "candidate_rejected",
+    "fallback",
+    "completed"
+]);
+export const agentActivityEventSchema = z.object({
+    id: z.string().min(1),
+    needProfileId: z.string().min(1),
+    sequence: z.number().int().nonnegative(),
+    operation: agentActivityOperationSchema,
+    stage: agentActivityStageSchema,
+    message: z.string().trim().min(1),
+    detail: z.string().trim().min(1).optional(),
+    sourceMode: z.enum(["live", "fixture"]),
+    sourceUrl: z.string().url().optional(),
+    occurredAt: isoDateTimeSchema
+});
 export const solutionResearchResultSchema = z.object({
     id: z.string().min(1),
     needProfileId: z.string().min(1),
@@ -331,6 +357,7 @@ export const solutionResearchResultSchema = z.object({
     approaches: z.array(solutionApproachSchema).min(1),
     citations: z.array(researchCitationSchema).min(1),
     missingInformation: z.array(z.string().trim().min(1)).default([]),
+    activityEvents: z.array(agentActivityEventSchema).default([]),
     safetyNotice: z.string().trim().min(1),
     generatedAt: isoDateTimeSchema
 });
@@ -797,6 +824,7 @@ export const rapidMatchBuyerWorkspaceSchema = z.object({
     intakeEvidence: z.array(intakeEvidenceSummarySchema).default([]),
     researchResult: solutionResearchResultSchema.optional(),
     solutionDecision: solutionDecisionSchema.optional(),
+    agentActivityEvents: z.array(agentActivityEventSchema).default([]),
     discoveredSuppliers: z.array(supplierLeadSchema).default([]),
     suppliers: z.array(supplierSchema).default([]),
     matches: z.array(supplierMatchSchema).default([]),

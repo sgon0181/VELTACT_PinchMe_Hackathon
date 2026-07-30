@@ -41,6 +41,7 @@ export function createFixtureResearch(
     id: randomUUID(),
     needProfileId,
     sourceMode: "fixture",
+    activityEvents: [],
     overview:
       scenario === "robotics"
         ? "A robotic cell should be framed as a staged integration project: validate the use case and safety concept, prove the process, then commission against measurable acceptance criteria."

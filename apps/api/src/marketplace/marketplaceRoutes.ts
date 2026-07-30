@@ -41,6 +41,7 @@ import {
   submitSupplierResponse
 } from "./store.js";
 import {
+  emitAgentActivityUpdated,
   emitDeploymentUpdated,
   emitEngagementSecured,
   emitOutreachDeliveryUpdated,
@@ -277,7 +278,9 @@ marketplaceRouter.post(
     if (!requireBuyerAccess(request, response, need.id)) return;
 
     try {
-      const result = await researchNeed(need.id);
+      const result = await researchNeed(need.id, (event) => {
+        emitAgentActivityUpdated(need.id, event);
+      });
       if (!result) {
         response.status(404).json({
           status: "error",
@@ -465,7 +468,9 @@ marketplaceRouter.post(
     if (!requireBuyerAccess(request, response, need.id)) return;
 
     try {
-      const result = await discoverNeedSuppliers(need.id);
+      const result = await discoverNeedSuppliers(need.id, (event) => {
+        emitAgentActivityUpdated(need.id, event);
+      });
       if (result.status === "research_required") {
         response.status(409).json({
           status: "error",
@@ -1254,6 +1259,10 @@ function serialiseBuyerWorkspace(
     intakeEvidence: [],
     researchResult: getResearchResultForNeed(need.id),
     solutionDecision: getSolutionDecisionForNeed(need.id),
+    agentActivityEvents:
+      need.agentActivityEvents ??
+      getResearchResultForNeed(need.id)?.activityEvents ??
+      [],
     discoveredSuppliers,
     suppliers: need.matches.map((match) => ({
       id: match.supplier.id,

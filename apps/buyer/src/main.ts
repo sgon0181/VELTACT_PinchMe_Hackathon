@@ -6,6 +6,7 @@ import {
   solutionDecisionSchema,
   solutionResearchResultSchema,
   truncateIntakeTitle,
+  type AgentActivityEvent,
   type AiIntakeResult,
   type IntakeEvidenceSummary,
   type NeedProfile,
@@ -95,6 +96,7 @@ type RealtimePayload = {
     destination?: string;
     deliveryStatus?: "not_sent" | "queued" | "sent" | "failed";
   };
+  agentActivityEvent?: AgentActivityEvent;
 };
 
 type RealtimeSocket = {
@@ -124,6 +126,7 @@ const rapidMatchSocketEvent = {
   supplierResponseSubmitted: "rapidmatch:response.submitted",
   paymentStatusUpdated: "rapidmatch:payment.status_updated",
   engagementSecured: "rapidmatch:engagement.secured",
+  agentActivityUpdated: "rapidmatch:agent.activity_updated",
   deploymentUpdated: "rapidmatch:deployment.updated"
 } as const;
 const LAST_NEED_KEY = "veltact:rapidmatch:last-need-id";
@@ -433,6 +436,7 @@ function render() {
     ${renderBanner()}
 
     <section class="workspace" aria-busy="${loadState === "loading"}">
+      ${renderAgentActivityTimeline()}
       ${booting ? renderLoadingSkeleton() : renderCurrentView()}
     </section>
   `;
@@ -440,6 +444,68 @@ function render() {
   configurePolling();
   configureRealtime();
   focusPrimaryHeadingAfterViewChange();
+}
+
+function renderAgentActivityTimeline() {
+  if (!workspace) return "";
+  const shouldShow =
+    loadState === "loading" ||
+    view === "plan" ||
+    view === "candidates";
+  if (!shouldShow) return "";
+  const events = [...workspace.agentActivityEvents].sort(
+    (left, right) => left.sequence - right.sequence
+  );
+  const latest = events.at(-1);
+  const sourceMode =
+    latest?.sourceMode ??
+    workspace.researchResult?.sourceMode ??
+    "fixture";
+  return `
+    <details class="agent-timeline" ${loadState === "loading" ? "open" : ""}>
+      <summary>
+        <span>
+          <span class="agent-pulse" aria-hidden="true"></span>
+          <strong>${loadState === "loading" ? "Veltact agent working" : "How these results were found"}</strong>
+        </span>
+        ${sourceBadge(sourceMode, "Live sources", "Labelled fixture")}
+      </summary>
+      <div class="agent-latest" aria-live="polite">
+        ${escapeHtml(latest?.message ?? "Preparing the first research query.")}
+      </div>
+      ${
+        events.length
+          ? `<ol class="agent-event-list">
+              ${events
+                .map(
+                  (event) => `
+                    <li>
+                      <span class="agent-event-index">${event.sequence + 1}</span>
+                      <details>
+                        <summary>
+                          <span>${escapeHtml(event.message)}</span>
+                          <time datetime="${escapeHtml(event.occurredAt)}">${escapeHtml(formatTime(event.occurredAt))}</time>
+                        </summary>
+                        ${
+                          event.detail
+                            ? `<p>${escapeHtml(event.detail)}</p>`
+                            : ""
+                        }
+                        ${
+                          event.sourceUrl
+                            ? `<a href="${safeHttpUrl(event.sourceUrl)}" target="_blank" rel="noreferrer">Open source</a>`
+                            : ""
+                        }
+                      </details>
+                    </li>
+                  `
+                )
+                .join("")}
+            </ol>`
+          : `<p class="quiet-note">Activity will appear here as sources and candidates are reviewed.</p>`
+      }
+    </details>
+  `;
 }
 
 function scrollBuyerWorkspaceToTop() {
@@ -2690,6 +2756,10 @@ async function analyseRequirement() {
       service.setBuyerAccessToken(needProfile.id, created.buyerAccessToken);
     }
     setNeedProfileUrl(needProfile.id);
+    render();
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 80);
+    });
     workspace = await service.researchRequirement(workspace);
     selectedApproachId = resolveSelectedApproachId(
       workspace.researchResult,
@@ -3062,6 +3132,31 @@ async function initialiseRealtimeSocket(needProfileId: string) {
           ? "Live update: supplier declined this opportunity."
           : "Live update: supplier submitted a response."
       );
+    }
+  );
+  realtimeSocket.on(
+    rapidMatchSocketEvent.agentActivityUpdated,
+    (payload) => {
+      const currentWorkspace = workspace;
+      const activityEvent = payload.agentActivityEvent;
+      if (
+        !currentWorkspace ||
+        payload.needProfileId !== currentWorkspace.needProfile?.id ||
+        !activityEvent
+      ) {
+        return;
+      }
+      const events = currentWorkspace.agentActivityEvents.filter(
+        (event) => event.id !== activityEvent.id
+      );
+      workspace = {
+        ...currentWorkspace,
+        agentActivityEvents: [
+          ...events,
+          activityEvent
+        ].sort((left, right) => left.sequence - right.sequence)
+      };
+      render();
     }
   );
   realtimeSocket.on(rapidMatchSocketEvent.paymentStatusUpdated, (payload) => {

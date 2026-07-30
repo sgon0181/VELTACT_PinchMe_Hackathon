@@ -30,9 +30,12 @@ import {
   readNeedReportPdf
 } from "./needReport.js";
 import {
+  agentActivityEventSchema,
   supplierCommitmentNotificationSchema,
   supplierRegistryEntrySchema,
   type DeploymentSummary,
+  type AgentActivityEvent,
+  type AgentActivityOperation,
   type SupplierCommitmentNotification,
   type OutreachChannel,
   type SupplierRegistryEntry,
@@ -642,7 +645,10 @@ export function getProviderWarningsForNeed(needId: string): string[] {
   );
 }
 
-export async function researchNeed(needId: string): Promise<
+export async function researchNeed(
+  needId: string,
+  onActivity?: (event: AgentActivityEvent) => void
+): Promise<
   | {
       researchResult: SolutionResearchResult;
       providerWarning?: string;
@@ -662,11 +668,22 @@ export async function researchNeed(needId: string): Promise<
     };
   }
 
-  const execution = await runSolutionResearch(needId, need.profile);
+  beginAgentActivity(need, "research");
+  const execution = await runSolutionResearch(
+    needId,
+    need.profile,
+    createAgentActivityReporter(need, onActivity)
+  );
   if (needs.get(needId) !== need) {
     return undefined;
   }
-  const saved = researchResults.get(needId) ?? execution.value;
+  const saved =
+    researchResults.get(needId) ?? {
+      ...execution.value,
+      activityEvents: (need.agentActivityEvents ?? []).filter(
+        (event) => event.operation === "research"
+      )
+    };
   researchResults.set(needId, saved);
   need.providerWarnings = {
     ...need.providerWarnings,
@@ -785,7 +802,8 @@ export function createSolutionDecision(
 }
 
 export async function discoverNeedSuppliers(
-  needId: string
+  needId: string,
+  onActivity?: (event: AgentActivityEvent) => void
 ): Promise<SupplierDiscoveryResult> {
   const need = needs.get(needId);
   if (!need) {
@@ -822,11 +840,13 @@ export async function discoverNeedSuppliers(
     };
   }
 
+  beginAgentActivity(need, "discovery");
   const execution = await runSupplierDiscovery(
     needId,
     need.profile,
     selectedApproach,
-    registryCandidatesForNeed(need, selectedApproach)
+    registryCandidatesForNeed(need, selectedApproach),
+    createAgentActivityReporter(need, onActivity)
   );
   if (needs.get(needId) !== need) {
     return { status: "not_found" };
@@ -924,6 +944,7 @@ export function seedMarketplaceDemoFindState(
     solutionDecision
   });
 
+  seedFixtureAgentActivity(need, researchResult, discoveredLeads);
   researchResults.set(needId, researchResult);
   solutionDecisions.set(needId, solutionDecision);
   needReports.set(needId, report);
@@ -2202,6 +2223,117 @@ function recordRegistryStageForSupplier(
     provenanceState,
     source: "catalog",
     ...details
+  });
+}
+
+function beginAgentActivity(
+  need: NeedRecord,
+  operation: AgentActivityOperation
+) {
+  need.agentActivityEvents = (need.agentActivityEvents ?? []).filter(
+    (event) => event.operation !== operation
+  );
+}
+
+function createAgentActivityReporter(
+  need: NeedRecord,
+  onActivity?: (event: AgentActivityEvent) => void
+) {
+  return (
+    update: Omit<
+      AgentActivityEvent,
+      "id" | "needProfileId" | "sequence" | "occurredAt"
+    >
+  ) => {
+    const events = need.agentActivityEvents ?? [];
+    const event = agentActivityEventSchema.parse({
+      ...update,
+      id: randomUUID(),
+      needProfileId: need.id,
+      sequence:
+        events.reduce(
+          (highest, item) => Math.max(highest, item.sequence),
+          -1
+        ) + 1,
+      occurredAt: new Date().toISOString()
+    });
+    need.agentActivityEvents = [...events, event];
+    onActivity?.(structuredClone(event));
+  };
+}
+
+function seedFixtureAgentActivity(
+  need: NeedRecord,
+  researchResult: SolutionResearchResult,
+  discoveredLeads: SupplierLead[]
+) {
+  need.agentActivityEvents = [];
+  const report = createAgentActivityReporter(need);
+  report({
+    operation: "research",
+    stage: "query_formulation",
+    message: "Prepared deterministic industrial solution research.",
+    sourceMode: "fixture"
+  });
+  const researchCitation = researchResult.citations[0];
+  if (researchCitation) {
+    report({
+      operation: "research",
+      stage: "source_read",
+      message: `Read ${researchCitation.title}.`,
+      detail: researchCitation.evidenceNote,
+      sourceMode: "fixture",
+      sourceUrl: researchCitation.url
+    });
+  }
+  report({
+    operation: "research",
+    stage: "candidate_considered",
+    message: `Evaluated ${researchResult.approaches.length} solution pathways.`,
+    sourceMode: "fixture"
+  });
+  report({
+    operation: "research",
+    stage: "completed",
+    message: "Prepared buyer-reviewable solution pathways.",
+    sourceMode: "fixture"
+  });
+  researchResult.activityEvents = (need.agentActivityEvents ?? []).filter(
+    (event) => event.operation === "research"
+  );
+
+  report({
+    operation: "discovery",
+    stage: "query_formulation",
+    message: "Prepared supplier queries from the selected pathway.",
+    sourceMode: "fixture"
+  });
+  const supplierCitation = discoveredLeads[0]?.evidence[0];
+  if (supplierCitation) {
+    report({
+      operation: "discovery",
+      stage: "source_read",
+      message: `Read supplier source: ${supplierCitation.title}.`,
+      detail: supplierCitation.evidenceNote,
+      sourceMode: "fixture",
+      sourceUrl: supplierCitation.url
+    });
+  }
+  for (const lead of discoveredLeads) {
+    report({
+      operation: "discovery",
+      stage: "candidate_accepted",
+      message: `Accepted ${lead.companyName} for buyer review.`,
+      detail: lead.matchReasons[0],
+      sourceMode: "fixture",
+      sourceUrl: lead.website
+    });
+  }
+  report({
+    operation: "discovery",
+    stage: "completed",
+    message: `Prepared ${discoveredLeads.length} explainable supplier matches.`,
+    sourceMode: "fixture"
   });
 }
 

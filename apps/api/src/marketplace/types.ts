@@ -1,6 +1,7 @@
 import type {
   Engagement as ContractEngagement,
   MarketplaceAuditEvent,
+  AgentActivityEvent,
   MarketplaceNeedProfile,
   NeedProfileStatus,
   SolutionDecision,
@@ -36,6 +37,7 @@ export type NeedRecord = {
     research?: string;
     discovery?: string;
   };
+  agentActivityEvents?: AgentActivityEvent[];
   status: Extract<
     NeedProfileStatus,
     "responses_open" | "selected" | "payment_pending" | "secured"

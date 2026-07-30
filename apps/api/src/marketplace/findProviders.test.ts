@@ -27,6 +27,35 @@ afterEach(() => {
 });
 
 describe("supplier discovery provider reliability", () => {
+  test("emits an ordered, labelled fixture activity trail", async () => {
+    const profile = roboticsNeed();
+    const selectedApproach = roboticsIntegrationApproach(
+      "need-fixture-activity",
+      profile
+    );
+    Object.assign(env, {
+      VELTACT_RESEARCH_PROVIDER: "fixture",
+      VELTACT_DISCOVERY_PROVIDER: "fixture"
+    });
+    const activity: Array<{ stage: string; sourceMode: string }> = [];
+
+    await runSupplierDiscovery(
+      "need-fixture-activity",
+      profile,
+      selectedApproach,
+      [],
+      (event) => activity.push(event)
+    );
+
+    assert.ok(activity.length >= 4);
+    assert.equal(activity[0].stage, "query_formulation");
+    assert.equal(activity.at(-1)?.stage, "completed");
+    assert.ok(activity.every((event) => event.sourceMode === "fixture"));
+    assert.ok(
+      activity.some((event) => event.stage === "candidate_accepted")
+    );
+  });
+
   test("falls back to exactly three labelled fixtures when live discovery is underfilled", async () => {
     const profile = roboticsNeed();
     const selectedApproach = roboticsIntegrationApproach(

@@ -29,6 +29,15 @@ test("keeps discovery evidence and the supplier-consent boundary visible", () =>
   assert.match(mainBundle, /candidate-source-list/);
 });
 
+test("renders and replays the authorised agent activity timeline", () => {
+  assert.match(mainBundle, /Veltact agent working/);
+  assert.match(mainBundle, /How these results were found/);
+  assert.match(mainBundle, /aria-live="polite"/);
+  assert.match(mainBundle, /rapidmatch:agent\.activity_updated/);
+  assert.match(mainBundle, /agentActivityEvents/);
+  assert.match(styles, /\.agent-event-list/);
+});
+
 test("loads the buyer-scoped registry with the capability token", async () => {
   globalThis.window = {
     location: { origin: "https://buyer.veltact.example" }

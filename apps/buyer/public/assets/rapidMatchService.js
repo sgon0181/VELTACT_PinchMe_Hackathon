@@ -80,6 +80,9 @@ export class RapidMatchService {
                     : current?.intakeEvidence ?? [],
                 researchResult: canonical.researchResult ?? current?.researchResult,
                 solutionDecision: canonical.solutionDecision ?? current?.solutionDecision,
+                agentActivityEvents: canonical.agentActivityEvents.length > 0
+                    ? canonical.agentActivityEvents
+                    : current?.agentActivityEvents ?? [],
                 engagement: canonical.engagement ?? current?.engagement,
                 deployment: canonical.deployment ?? current?.deployment
             }
@@ -519,6 +522,7 @@ function legacyWorkspace(need, current = {}) {
         intakeEvidence: current.intakeEvidence ?? [],
         researchResult: current.researchResult,
         solutionDecision: current.solutionDecision,
+        agentActivityEvents: current.agentActivityEvents ?? [],
         discoveredSuppliers: current.discoveredSuppliers ?? [],
         suppliers: need.suppliers ?? current.suppliers ?? [],
         matches: need.supplierMatches ?? current.matches ?? [],

@@ -856,6 +856,18 @@ describe("marketplace core routes", () => {
       );
       assert.equal(reset.body.workspace.researchResult.sourceMode, "fixture");
       assert.ok(reset.body.workspace.researchResult.citations.length >= 3);
+      assert.ok(
+        reset.body.workspace.researchResult.activityEvents.length >= 4
+      );
+      assert.ok(reset.body.workspace.agentActivityEvents.length >= 8);
+      assert.deepEqual(
+        reset.body.workspace.agentActivityEvents.map(
+          (event: { sequence: number }) => event.sequence
+        ),
+        reset.body.workspace.agentActivityEvents.map(
+          (_: unknown, index: number) => index
+        )
+      );
       assert.equal(
         reset.body.workspace.solutionDecision.selectedApproachIds.length,
         1
