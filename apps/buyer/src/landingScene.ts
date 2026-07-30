@@ -660,13 +660,17 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
 
   const crate = new THREE.Group();
   scene.add(crate);
-  box(1, 0.1, 1, materials.crimson, 0, 0.05, 0, crate);
-  box(1, 0.7, 0.08, materials.crimson, 0, 0.45, -0.46, crate);
-  box(1, 0.7, 0.08, materials.crimson, 0, 0.45, 0.46, crate);
-  box(0.08, 0.7, 1, materials.crimson, -0.46, 0.45, 0, crate);
-  box(0.08, 0.7, 1, materials.crimson, 0.46, 0.45, 0, crate);
-  const crateGlowMaterial = new THREE.MeshBasicMaterial({
+  const proceduralCrateShell = new THREE.Group();
+  crate.add(proceduralCrateShell);
+  box(1, 0.1, 1, materials.crimson, 0, 0.05, 0, proceduralCrateShell);
+  box(1, 0.7, 0.08, materials.crimson, 0, 0.45, -0.46, proceduralCrateShell);
+  box(1, 0.7, 0.08, materials.crimson, 0, 0.45, 0.46, proceduralCrateShell);
+  box(0.08, 0.7, 1, materials.crimson, -0.46, 0.45, 0, proceduralCrateShell);
+  box(0.08, 0.7, 1, materials.crimson, 0.46, 0.45, 0, proceduralCrateShell);
+  const crateGlowMaterial = new THREE.MeshStandardMaterial({
     color: 0xffd9a0,
+    emissive: 0xffd9a0,
+    emissiveIntensity: 2.8,
     opacity: 0,
     transparent: true,
   });
@@ -679,9 +683,11 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
   const van = new THREE.Group();
   van.position.set(47.5, 0, 3.4);
   scene.add(van);
-  box(3, 1.3, 1.5, materials.machine, -0.2, 1.2, 0, van);
-  box(0.95, 0.95, 1.4, materials.machineDark, 1.75, 1.02, 0, van);
-  box(0.9, 0.4, 1.3, materials.dark, 1.78, 1.62, 0, van, true);
+  const proceduralVanBody = new THREE.Group();
+  van.add(proceduralVanBody);
+  box(3, 1.3, 1.5, materials.machine, -0.2, 1.2, 0, proceduralVanBody);
+  box(0.95, 0.95, 1.4, materials.machineDark, 1.75, 1.02, 0, proceduralVanBody);
+  box(0.9, 0.4, 1.3, materials.dark, 1.78, 1.62, 0, proceduralVanBody, true);
   const headlightMaterial = new THREE.MeshStandardMaterial({
     color: 0x1b222a,
     emissive: 0xfff3dc,
@@ -689,7 +695,7 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
   });
   box(0.08, 0.14, 0.22, headlightMaterial, 2.24, 0.85, 0.45, van, true);
   box(0.08, 0.14, 0.22, headlightMaterial, 2.24, 0.85, -0.45, van, true);
-  box(0.1, 0.1, 1.3, materials.red, -1.72, 0.9, 0, van, true);
+  box(0.1, 0.1, 1.3, materials.red, -1.72, 0.9, 0, proceduralVanBody, true);
   const wheelGeometry = new THREE.CylinderGeometry(0.34, 0.34, 0.22, 10);
   wheelGeometry.rotateX(Math.PI / 2);
   const wheels: THREE.Mesh[] = [];
@@ -702,17 +708,18 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     const wheel = new THREE.Mesh(wheelGeometry, materials.dark);
     wheel.position.set(x, 0.34, z);
     wheel.castShadow = true;
-    van.add(wheel);
+    proceduralVanBody.add(wheel);
     wheels.push(wheel);
   }
   const leftDoor = new THREE.Group();
-  leftDoor.position.set(-1.72, 1.2, 0.75);
+  leftDoor.position.set(-1.78, 1.12, 0.91);
   van.add(leftDoor);
-  box(0.08, 1.24, 0.72, materials.machineDark, 0, 0, -0.36, leftDoor);
+  box(0.08, 1.2, 0.88, materials.machineDark, 0, 0, -0.44, leftDoor);
   const rightDoor = new THREE.Group();
-  rightDoor.position.set(-1.72, 1.2, -0.75);
+  rightDoor.position.set(-1.78, 1.12, -0.91);
   van.add(rightDoor);
-  box(0.08, 1.24, 0.72, materials.machineDark, 0, 0, 0.36, rightDoor);
+  box(0.08, 1.2, 0.88, materials.machineDark, 0, 0, 0.44, rightDoor);
+  let visualVanWheels: THREE.Object3D[] = [];
 
   box(7, 6, 6, materials.machine, 84, 3, 3);
   box(4, 3.2, 5, materials.machineDark, 79.5, 1.6, 5.5);
@@ -768,10 +775,10 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     [0.55, [28.6, 5.2, 7.2]],
     [0.62, [27.4, 5.4, 6]],
     [0.68, [28, 4.6, 10.5]],
-    [0.75, [45, 4.2, 10]],
-    [0.82, [48.2, 3.8, 9.5]],
-    [0.88, [51, 5.2, 12.5]],
-    [1, [50, 16, 28]],
+    [0.75, [42.5, 5, 13.5]],
+    [0.82, [46, 4.8, 13]],
+    [0.88, [52, 6, 16]],
+    [1, [56, 17, 32]],
   ];
   const cameraTargets: readonly VectorKeyframe[] = [
     [0, [30, 1, 0]],
@@ -786,8 +793,8 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     [0.62, [24, 4.1, 0]],
     [0.68, [28, 2.4, 0]],
     [0.75, [43, 2, 0]],
-    [0.82, [44.5, 1.6, 0.8]],
-    [0.88, [48, 1.5, 2.5]],
+    [0.82, [44.5, 1.8, 0.8]],
+    [0.88, [50, 1.8, 3.4]],
     [1, [72, 3, 3]],
   ];
   const cameraPositionCurve = createTimedCameraCurve(cameraPositions);
@@ -975,6 +982,139 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     updateScene(progress);
     requestRender();
   };
+  const deployModelGroup = new THREE.Group();
+  scene.add(deployModelGroup);
+  let visualCrateModel: THREE.Object3D | null = null;
+
+  const loadDeployModels = async () => {
+    const [
+      deliveryVanModel,
+      crateModel,
+      dockDoorModel,
+      catwalkStairsModel,
+      catwalkStraightModel,
+      pipeLongModel,
+      pipeBendModel,
+      beaconModel,
+    ] = await Promise.all([
+      loadModel(factoryAssetManifest.deliveryVan),
+      loadModel(factoryAssetManifest.shippingBox),
+      loadModel(factoryAssetManifest.dockDoor),
+      loadModel(factoryAssetManifest.catwalkStairs),
+      loadModel(factoryAssetManifest.catwalkStraight),
+      loadModel(factoryAssetManifest.pipeLong),
+      loadModel(factoryAssetManifest.pipeBend),
+      loadModel(factoryAssetManifest.beacon),
+    ]);
+
+    const deployModels = [
+      deliveryVanModel,
+      crateModel,
+      dockDoorModel,
+      catwalkStairsModel,
+      catwalkStraightModel,
+      pipeLongModel,
+      pipeBendModel,
+      beaconModel,
+    ];
+    if (destroyed) {
+      disposeModels(deployModels);
+      return;
+    }
+
+    if (deliveryVanModel) {
+      styleModel(deliveryVanModel, (mesh) => {
+        if (mesh.name.startsWith("wheel")) {
+          return materials.dark;
+        }
+        return mesh.name === "body" ? materials.machine : materials.machineDark;
+      });
+      const originalDoor = deliveryVanModel.getObjectByName("door");
+      if (originalDoor) {
+        originalDoor.visible = false;
+      }
+      deliveryVanModel.rotation.y = Math.PI / 2;
+      deliveryVanModel.scale.setScalar(1.25);
+      van.add(deliveryVanModel);
+      visualVanWheels = [
+        "wheel-front-right",
+        "wheel-front-left",
+        "wheel-back-right",
+        "wheel-back-left",
+      ]
+        .map((name) => deliveryVanModel.getObjectByName(name))
+        .filter((wheel): wheel is THREE.Object3D => Boolean(wheel));
+      proceduralVanBody.visible = false;
+    }
+
+    if (crateModel) {
+      styleModel(crateModel, () => materials.red);
+      crateModel.position.set(0, 0.04, 0);
+      crateModel.scale.set(0.9, 1.4, 0.9);
+      crate.add(crateModel);
+      visualCrateModel = crateModel;
+      proceduralCrateShell.visible = false;
+    }
+
+    if (dockDoorModel) {
+      styleModel(dockDoorModel, () => materials.machineDark);
+      dockDoorModel.position.set(59, 0.02, 3.4);
+      dockDoorModel.rotation.y = Math.PI / 2;
+      dockDoorModel.scale.setScalar(2.2);
+      deployModelGroup.add(dockDoorModel);
+    }
+
+    if (catwalkStairsModel) {
+      styleModel(catwalkStairsModel, () => materials.machine);
+      catwalkStairsModel.position.set(46, 0.02, -4.1);
+      catwalkStairsModel.scale.setScalar(1.4);
+      deployModelGroup.add(catwalkStairsModel);
+    }
+
+    if (catwalkStraightModel) {
+      styleModel(catwalkStraightModel, () => materials.machine);
+      for (const x of [48.8, 51.6]) {
+        const catwalk = catwalkStraightModel.clone(true);
+        catwalk.position.set(x, 2.3, -4.1);
+        catwalk.scale.setScalar(1.4);
+        deployModelGroup.add(catwalk);
+        box(0.12, 2.3, 0.12, materials.machineDark, x, 1.15, -4.1, deployModelGroup);
+      }
+    }
+
+    if (pipeLongModel) {
+      styleModel(pipeLongModel, () => materials.metal);
+      for (const [x, y, z, rotation] of [
+        [46, 5.8, -5.5, 0],
+        [49, 5.8, -5.5, 0],
+        [52, 5.8, -5.5, 0],
+      ] as const) {
+        const pipe = pipeLongModel.clone(true);
+        pipe.position.set(x, y, z);
+        pipe.rotation.z = rotation;
+        pipe.scale.setScalar(1);
+        deployModelGroup.add(pipe);
+      }
+    }
+
+    if (pipeBendModel) {
+      styleModel(pipeBendModel, () => materials.metal);
+      pipeBendModel.position.set(54, 5.8, -5.5);
+      pipeBendModel.rotation.z = Math.PI / 2;
+      pipeBendModel.scale.setScalar(1);
+      deployModelGroup.add(pipeBendModel);
+    }
+
+    if (beaconModel) {
+      styleModel(beaconModel, () => materials.red);
+      beaconModel.position.set(58.8, 6.75, 5.25);
+      beaconModel.scale.setScalar(0.75);
+      deployModelGroup.add(beaconModel);
+    }
+
+    updateScene(progress);
+    requestRender();
+  };
 
   const updateInterface = (progress: number) => {
     for (const [phase, panel] of panels) {
@@ -1127,6 +1267,12 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     wheels.forEach((wheel) => {
       wheel.rotation.z = -(vanX - 47.5) / 0.34;
     });
+    visualVanWheels.forEach((wheel) => {
+      wheel.rotation.x = (vanX - 47.5) / 0.3;
+    });
+    if (visualCrateModel) {
+      visualCrateModel.rotation.y = 0.025 * segment(progress, 0.84, 0.878);
+    }
     headlightMaterial.emissiveIntensity = 3 * segment(progress, 0.885, 0.9);
 
     const factoryWake = segment(progress, 0.94, 0.985);
@@ -1221,6 +1367,7 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
   onScroll();
   void loadFindModels();
   void loadConnectModels();
+  void loadDeployModels();
 
   return {
     destroy() {

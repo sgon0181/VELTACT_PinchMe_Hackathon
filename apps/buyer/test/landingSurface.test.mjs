@@ -128,6 +128,10 @@ test("landing factory story is local, progressive and accessible", async () => {
   assert.match(sceneSource, /factoryAssetManifest\.machineWindow/);
   assert.match(sceneSource, /factoryAssetManifest\.shelf/);
   assert.match(sceneSource, /factoryAssetManifest\.pallet/);
+  assert.match(sceneSource, /factoryAssetManifest\.deliveryVan/);
+  assert.match(sceneSource, /factoryAssetManifest\.dockDoor/);
+  assert.match(sceneSource, /factoryAssetManifest\.catwalkStairs/);
+  assert.match(sceneSource, /factoryAssetManifest\.pipeLong/);
 
   const modelPaths = [...assetSource.matchAll(/"(\.\/assets\/models\/[^"]+\.glb)"/g)].map(
     ([, path]) => new URL(`../public/${path.slice(2)}`, import.meta.url),
@@ -148,6 +152,9 @@ test("landing preserves visible focus, readable contrast and mobile fit", async 
   }
   assert.match(landingCss, /:where\(a, button\):focus-visible\s*\{/);
   assert.match(landingCss, /\.hero h1\s*\{[\s\S]*?line-height: 1\.08;/);
+  assert.match(landingCss, /\.factory-story-stage\s*\{[\s\S]*?isolation: isolate;/);
+  assert.match(landingCss, /\.factory-story-canvas\s*\{[\s\S]*?z-index: 0;/);
+  assert.match(landingCss, /\.factory-story-overlay\s*\{[\s\S]*?z-index: 4;/);
   assert.match(
     landingCss,
     /@media \(max-width: 640px\)[\s\S]*?\.header-link\s*\{[\s\S]*?min-width: 44px;[\s\S]*?min-height: 44px;/,
