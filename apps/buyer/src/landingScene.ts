@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
@@ -6,6 +7,7 @@ import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { SSAOPass } from "three/addons/postprocessing/SSAOPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { VignetteShader } from "three/addons/shaders/VignetteShader.js";
+import { factoryAssetManifest } from "./landingAssets.js";
 
 type Vec3 = readonly [number, number, number];
 type NumberKeyframe = readonly [number, number];
@@ -14,6 +16,16 @@ type StoryPhase = "intro" | "find" | "connect" | "deploy" | "outcome";
 
 export interface FactoryStoryController {
   destroy(): void;
+}
+
+interface RobotVisualRig {
+  root: THREE.Object3D;
+  shoulder: THREE.Object3D;
+  elbow: THREE.Object3D;
+  wrist: THREE.Object3D;
+  clawLeft: THREE.Object3D;
+  clawRight: THREE.Object3D;
+  bulbAnchor: THREE.Object3D;
 }
 
 const clamp = (value: number, minimum: number, maximum: number) =>
@@ -216,6 +228,37 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     crimson: material(0x7a1425, { metalness: 0.32, roughness: 0.52 }),
     white: material(0xf3f6f8, { roughness: 0.5 }),
   };
+  const modelLoader = new GLTFLoader();
+  const loadedModelRoots = new Set<THREE.Object3D>();
+  const replacedModelMaterials = new Set<THREE.Material>();
+
+  const styleModel = (
+    rootObject: THREE.Object3D,
+    resolveMaterial: (mesh: THREE.Mesh) => THREE.MeshStandardMaterial,
+  ) => {
+    rootObject.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) {
+        return;
+      }
+      const sourceMaterials = Array.isArray(object.material)
+        ? object.material
+        : [object.material];
+      sourceMaterials.forEach((sourceMaterial) => replacedModelMaterials.add(sourceMaterial));
+      object.material = resolveMaterial(object);
+      object.castShadow = true;
+      object.receiveShadow = true;
+    });
+    loadedModelRoots.add(rootObject);
+    return rootObject;
+  };
+
+  const loadModel = async (url: string) => {
+    try {
+      return (await modelLoader.loadAsync(url)).scene;
+    } catch {
+      return null;
+    }
+  };
 
   const box = (
     width: number,
@@ -325,6 +368,8 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
   const heroCrimson = new THREE.Color(0x7a1425);
   const heroWarmWhite = new THREE.Color(0xfff3dc);
   const heroWarmGlow = new THREE.Color(0xffd9a0);
+  const bulbScale = 0.2;
+  const bulbAttachmentOffset = 1.18 * bulbScale;
 
   const makeBulb = (
     glassMaterial: THREE.Material,
@@ -336,6 +381,7 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     base.castShadow = true;
     glass.castShadow = true;
     group.add(base, glass);
+    group.scale.setScalar(bulbScale);
     return group;
   };
 
@@ -435,11 +481,33 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
   const upperArmLength = 2.4;
   const lowerArmLength = 2.2;
   const pivot = new THREE.Vector3(2.4, 1.2, 2.4);
-  cylinder(0.55, 0.7, 0.25, materials.machineDark, pivot.x, 0.12, pivot.z, scene, 12);
-  cylinder(0.4, 0.48, 1.1, materials.machine, pivot.x, 0.68, pivot.z, scene, 12);
+  const proceduralRobot = new THREE.Group();
+  scene.add(proceduralRobot);
+  cylinder(
+    0.55,
+    0.7,
+    0.25,
+    materials.machineDark,
+    pivot.x,
+    0.12,
+    pivot.z,
+    proceduralRobot,
+    12,
+  );
+  cylinder(
+    0.4,
+    0.48,
+    1.1,
+    materials.machine,
+    pivot.x,
+    0.68,
+    pivot.z,
+    proceduralRobot,
+    12,
+  );
   const yawGroup = new THREE.Group();
   yawGroup.position.copy(pivot);
-  scene.add(yawGroup);
+  proceduralRobot.add(yawGroup);
   box(0.7, 0.55, 0.55, materials.machine, 0, 0.1, 0, yawGroup);
   const upperGroup = new THREE.Group();
   upperGroup.position.y = 0.25;
@@ -476,6 +544,8 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
   const fingerOne = box(0.06, 0.42, 0.09, materials.metal, 0, -0.45, 0.14, gripGroup);
   const fingerTwo = box(0.06, 0.42, 0.09, materials.metal, 0, -0.45, -0.14, gripGroup);
   const tipWorld = new THREE.Vector3();
+  const visualTipWorld = new THREE.Vector3();
+  let robotVisualRig: RobotVisualRig | null = null;
 
   const solveArm = (target: Vec3) => {
     const deltaX = target[0] - pivot.x;
@@ -511,24 +581,44 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     tipGroup.getWorldPosition(tipWorld);
   };
 
+  const updateRobotVisual = (gripGap: number) => {
+    if (!robotVisualRig) {
+      return false;
+    }
+
+    robotVisualRig.root.rotation.y = yawGroup.rotation.y;
+    robotVisualRig.shoulder.rotation.z = upperGroup.rotation.z - Math.PI / 2;
+    robotVisualRig.elbow.rotation.z = elbowGroup.rotation.z;
+    robotVisualRig.wrist.rotation.z =
+      gripGroup.rotation.z - Math.PI / 2;
+    const visualGap = 0.12 + gripGap / Math.max(robotVisualRig.root.scale.x, 0.001);
+    robotVisualRig.clawLeft.position.x = visualGap;
+    robotVisualRig.clawRight.position.x = -visualGap;
+    robotVisualRig.root.updateMatrixWorld(true);
+    robotVisualRig.bulbAnchor.getWorldPosition(visualTipWorld);
+    return true;
+  };
+
   const armKeyframes: readonly VectorKeyframe[] = [
     [0.05, [3.6, 3.3, 0.9]],
     [0.115, [0, 3.8, 0]],
     [0.155, [sourceX, 3.1, sourceZ]],
     [0.195, [sourceX, 2.6, sourceZ]],
-    [0.218, [sourceX, 2.13, sourceZ]],
-    [0.255, [sourceX, 3.6, sourceZ]],
-    [0.305, [4, 3.65, 0]],
+    [0.218, [sourceX, 1.04, sourceZ]],
+    [0.255, [sourceX, 2.7, sourceZ]],
+    [0.305, [4, 2.54, 0]],
     [0.39, [3.6, 3.3, 0.9]],
   ];
 
-  box(39, 0.5, 1.4, materials.belt, 23, 2.05, 0);
+  const proceduralConveyor = new THREE.Group();
+  scene.add(proceduralConveyor);
+  box(39, 0.5, 1.4, materials.belt, 23, 2.05, 0, proceduralConveyor);
   for (let x = 5; x <= 41; x += 4.5) {
-    box(0.25, 1.8, 0.25, materials.dark, x, 0.9, 0.5);
-    box(0.25, 1.8, 0.25, materials.dark, x, 0.9, -0.5);
+    box(0.25, 1.8, 0.25, materials.dark, x, 0.9, 0.5, proceduralConveyor);
+    box(0.25, 1.8, 0.25, materials.dark, x, 0.9, -0.5, proceduralConveyor);
   }
-  box(39, 0.1, 0.08, materials.machineDark, 23, 2.36, 0.72);
-  box(39, 0.1, 0.08, materials.machineDark, 23, 2.36, -0.72);
+  box(39, 0.1, 0.08, materials.machineDark, 23, 2.36, 0.72, proceduralConveyor);
+  box(39, 0.1, 0.08, materials.machineDark, 23, 2.36, -0.72, proceduralConveyor);
   const beltStripes = Array.from({ length: 13 }, () =>
     box(0.2, 0.03, 1.3, materials.dark, 4, 2.31, 0, scene, true),
   );
@@ -692,23 +782,23 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
   const cameraTarget = new THREE.Vector3();
   const gripperReleaseProgress = 0.305;
   solveArm(vectorAt(gripperReleaseProgress, armKeyframes));
-  const gripperReleasePosition: Vec3 = [
+  const gripperReleasePosition: [number, number, number] = [
     tipWorld.x,
-    tipWorld.y - 1.35,
+    tipWorld.y - bulbAttachmentOffset,
     tipWorld.z,
   ];
   const bulbPositions: readonly VectorKeyframe[] = [
     [gripperReleaseProgress, gripperReleasePosition],
     [0.455, [24, 2.3, 0]],
     [0.5, [24, 2.3, 0]],
-    [0.53, [24, 3.35, 0]],
-    [0.585, [24, 3.55, 0]],
-    [0.645, [24, 3.55, 0]],
+    [0.53, [24, 3.7, 0]],
+    [0.585, [24, 4.14, 0]],
+    [0.645, [24, 4.14, 0]],
     [0.685, [24, 2.3, 0]],
     [0.7, [24, 2.3, 0]],
     [0.755, [42, 2.3, 0]],
     [0.775, [43, 2.15, 0]],
-    [0.795, [43, 1.6, 0]],
+    [0.795, [43, 1.65, 0]],
   ];
   const cratePositions: readonly VectorKeyframe[] = [
     [0, [43, 1.5, 0]],
@@ -723,6 +813,96 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     ["deploy", [0.69, 0.94]],
     ["outcome", [0.92, 1]],
   ]);
+  const findModelGroup = new THREE.Group();
+  scene.add(findModelGroup);
+
+  const loadFindModels = async () => {
+    const [robotModel, conveyorModel, scannerModel] = await Promise.all([
+      loadModel(factoryAssetManifest.robotArm),
+      loadModel(factoryAssetManifest.conveyor),
+      loadModel(factoryAssetManifest.scanner),
+    ]);
+
+    if (destroyed) {
+      for (const model of [robotModel, conveyorModel, scannerModel]) {
+        model?.traverse((object) => {
+          if (object instanceof THREE.Mesh) {
+            object.geometry.dispose();
+            const objectMaterials = Array.isArray(object.material)
+              ? object.material
+              : [object.material];
+            objectMaterials.forEach((objectMaterial) => objectMaterial.dispose());
+          }
+        });
+      }
+      return;
+    }
+
+    if (robotModel) {
+      styleModel(robotModel, (mesh) => {
+        if (mesh.name.startsWith("claw")) {
+          return materials.metal;
+        }
+        return mesh.name === "robot-arm-a" || /element-[ace]/.test(mesh.name)
+          ? materials.machineDark
+          : materials.machine;
+      });
+      const shoulder = robotModel.getObjectByName("element-b");
+      const elbow = robotModel.getObjectByName("element-d");
+      const wrist = robotModel.getObjectByName("element-f");
+      const clawLeft = robotModel.getObjectByName("claw-a");
+      const clawRight = robotModel.getObjectByName("claw-b");
+      if (shoulder && elbow && wrist && clawLeft && clawRight) {
+        robotModel.position.set(pivot.x, 0.08, pivot.z);
+        robotModel.scale.setScalar(1.75);
+        clawLeft.scale.y = 0.42;
+        clawRight.scale.y = 0.42;
+        clawLeft.position.y = 0.22;
+        clawRight.position.y = 0.22;
+        const bulbAnchor = new THREE.Object3D();
+        bulbAnchor.position.y = 0.48;
+        wrist.add(bulbAnchor);
+        robotVisualRig = {
+          root: robotModel,
+          shoulder,
+          elbow,
+          wrist,
+          clawLeft,
+          clawRight,
+          bulbAnchor,
+        };
+        findModelGroup.add(robotModel);
+        proceduralRobot.visible = false;
+        solveArm(vectorAt(gripperReleaseProgress, armKeyframes));
+        updateRobotVisual(0.06);
+        gripperReleasePosition[0] = visualTipWorld.x;
+        gripperReleasePosition[1] = visualTipWorld.y - bulbAttachmentOffset;
+        gripperReleasePosition[2] = visualTipWorld.z;
+      }
+    }
+
+    if (conveyorModel) {
+      styleModel(conveyorModel, () => materials.machineDark);
+      for (let x = 5; x <= 41; x += 2) {
+        const segmentModel = conveyorModel.clone(true);
+        segmentModel.position.set(x, 1.9, 0);
+        segmentModel.scale.z = 1.35;
+        findModelGroup.add(segmentModel);
+      }
+      proceduralConveyor.visible = false;
+    }
+
+    if (scannerModel) {
+      styleModel(scannerModel, () => materials.crimson);
+      scannerModel.position.set(-1.7, 0.02, -1.9);
+      scannerModel.rotation.y = Math.PI / 2;
+      scannerModel.scale.setScalar(1.2);
+      findModelGroup.add(scannerModel);
+    }
+
+    updateScene(progress);
+    requestRender();
+  };
 
   const updateInterface = (progress: number) => {
     for (const [phase, panel] of panels) {
@@ -772,6 +952,7 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     ]);
     fingerOne.position.z = gripGap;
     fingerTwo.position.z = -gripGap;
+    const hasVisualTip = updateRobotVisual(gripGap);
     sensorMaterial.emissiveIntensity = numberAt(progress, [
       [0.08, 0],
       [0.1, 1.6],
@@ -791,10 +972,15 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
       1 - segment(progress, 0.2, 0.215),
     );
     const reticlePulse = 1 + 0.18 * Math.sin(progress * 620);
-    reticle.scale.set(reticlePulse, reticlePulse, 1);
+    reticle.scale.set(reticlePulse * 0.55, reticlePulse * 0.55, 1);
 
     if (progress > 0.218 && progress <= gripperReleaseProgress) {
-      heroBulb.position.set(tipWorld.x, tipWorld.y - 1.35, tipWorld.z);
+      const activeTip = hasVisualTip ? visualTipWorld : tipWorld;
+      heroBulb.position.set(
+        activeTip.x,
+        activeTip.y - bulbAttachmentOffset,
+        activeTip.z,
+      );
     } else if (progress <= 0.218) {
       heroBulb.position.set(sourceX, 0.8, sourceZ);
     } else if (progress < 0.8) {
@@ -815,7 +1001,7 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     heroLight.intensity = 34 * lit * (1 - 0.55 * packed);
     heroLight.position.set(
       heroBulb.position.x,
-      heroBulb.position.y + 0.78,
+      heroBulb.position.y + 0.14,
       heroBulb.position.z,
     );
     heroGlass.color.copy(heroRed).lerp(heroWarmWhite, lit);
@@ -824,7 +1010,7 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     filamentMaterial.emissiveIntensity = 0.14 + 7 * lit;
     glow.position.copy(heroLight.position);
     glowMaterial.opacity = 0.72 * lit * (1 - 0.85 * packed);
-    const glowSize = 3 + 0.22 * Math.sin(progress * 400);
+    const glowSize = 1.2 + 0.12 * Math.sin(progress * 400);
     glow.scale.set(glowSize, glowSize, 1);
 
     const liftHeight = Math.max(heroBulb.position.x === 24 ? heroBulb.position.y - 2.3 : 0, 0.001);
@@ -961,6 +1147,7 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
   root.dataset.storyState = "animated";
   resize();
   onScroll();
+  void loadFindModels();
 
   return {
     destroy() {
@@ -985,6 +1172,17 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
           objectMaterials.forEach((objectMaterial) => objectMaterial.dispose());
         }
       });
+      replacedModelMaterials.forEach((modelMaterial) => {
+        if (
+          modelMaterial instanceof THREE.MeshStandardMaterial ||
+          modelMaterial instanceof THREE.MeshBasicMaterial
+        ) {
+          modelMaterial.map?.dispose();
+        }
+        modelMaterial.dispose();
+      });
+      replacedModelMaterials.clear();
+      loadedModelRoots.clear();
       glowTexture.dispose();
       glowMaterial.dispose();
       floorTexture.dispose();

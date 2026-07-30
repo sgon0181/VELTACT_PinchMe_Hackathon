@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
 
 const landingHtmlUrl = new URL("../public/landing.html", import.meta.url);
 const landingCssUrl = new URL("../public/landing.css", import.meta.url);
 const landingSourceUrl = new URL("../src/landing.ts", import.meta.url);
 const landingSceneSourceUrl = new URL("../src/landingScene.ts", import.meta.url);
+const landingAssetsSourceUrl = new URL("../src/landingAssets.ts", import.meta.url);
 
 function relativeLuminance(hex) {
   const channels = hex
@@ -87,10 +88,11 @@ test("landing tells the canonical Find, Connect and Deploy story", async () => {
 });
 
 test("landing factory story is local, progressive and accessible", async () => {
-  const [html, source, sceneSource] = await Promise.all([
+  const [html, source, sceneSource, assetSource] = await Promise.all([
     readFile(landingHtmlUrl, "utf8"),
     readFile(landingSourceUrl, "utf8"),
     readFile(landingSceneSourceUrl, "utf8"),
+    readFile(landingAssetsSourceUrl, "utf8"),
   ]);
 
   assert.match(html, /"three": "\.\/assets\/vendor\/three\/three\.module\.min\.js"/);
@@ -120,6 +122,17 @@ test("landing factory story is local, progressive and accessible", async () => {
   assert.match(sceneSource, /new UnrealBloomPass/);
   assert.match(sceneSource, /new ShaderPass\(VignetteShader\)/);
   assert.match(sceneSource, /composer\.render\(0\)/);
+  assert.match(sceneSource, /new GLTFLoader/);
+  assert.match(sceneSource, /factoryAssetManifest\.robotArm/);
+  assert.match(sceneSource, /factoryAssetManifest\.conveyor/);
+
+  const modelPaths = [...assetSource.matchAll(/"(\.\/assets\/models\/[^"]+\.glb)"/g)].map(
+    ([, path]) => new URL(`../public/${path.slice(2)}`, import.meta.url),
+  );
+  assert.ok(modelPaths.length >= 12);
+  const modelStats = await Promise.all(modelPaths.map((path) => stat(path)));
+  assert.ok(modelStats.every((modelStat) => modelStat.size > 0));
+  assert.ok(modelStats.reduce((total, modelStat) => total + modelStat.size, 0) < 8 * 1024 * 1024);
 });
 
 test("landing preserves visible focus, readable contrast and mobile fit", async () => {
