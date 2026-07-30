@@ -850,32 +850,14 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
     accent: string;
     light: number;
   };
-  const signPalettes = {
-    find: {
-      faceStart: "#751b2d",
-      faceEnd: "#d64a46",
-      border: "#9edcf4",
-      text: "#f4fbff",
-      accent: "#70c4e8",
-      light: 0x9edcf4,
-    },
-    connect: {
-      faceStart: "#b7e5f5",
-      faceEnd: "#5d9fc5",
-      border: "#d64a46",
-      text: "#0a1a2b",
-      accent: "#c72f42",
-      light: 0xff6673,
-    },
-    deploy: {
-      faceStart: "#691529",
-      faceEnd: "#c63b4d",
-      border: "#a9e3f5",
-      text: "#f5fbff",
-      accent: "#73c6e8",
-      light: 0xa9e3f5,
-    },
-  } satisfies Record<"find" | "connect" | "deploy", SignPalette>;
+  const signPalette: SignPalette = {
+    faceStart: "#751b2d",
+    faceEnd: "#d64a46",
+    border: "#9edcf4",
+    text: "#f4fbff",
+    accent: "#70c4e8",
+    light: 0x9edcf4,
+  };
   const signTextures: THREE.CanvasTexture[] = [];
   const signTexture = (text: string, palette: SignPalette) => {
     const canvas = document.createElement("canvas");
@@ -976,9 +958,9 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
     spillLight.position.set(x, y + 0.1, z + 1.15);
     scene.add(spillLight);
   };
-  addSign("FIND", 0, 2.95, -2.95, signPalettes.find);
-  addSign("CONNECT", 25.8, 2.95, -2.95, signPalettes.connect);
-  addSign("DEPLOY", 41, 2.95, -2.95, signPalettes.deploy);
+  addSign("FIND", 0, 2.95, -2.95, signPalette);
+  addSign("CONNECT", 25.8, 2.95, -2.95, signPalette);
+  addSign("DEPLOY", 41, 2.95, -2.95, signPalette);
 
   const pallet = (x: number, z: number, rotationY = 0) => {
     const group = new THREE.Group();

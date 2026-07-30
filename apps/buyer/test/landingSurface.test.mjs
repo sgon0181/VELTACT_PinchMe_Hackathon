@@ -123,10 +123,11 @@ test("scene keeps the protagonist right-weighted and chapters seekable", async (
   assert.match(source, /window\.scrollTo\(\{ behavior: "smooth", top \}\)/);
   assert.match(source, /button\.addEventListener\("click", handler\)/);
   assert.match(source, /button\.removeEventListener\("click", handler\)/);
-  assert.match(source, /addSign\("FIND"/);
-  assert.match(source, /addSign\("CONNECT"/);
-  assert.match(source, /addSign\("DEPLOY"/);
+  assert.match(source, /addSign\("FIND"[^;]+signPalette\);/);
+  assert.match(source, /addSign\("CONNECT"[^;]+signPalette\);/);
+  assert.match(source, /addSign\("DEPLOY"[^;]+signPalette\);/);
   assert.doesNotMatch(source, /BIN 01|FIT 02|DOCK 03/);
+  assert.doesNotMatch(source, /signPalettes|faceStart: "#b7e5f5"/);
   assert.match(source, /const signWidth = 2\.45;/);
   assert.match(source, /const signHeight = 1\.3;/);
   assert.match(source, /new THREE\.PointLight\(palette\.light, 5\.5, 5\.2, 2\)/);
