@@ -292,14 +292,8 @@ function fixtureRequest({
     }
 
     const marker = new Map([
-      [
-        "/",
-        "<title>Veltact | Find, connect and deploy industrial expertise</title>"
-      ],
-      [
-        "/landing.html",
-        "<title>Veltact | Find, connect and deploy industrial expertise</title>"
-      ],
+      ["/", "<title>Veltact | Find. Connect. Deploy.</title>"],
+      ["/landing.html", "<title>Veltact | Find. Connect. Deploy.</title>"],
       ["/index.html", "<title>Veltact | Buyer workspace</title>"],
       ["/signin.html", "<title>Sign in | Veltact</title>"],
       ["/create-account.html", "<title>Create account | Veltact</title>"],
