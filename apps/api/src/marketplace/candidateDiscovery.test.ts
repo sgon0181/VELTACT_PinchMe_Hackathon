@@ -284,6 +284,88 @@ describe("selected-pathway supplier discovery", () => {
       /confirm commissioning and training/
     );
   });
+
+  test("ranks a capability-matched prior supplier above an equivalent cold candidate", () => {
+    const profile = roboticsNeed();
+    const research = createMarketplaceFixtureResearch(
+      "need-registry-ranking",
+      profile,
+      generatedAt
+    );
+    const selectedApproach = research.approaches.find((approach) =>
+      approach.id.endsWith(":integration")
+    );
+    assert.ok(selectedApproach);
+    const [base] = createMarketplaceFixtureSupplierLeads(
+      "need-registry-ranking",
+      profile,
+      generatedAt
+    );
+    const registryCandidate = {
+      ...base,
+      id: "registry-candidate",
+      companyName: "Prior Robotics Supplier",
+      website: "https://prior-robotics.example",
+      matchReasons: [
+        "In your supplier bench: responded to 1 previous requirement."
+      ]
+    };
+    const coldCandidate = {
+      ...base,
+      id: "cold-candidate",
+      companyName: "Cold Robotics Supplier",
+      website: "https://cold-robotics.example"
+    };
+
+    const ranked = rankDiscoveredSupplierLeads({
+      profile,
+      selectedApproach,
+      candidates: [coldCandidate, registryCandidate],
+      publicBaseUrl,
+      preferredSupplierIds: new Set([registryCandidate.id])
+    });
+
+    assert.equal(ranked[0].id, registryCandidate.id);
+    assert.match(ranked[0].matchReasons[0], /In your supplier bench:/);
+  });
+
+  test("does not let registry history override a capability mismatch", () => {
+    const profile = roboticsNeed();
+    const research = createMarketplaceFixtureResearch(
+      "need-registry-mismatch",
+      profile,
+      generatedAt
+    );
+    const selectedApproach = research.approaches.find((approach) =>
+      approach.id.endsWith(":integration")
+    );
+    assert.ok(selectedApproach);
+    const candidates = createMarketplaceFixtureSupplierLeads(
+      "need-registry-mismatch",
+      profile,
+      generatedAt
+    );
+    const registryMismatch = {
+      ...candidates[0],
+      id: "registry-mismatch",
+      companyName: "Prior General Supplier",
+      website: "https://prior-general.example",
+      capabilities: ["general fabrication"],
+      matchReasons: [
+        "In your supplier bench: delivered 3 previous requirements."
+      ]
+    };
+
+    const ranked = rankDiscoveredSupplierLeads({
+      profile,
+      selectedApproach,
+      candidates: [registryMismatch, candidates[1]],
+      publicBaseUrl,
+      preferredSupplierIds: new Set([registryMismatch.id])
+    });
+
+    assert.equal(ranked[0].id, candidates[1].id);
+  });
 });
 
 function plcNeed(): MarketplaceNeedProfile {

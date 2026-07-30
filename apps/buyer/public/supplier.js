@@ -33,6 +33,9 @@ let demoResponsesForRequirement;
 let demoPresetIndexForInvitationToken;
 let demoRequirementText = "";
 
+// Without novalidate the browser blocks the submit event on invalid forms,
+// so the in-page validation status in submitResponse would never run.
+form.noValidate = true;
 form.addEventListener("submit", (event) => submitResponse(event, token));
 form.addEventListener("change", (event) => {
   if (event.target instanceof HTMLInputElement && event.target.name === "canHelp") {

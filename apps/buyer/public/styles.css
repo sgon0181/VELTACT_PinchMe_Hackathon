@@ -308,6 +308,26 @@ span {
   color: var(--blue-dark);
 }
 
+.candidate-evidence p {
+  margin: 6px 0 10px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.candidate-source-list {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.candidate-source-list li {
+  display: grid;
+  gap: 2px;
+}
+
 
 .workspace-status span {
   color: var(--faint);

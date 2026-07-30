@@ -9,10 +9,13 @@ import {
   claimSupplierInvitation,
   createEngagement,
   createNeed,
+  createSolutionDecision,
+  discoverNeedSuppliers,
   getSupplierRegistryForNeed,
   prepareSupplierLeadInvitationsForNeed,
   recordLocalDemoPayment,
   reloadMarketplaceStore,
+  researchNeed,
   resetMarketplaceStore,
   seedMarketplaceDemoFindState,
   submitSupplierResponse,
@@ -21,11 +24,17 @@ import {
 
 const temporaryDirectories: string[] = [];
 const originalDataFile = env.MARKETPLACE_DATA_FILE;
+const originalResearchProvider = env.VELTACT_RESEARCH_PROVIDER;
+const originalDiscoveryProvider = env.VELTACT_DISCOVERY_PROVIDER;
 
 afterEach(() => {
   Object.assign(env, { MARKETPLACE_DATA_FILE: undefined });
   resetMarketplaceStore();
-  Object.assign(env, { MARKETPLACE_DATA_FILE: originalDataFile });
+  Object.assign(env, {
+    MARKETPLACE_DATA_FILE: originalDataFile,
+    VELTACT_RESEARCH_PROVIDER: originalResearchProvider,
+    VELTACT_DISCOVERY_PROVIDER: originalDiscoveryProvider
+  });
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -83,13 +92,17 @@ describe("supplier registry", { concurrency: false }, () => {
     );
   });
 
-  test("writes through the fixture flow, survives reload and reuses entries", () => {
+  test("writes through the fixture flow, survives reload and reuses entries", async () => {
     const directory = mkdtempSync(
       path.join(os.tmpdir(), "veltact-registry-")
     );
     temporaryDirectories.push(directory);
     const filePath = path.join(directory, "marketplace.json");
-    Object.assign(env, { MARKETPLACE_DATA_FILE: filePath });
+    Object.assign(env, {
+      MARKETPLACE_DATA_FILE: filePath,
+      VELTACT_RESEARCH_PROVIDER: "fixture",
+      VELTACT_DISCOVERY_PROVIDER: "fixture"
+    });
 
     const firstNeed = createNeed({
       buyerEmail: "projects@demo-packaging.example",
@@ -141,14 +154,35 @@ describe("supplier registry", { concurrency: false }, () => {
       buyerEmail: "projects@demo-packaging.example",
       profile: roboticsNeed()
     });
-    seedMarketplaceDemoFindState(secondNeed.id);
+    const research = await researchNeed(secondNeed.id);
+    assert.ok(research);
+    const integration = research.researchResult.approaches.find((approach) =>
+      approach.id.endsWith(":integration")
+    );
+    assert.ok(integration);
+    const decision = createSolutionDecision(secondNeed.id, {
+      decision: "outsource",
+      selectedApproachIds: [integration.id]
+    });
+    assert.equal(decision.status, "created");
+    const discovered = await discoverNeedSuppliers(secondNeed.id);
+    assert.equal(discovered.status, "discovered");
+    if (discovered.status === "discovered") {
+      assert.ok(
+        discovered.supplierLeads.some((lead) =>
+          lead.matchReasons.some((reason) =>
+            reason.startsWith("In your supplier bench:")
+          )
+        )
+      );
+    }
     const afterSecondNeed =
       getSupplierRegistryForNeed(secondNeed.id)?.entries.filter(
         (entry) => entry.source === "fixture"
       ) ?? [];
     assert.equal(afterSecondNeed.length, 3);
     assert.ok(
-      afterSecondNeed.every((entry) => entry.engagementHistory.length === 2)
+      afterSecondNeed.some((entry) => entry.engagementHistory.length === 2)
     );
   });
 });

@@ -825,7 +825,8 @@ export async function discoverNeedSuppliers(
   const execution = await runSupplierDiscovery(
     needId,
     need.profile,
-    selectedApproach
+    selectedApproach,
+    registryCandidatesForNeed(need, selectedApproach)
   );
   if (needs.get(needId) !== need) {
     return { status: "not_found" };
@@ -2202,6 +2203,110 @@ function recordRegistryStageForSupplier(
     source: "catalog",
     ...details
   });
+}
+
+function registryCandidatesForNeed(
+  need: NeedRecord,
+  selectedApproach: {
+    requiredCapabilities: string[];
+  }
+): SupplierLead[] {
+  const registry = getSupplierRegistryForNeed(need.id);
+  if (!registry) return [];
+  const now = new Date().toISOString();
+  return registry.entries
+    .filter(
+      (entry) =>
+        entry.normalizedDomain &&
+        entry.engagementHistory.some(
+          (history) => history.needProfileId !== need.id
+        ) &&
+        selectedApproach.requiredCapabilities.some((required) =>
+          entry.capabilities.some((capability) =>
+            registryCapabilitiesOverlap(required, capability)
+          )
+        )
+    )
+    .slice(0, 8)
+    .map((entry) => {
+      const previousHistory = entry.engagementHistory.filter(
+        (history) => history.needProfileId !== need.id
+      );
+      const respondedCount = previousHistory.filter(
+        (history) => history.respondedAt
+      ).length;
+      const securedCount = previousHistory.filter(
+        (history) => history.secured
+      ).length;
+      const deliveredCount = previousHistory.filter(
+        (history) => history.delivered
+      ).length;
+      const website = `https://${entry.normalizedDomain}`;
+      const priorSignal =
+        deliveredCount > 0
+          ? `delivered ${deliveredCount} previous requirement${deliveredCount === 1 ? "" : "s"}`
+          : securedCount > 0
+            ? `was secured for ${securedCount} previous requirement${securedCount === 1 ? "" : "s"}`
+            : `responded to ${respondedCount || previousHistory.length} previous requirement${respondedCount === 1 ? "" : "s"}`;
+      return {
+        id: `${need.id}:registry:${entry.id}`,
+        needProfileId: need.id,
+        companyName: entry.supplierName,
+        website,
+        location: entry.location,
+        serviceRegions: [entry.location],
+        capabilities: entry.capabilities,
+        matchScore: 0,
+        matchReasons: [`In your supplier bench: ${priorSignal}.`],
+        risks: [
+          "Prior Veltact history does not confirm current capability, availability or commercial terms."
+        ],
+        evidence:
+          entry.evidence.length > 0
+            ? entry.evidence.map((evidence) => ({
+                id: randomUUID(),
+                title: evidence.title,
+                url: evidence.url,
+                sourceType: "supplier_website" as const,
+                provider: "manual" as const,
+                evidenceNote:
+                  "Public source retained with the private supplier registry entry.",
+                accessedAt: evidence.retrievedAt
+              }))
+            : [
+                {
+                  id: randomUUID(),
+                  title: `${entry.supplierName} supplier registry record`,
+                  url: website,
+                  sourceType: "other" as const,
+                  provider: "manual" as const,
+                  evidenceNote:
+                    "Private Veltact relationship history; current supplier details require reconfirmation.",
+                  accessedAt: entry.updatedAt
+                }
+              ],
+        sourceMode:
+          entry.source === "live_discovery"
+            ? ("live" as const)
+            : ("fixture" as const),
+        lifecycleStatus: "discovered" as const,
+        createdAt: now,
+        updatedAt: now
+      };
+    });
+}
+
+function registryCapabilitiesOverlap(left: string, right: string) {
+  const normalise = (value: string) =>
+    new Set(
+      value
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((token) => token.length > 2)
+    );
+  const leftTokens = normalise(left);
+  const rightTokens = normalise(right);
+  return [...leftTokens].some((token) => rightTokens.has(token));
 }
 
 function supplierRegistryAccountScope(buyerEmail: string) {

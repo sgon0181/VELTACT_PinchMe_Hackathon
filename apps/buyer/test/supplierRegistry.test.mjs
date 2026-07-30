@@ -20,6 +20,15 @@ test("renders the supplier bench as a read-only, accessible workspace view", () 
   assert.match(styles, /\.registry-state-secured/);
 });
 
+test("keeps discovery evidence and the supplier-consent boundary visible", () => {
+  assert.match(mainBundle, /Public discovery evidence/);
+  assert.match(
+    mainBundle,
+    /Public evidence produced this candidate\. It is not a verified or enrolled supplier\./
+  );
+  assert.match(mainBundle, /candidate-source-list/);
+});
+
 test("loads the buyer-scoped registry with the capability token", async () => {
   globalThis.window = {
     location: { origin: "https://buyer.veltact.example" }

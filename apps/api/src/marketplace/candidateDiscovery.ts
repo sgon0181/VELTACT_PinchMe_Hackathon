@@ -40,13 +40,15 @@ export function rankDiscoveredSupplierLeads(input: {
   selectedApproach: SolutionApproach;
   candidates: SupplierLead[];
   publicBaseUrl: string;
+  preferredSupplierIds?: Set<string>;
 }): SupplierLead[] {
   const rankedCandidates = input.candidates
     .map((candidate) =>
       explainCandidate({
         profile: input.profile,
         selectedApproach: input.selectedApproach,
-        candidate: addSupplierLogo(candidate, input.publicBaseUrl)
+        candidate: addSupplierLogo(candidate, input.publicBaseUrl),
+        fromRegistry: input.preferredSupplierIds?.has(candidate.id) ?? false
       })
     )
     .sort((left, right) => {
@@ -66,8 +68,9 @@ function explainCandidate(input: {
   profile: MarketplaceNeedProfile;
   selectedApproach: SolutionApproach;
   candidate: SupplierLead;
+  fromRegistry: boolean;
 }): SupplierLead {
-  const { profile, selectedApproach, candidate } = input;
+  const { profile, selectedApproach, candidate, fromRegistry } = input;
   const requiredCapabilities = selectedApproach.requiredCapabilities;
   const matchedRequiredCapabilities = requiredCapabilities.filter(
     (required) =>
@@ -118,11 +121,22 @@ function explainCandidate(input: {
   if (profile.buyerPriority === "speed" && rapidResponseEvidence) {
     score += 5;
   }
+  if (fromRegistry && matchedRequiredCapabilities.length > 0) {
+    score += 12;
+  }
   score = Math.min(98, score);
 
   const evidenceLabel =
     candidate.sourceMode === "fixture" ? "Fixture evidence" : "Public evidence";
   const reasons: string[] = [];
+  if (fromRegistry && matchedRequiredCapabilities.length > 0) {
+    reasons.push(
+      candidate.matchReasons.find((reason) =>
+        reason.startsWith("In your supplier bench:")
+      ) ??
+        "In your supplier bench: this supplier has relevant prior Veltact history."
+    );
+  }
   if (matchedRequiredCapabilities.length > 0) {
     reasons.push(
       `Selected solution fit: "${selectedApproach.title}" requires ${requiredCapabilities.join(

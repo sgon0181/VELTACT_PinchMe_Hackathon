@@ -247,6 +247,10 @@ Agents must not emit canonical workflow updates under `veltact:v2:*`.
 - `BUYER_CAPABILITY_AUTH_REQUIRED` defaults to true in production.
 - `VELTACT_RESEARCH_PROVIDER=auto|openai|fixture` selects research behavior.
 - `OPENAI_API_KEY` enables live intake/research.
+- `VELTACT_DISCOVERY_PROVIDER=auto|openai|perplexity|fixture` independently
+  selects supplier discovery; auto prefers OpenAI, then Perplexity, then
+  labelled fixtures.
+- `PERPLEXITY_API_KEY` enables the optional Sonar supplier-discovery adapter.
 - `FIRECRAWL_API_KEY` enables optional discovery fallback.
 - Resend or SendGrid provides email.
 - Twilio provides SMS or WhatsApp.

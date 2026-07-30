@@ -9,14 +9,18 @@ import { createMarketplaceFixtureResearch } from "./findFixtures.js";
 import { runSupplierDiscovery } from "./findProviders.js";
 
 const originalProvider = env.VELTACT_RESEARCH_PROVIDER;
+const originalDiscoveryProvider = env.VELTACT_DISCOVERY_PROVIDER;
 const originalOpenAiKey = env.OPENAI_API_KEY;
+const originalPerplexityKey = env.PERPLEXITY_API_KEY;
 const originalFirecrawlKey = env.FIRECRAWL_API_KEY;
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   Object.assign(env, {
     VELTACT_RESEARCH_PROVIDER: originalProvider,
+    VELTACT_DISCOVERY_PROVIDER: originalDiscoveryProvider,
     OPENAI_API_KEY: originalOpenAiKey,
+    PERPLEXITY_API_KEY: originalPerplexityKey,
     FIRECRAWL_API_KEY: originalFirecrawlKey
   });
   globalThis.fetch = originalFetch;
@@ -117,6 +121,109 @@ describe("supplier discovery provider reliability", () => {
       )
     );
     assert.match(execution.warning ?? "", /Firecrawl search evidence was used/);
+  });
+
+  test("maps optional Perplexity Sonar output into the canonical cited shortlist", async () => {
+    const profile = roboticsNeed();
+    const selectedApproach = roboticsIntegrationApproach(
+      "need-perplexity",
+      profile
+    );
+    Object.assign(env, {
+      VELTACT_DISCOVERY_PROVIDER: "perplexity",
+      OPENAI_API_KEY: undefined,
+      PERPLEXITY_API_KEY: "test-perplexity-key",
+      FIRECRAWL_API_KEY: undefined
+    });
+    globalThis.fetch = async (input, init) => {
+      assert.equal(String(input), "https://api.perplexity.ai/v1/sonar");
+      assert.equal(
+        new Headers(init?.headers).get("authorization"),
+        "Bearer test-perplexity-key"
+      );
+      const request = JSON.parse(String(init?.body));
+      assert.equal(request.model, "sonar");
+      assert.equal(request.response_format.type, "json_schema");
+      return jsonResponse({
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: JSON.stringify({
+                suppliers: [
+                  liveSupplier("Perplexity Robotics One", 94),
+                  liveSupplier("Perplexity Robotics Two", 90),
+                  liveSupplier("Perplexity Robotics Three", 87)
+                ]
+              })
+            }
+          }
+        ]
+      });
+    };
+
+    const execution = await runSupplierDiscovery(
+      "need-perplexity",
+      profile,
+      selectedApproach
+    );
+
+    assert.equal(execution.value.length, 3);
+    assert.ok(
+      execution.value.every(
+        (candidate) =>
+          candidate.sourceMode === "live" &&
+          candidate.evidence.length > 0 &&
+          candidate.evidence.every(
+            (evidence) =>
+              evidence.provider === "perplexity" &&
+              /^https?:/.test(evidence.url)
+          )
+      )
+    );
+  });
+
+  test("rejects non-HTTP model URLs and falls back without exposing them", async () => {
+    const profile = roboticsNeed();
+    const selectedApproach = roboticsIntegrationApproach(
+      "need-invalid-url",
+      profile
+    );
+    Object.assign(env, {
+      VELTACT_DISCOVERY_PROVIDER: "auto",
+      OPENAI_API_KEY: "test-openai-key",
+      PERPLEXITY_API_KEY: undefined,
+      FIRECRAWL_API_KEY: undefined
+    });
+    const malformed = liveSupplier("Unsafe Supplier", 99);
+    malformed.website = "ftp://unsafe.example";
+    globalThis.fetch = async () =>
+      jsonResponse({
+        output_text: JSON.stringify({
+          suppliers: [
+            malformed,
+            liveSupplier("Safe Supplier Two", 90),
+            liveSupplier("Safe Supplier Three", 85)
+          ]
+        })
+      });
+
+    const execution = await runSupplierDiscovery(
+      "need-invalid-url",
+      profile,
+      selectedApproach
+    );
+
+    assert.equal(execution.value.length, 3);
+    assert.ok(
+      execution.value.every((candidate) => candidate.sourceMode === "fixture")
+    );
+    assert.match(execution.warning ?? "", /HTTP\(S\)|validation|invalid/i);
+    assert.ok(
+      execution.value.every(
+        (candidate) => !candidate.website.startsWith("ftp:")
+      )
+    );
   });
 });
 

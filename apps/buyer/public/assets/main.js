@@ -984,6 +984,7 @@ function renderCandidate(data, match, index) {
             `
         : ""}
       </div>
+      ${renderCandidateEvidence(supplier)}
       <div class="candidate-section">
         <strong>Risks to verify</strong>
         ${bulletList(match.risks.slice(0, 2), "No specific match risks returned.")}
@@ -1001,6 +1002,32 @@ function renderCandidate(data, match, index) {
         <span>${invitation ? "Private supplier workspace generated" : "Buyer approval required"}</span>
       </div>
     </article>
+  `;
+}
+function renderCandidateEvidence(supplier) {
+    if (!supplier || !("evidence" in supplier))
+        return "";
+    const live = supplier.sourceMode === "live";
+    return `
+    <div class="candidate-section candidate-evidence">
+      <strong>${live ? "Public discovery evidence" : "Labelled demo evidence"}</strong>
+      ${live
+        ? `<p>Public evidence produced this candidate. It is not a verified or enrolled supplier.</p>`
+        : `<p>Fixture evidence keeps the keyless demo deterministic and does not represent a real supplier.</p>`}
+      <details class="match-more">
+        <summary>Review ${supplier.evidence.length} source${supplier.evidence.length === 1 ? "" : "s"}</summary>
+        <ul class="candidate-source-list">
+          ${supplier.evidence
+        .map((evidence) => `
+                <li>
+                  <a href="${safeHttpUrl(evidence.url)}" target="_blank" rel="noreferrer">${escapeHtml(evidence.title)}</a>
+                  <small>Retrieved ${escapeHtml(formatTime(evidence.accessedAt))}</small>
+                </li>
+              `)
+        .join("")}
+        </ul>
+      </details>
+    </div>
   `;
 }
 function renderOutreachChoice(data, candidates, value, label, description) {

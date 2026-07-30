@@ -286,6 +286,7 @@ export const rapidMatchSocketEvent = {
 };
 export const evidenceProviderSchema = z.enum([
     "openai_web_search",
+    "perplexity",
     "firecrawl",
     "fixture",
     "manual"

@@ -22,6 +22,19 @@ describe("production Pinch environment", () => {
     });
 
     assert.equal(result.OPENAI_MODEL, "gpt-5.4-mini");
+    assert.equal(result.VELTACT_DISCOVERY_PROVIDER, "auto");
+  });
+
+  test("accepts the optional Perplexity supplier discovery mode", () => {
+    const result = parseEnvironment({
+      NODE_ENV: "development",
+      PAYMENT_PROVIDER: "local_demo",
+      VELTACT_DISCOVERY_PROVIDER: "perplexity",
+      PERPLEXITY_API_KEY: "test-perplexity-key"
+    });
+
+    assert.equal(result.VELTACT_DISCOVERY_PROVIDER, "perplexity");
+    assert.equal(result.PERPLEXITY_API_KEY, "test-perplexity-key");
   });
 
   test("accepts a Render revision without requiring a manually configured release id", () => {
