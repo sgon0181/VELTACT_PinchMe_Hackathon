@@ -1925,6 +1925,13 @@ describe("marketplace core routes", () => {
     const returnText = await returned.text();
     assert.equal(returned.status, 200);
     assert.match(returnText, /does not confirm payment success/);
+    assert.match(
+      returnText,
+      new RegExp(
+        `href="/index\\.html\\?needId=${encodeURIComponent(created.body.need.id)}"`
+      )
+    );
+    assert.match(returnText, />Return to Veltact<\/a>/);
 
     const eventPayload = {
       Id: "evt_payment_approved",

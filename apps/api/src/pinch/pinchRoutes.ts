@@ -119,6 +119,15 @@ pinchRouter.get("/return/:engagementId?", (request, response) => {
     return;
   }
 
+  const engagementId = (request.params as Record<string, string | undefined>)
+    .engagementId;
+  const engagement = engagementId
+    ? getEngagement(engagementId)
+    : undefined;
+  const buyerReturnUrl = engagement
+    ? `/index.html?needId=${encodeURIComponent(engagement.needId)}`
+    : "/index.html";
+
   response
     .status(200)
     .type("html")
@@ -128,18 +137,94 @@ pinchRouter.get("/return/:engagementId?", (request, response) => {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${localDemoReturn ? "Local demo commitment" : "Payment awaiting confirmation"}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #f2f5f1;
+        color: #14231b;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main {
+        width: min(100%, 720px);
+        min-height: 100vh;
+        margin: 0 auto;
+        padding: 64px 28px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: flex-start;
+      }
+      .brand {
+        margin: 0 0 40px;
+        color: #126b4f;
+        font-size: 14px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+      .status {
+        margin: 0 0 12px;
+        color: #5c6c63;
+        font-size: 13px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+      h1 {
+        max-width: 640px;
+        margin: 0 0 24px;
+        font-size: clamp(36px, 7vw, 56px);
+        line-height: 1.05;
+      }
+      p {
+        max-width: 640px;
+        margin: 0 0 14px;
+        color: #435249;
+        font-size: 18px;
+        line-height: 1.55;
+      }
+      .notice {
+        margin: 10px 0 30px;
+        padding: 4px 0 4px 18px;
+        border-left: 3px solid #e3a51a;
+      }
+      a {
+        display: inline-flex;
+        min-height: 48px;
+        align-items: center;
+        justify-content: center;
+        padding: 12px 20px;
+        border-radius: 6px;
+        background: #147a58;
+        color: #fff;
+        font-size: 16px;
+        font-weight: 750;
+        text-decoration: none;
+      }
+      a:focus-visible {
+        outline: 3px solid #e3a51a;
+        outline-offset: 3px;
+      }
+    </style>
   </head>
   <body>
     <main>
+      <p class="brand">Veltact</p>
+      <p class="status">${localDemoReturn ? "Local demo evidence" : "Pinch checkout return"}</p>
       ${
         localDemoReturn
           ? `<h1>Local demo commitment</h1>
-      <p>No Pinch transaction or external payment was created.</p>
-      <p>Return to Veltact and use the clearly labelled local demo action to record non-authoritative demo evidence.</p>`
+      <div class="notice">
+        <p>No Pinch transaction or external payment was created.</p>
+        <p>Use the clearly labelled local demo action in Veltact to record non-authoritative demo evidence.</p>
+      </div>`
           : `<h1>Payment awaiting confirmation</h1>
-      <p>Pinch redirected you back to Veltact. This page does not confirm payment success.</p>
-      <p>Return to Veltact and refresh the payment status. The engagement is secured only after the backend verifies payment with Pinch.</p>`
+      <div class="notice">
+        <p>Pinch redirected you back to Veltact. This page does not confirm payment success.</p>
+        <p>The engagement is secured only after the backend verifies payment with Pinch.</p>
+      </div>`
       }
+      <a href="${buyerReturnUrl}">Return to Veltact</a>
     </main>
   </body>
 </html>`);
