@@ -1,4 +1,11 @@
 import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
+import { SSAOPass } from "three/addons/postprocessing/SSAOPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { VignetteShader } from "three/addons/shaders/VignetteShader.js";
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
 const smooth = (value) => value * value * (3 - 2 * value);
 const segment = (progress, start, end) => smooth(clamp((progress - start) / (end - start), 0, 1));
@@ -86,22 +93,67 @@ export function createFactoryStory(root) {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.18;
+    renderer.toneMappingExposure = 1.08;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.domElement.setAttribute("aria-hidden", "true");
     canvasHost.replaceChildren(renderer.domElement);
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x040a11);
-    scene.fog = new THREE.Fog(0x07111d, 30, 142);
+    scene.background = new THREE.Color(0x0b1d3a);
+    scene.fog = new THREE.Fog(0x193b60, 36, 148);
     const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 300);
+    const composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, camera);
+    const ssaoPass = new SSAOPass(scene, camera, 1, 1, 16);
+    ssaoPass.kernelRadius = 7;
+    ssaoPass.minDistance = 0.002;
+    ssaoPass.maxDistance = 0.11;
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.56, 0.28, 1.15);
+    const vignettePass = new ShaderPass(VignetteShader);
+    vignettePass.uniforms.offset.value = 0.92;
+    vignettePass.uniforms.darkness.value = 1.16;
+    const outputPass = new OutputPass();
+    composer.addPass(renderPass);
+    composer.addPass(ssaoPass);
+    composer.addPass(bloomPass);
+    composer.addPass(vignettePass);
+    composer.addPass(outputPass);
+    const floorCanvas = document.createElement("canvas");
+    floorCanvas.width = 256;
+    floorCanvas.height = 256;
+    const floorContext = floorCanvas.getContext("2d");
+    if (!floorContext) {
+        throw new Error("Canvas 2D rendering is unavailable");
+    }
+    floorContext.fillStyle = "#12304c";
+    floorContext.fillRect(0, 0, 256, 256);
+    for (let line = 0; line < 64; line += 1) {
+        const position = (line * 73) % 256;
+        const lightness = 35 + ((line * 19) % 22);
+        floorContext.strokeStyle = `rgba(${lightness}, ${lightness + 15}, ${lightness + 24}, 0.16)`;
+        floorContext.lineWidth = line % 9 === 0 ? 2 : 1;
+        floorContext.beginPath();
+        floorContext.moveTo(0, position);
+        floorContext.lineTo(256, position + ((line * 11) % 7) - 3);
+        floorContext.stroke();
+    }
+    const floorTexture = new THREE.CanvasTexture(floorCanvas);
+    floorTexture.colorSpace = THREE.SRGBColorSpace;
+    floorTexture.wrapS = THREE.RepeatWrapping;
+    floorTexture.wrapT = THREE.RepeatWrapping;
+    floorTexture.repeat.set(18, 3);
+    floorTexture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
     const material = (color, options = {}) => new THREE.MeshStandardMaterial({
         color,
-        flatShading: true,
         metalness: 0.08,
         roughness: 0.88,
         ...options,
     });
     const materials = {
-        platform: material(0x123a5a),
+        platform: material(0x123a5a, {
+            map: floorTexture,
+            metalness: 0.12,
+            roughness: 0.93,
+        }),
         road: material(0x07111d),
         machine: material(0x2a3b4c),
         machineDark: material(0x16283c),
@@ -132,14 +184,17 @@ export function createFactoryStory(root) {
         parent.add(mesh);
         return mesh;
     };
-    scene.add(new THREE.HemisphereLight(0x2468a2, 0x040a11, 1.3));
-    const rimLight = new THREE.DirectionalLight(0x8fc8f5, 1.45);
-    rimLight.position.set(-14, 16, -30);
-    scene.add(rimLight);
-    const keyLight = new THREE.DirectionalLight(0xf3f6f8, 2.65);
+    scene.add(new THREE.HemisphereLight(0x6c9ec8, 0x07111d, 1.05));
+    const moonLight = new THREE.DirectionalLight(0x9acbf0, 1.65);
+    moonLight.position.set(58, 20, 18);
+    moonLight.target.position.set(34, 2, 0);
+    scene.add(moonLight, moonLight.target);
+    const keyLight = new THREE.DirectionalLight(0xfff3dc, 2.35);
     keyLight.position.set(18, 32, 20);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.set(1024, 1024);
+    keyLight.shadow.bias = -0.00035;
+    keyLight.shadow.normalBias = 0.025;
     Object.assign(keyLight.shadow.camera, {
         left: -32,
         right: 36,
@@ -181,6 +236,10 @@ export function createFactoryStory(root) {
         roughness: 0.3,
         transparent: true,
     });
+    const heroRed = new THREE.Color(0xd6283f);
+    const heroCrimson = new THREE.Color(0x7a1425);
+    const heroWarmWhite = new THREE.Color(0xfff3dc);
+    const heroWarmGlow = new THREE.Color(0xffd9a0);
     const makeBulb = (glassMaterial, baseMaterial = materials.base) => {
         const group = new THREE.Group();
         const base = new THREE.Mesh(bulbBaseGeometry, baseMaterial);
@@ -223,7 +282,7 @@ export function createFactoryStory(root) {
     scene.add(heroBulb);
     const filamentMaterial = new THREE.MeshStandardMaterial({
         color: 0x7a1425,
-        emissive: 0xe6a63f,
+        emissive: 0xffd9a0,
         emissiveIntensity: 0.14,
     });
     cylinder(0.012, 0.012, 0.26, filamentMaterial, -0.05, 0.47, 0, heroBulb, 5);
@@ -240,9 +299,9 @@ export function createFactoryStory(root) {
         throw new Error("Canvas 2D rendering is unavailable");
     }
     const glowGradient = glowContext.createRadialGradient(64, 64, 2, 64, 64, 62);
-    glowGradient.addColorStop(0, "rgba(243, 246, 248, 0.92)");
-    glowGradient.addColorStop(0.35, "rgba(230, 166, 63, 0.34)");
-    glowGradient.addColorStop(1, "rgba(230, 166, 63, 0)");
+    glowGradient.addColorStop(0, "rgba(255, 243, 220, 0.92)");
+    glowGradient.addColorStop(0.35, "rgba(255, 217, 160, 0.34)");
+    glowGradient.addColorStop(1, "rgba(255, 217, 160, 0)");
     glowContext.fillStyle = glowGradient;
     glowContext.fillRect(0, 0, 128, 128);
     const glowTexture = new THREE.CanvasTexture(glowCanvas);
@@ -346,7 +405,9 @@ export function createFactoryStory(root) {
     cylinder(0.05, 0.05, 1.05, materials.dark, 24, 5.32, 0, scene, 6);
     cylinder(0.26, 0.3, 0.45, materials.metal, 24, 4.6, 0);
     const lifter = cylinder(0.28, 0.34, 1, materials.machineDark, 24, 2.3, 0);
-    const heroLight = new THREE.PointLight(0xe6a63f, 0, 15, 2);
+    const heroLight = new THREE.PointLight(0xffd9a0, 0, 15, 2);
+    heroLight.shadow.mapSize.set(256, 256);
+    heroLight.shadow.bias = -0.001;
     scene.add(heroLight);
     box(2.2, 0.18, 1.7, materials.machine, 43, 1.42, 0);
     for (const [x, z] of [
@@ -365,7 +426,7 @@ export function createFactoryStory(root) {
     box(0.08, 0.7, 1, materials.crimson, -0.46, 0.45, 0, crate);
     box(0.08, 0.7, 1, materials.crimson, 0.46, 0.45, 0, crate);
     const crateGlowMaterial = new THREE.MeshBasicMaterial({
-        color: 0xe6a63f,
+        color: 0xffd9a0,
         opacity: 0,
         transparent: true,
     });
@@ -382,7 +443,7 @@ export function createFactoryStory(root) {
     box(0.9, 0.4, 1.3, materials.dark, 1.78, 1.62, 0, van, true);
     const headlightMaterial = new THREE.MeshStandardMaterial({
         color: 0x1b222a,
-        emissive: 0xf3f6f8,
+        emissive: 0xfff3dc,
         emissiveIntensity: 0,
     });
     box(0.08, 0.14, 0.22, headlightMaterial, 2.24, 0.85, 0.45, van, true);
@@ -418,12 +479,12 @@ export function createFactoryStory(root) {
     box(2.6, 0.55, 0.14, materials.red, 80.42, 5.3, 3, scene, true);
     const windowMaterial = new THREE.MeshStandardMaterial({
         color: 0x123a5a,
-        emissive: 0xe6a63f,
+        emissive: 0xffd9a0,
         emissiveIntensity: 0,
         flatShading: true,
     });
     box(0.12, 1.5, 1.2, windowMaterial, 80.45, 3.4, 3.2, scene, true);
-    const factoryLight = new THREE.PointLight(0xe6a63f, 0, 22, 2);
+    const factoryLight = new THREE.PointLight(0xffd9a0, 0, 22, 2);
     factoryLight.position.set(79.2, 3.4, 3.2);
     scene.add(factoryLight);
     for (const x of [2, 14, 28, 40]) {
@@ -594,8 +655,11 @@ export function createFactoryStory(root) {
                 ? 1
                 : ignitionEnvelope * (Math.sin(progress * 2600) > -0.35 ? 1 : 0.15);
         const packed = segment(progress, 0.83, 0.86);
+        heroLight.castShadow = !narrow && lit > 0.5;
         heroLight.intensity = 34 * lit * (1 - 0.55 * packed);
         heroLight.position.set(heroBulb.position.x, heroBulb.position.y + 0.78, heroBulb.position.z);
+        heroGlass.color.copy(heroRed).lerp(heroWarmWhite, lit);
+        heroGlass.emissive.copy(heroCrimson).lerp(heroWarmGlow, lit);
         heroGlass.emissiveIntensity = 0.72 + 2 * lit;
         filamentMaterial.emissiveIntensity = 0.14 + 7 * lit;
         glow.position.copy(heroLight.position);
@@ -658,15 +722,20 @@ export function createFactoryStory(root) {
         const bounds = stage.getBoundingClientRect();
         const width = Math.max(Math.round(bounds.width), 1);
         const height = Math.max(Math.round(bounds.height), 1);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, width < 720 ? 1.5 : 2));
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, width < 720 ? 1.5 : 2);
+        renderer.setPixelRatio(pixelRatio);
         renderer.setSize(width, height, false);
+        composer.setPixelRatio(pixelRatio);
+        composer.setSize(width, height);
+        ssaoPass.enabled = width >= 720;
+        bloomPass.strength = width < 720 ? 0.38 : 0.56;
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
         storyStart = root.getBoundingClientRect().top + window.scrollY - parseFloat(getComputedStyle(stage).top);
         storyRange = Math.max(root.offsetHeight - height, 1);
         targetProgress = clamp((window.scrollY - storyStart) / storyRange, 0, 1);
         updateScene(progress);
-        renderer.render(scene, camera);
+        composer.render(0);
     };
     const renderFrame = () => {
         frame = 0;
@@ -678,7 +747,7 @@ export function createFactoryStory(root) {
             progress = targetProgress;
         }
         updateScene(progress);
-        renderer.render(scene, camera);
+        composer.render(0);
         if (Math.abs(targetProgress - progress) >= 0.0004) {
             frame = window.requestAnimationFrame(renderFrame);
         }
@@ -741,6 +810,12 @@ export function createFactoryStory(root) {
             });
             glowTexture.dispose();
             glowMaterial.dispose();
+            floorTexture.dispose();
+            ssaoPass.dispose();
+            bloomPass.dispose();
+            vignettePass.dispose();
+            outputPass.dispose();
+            composer.dispose();
             renderer.dispose();
             renderer.forceContextLoss();
             renderer.domElement.remove();

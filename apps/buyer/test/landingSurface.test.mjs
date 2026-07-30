@@ -94,6 +94,7 @@ test("landing factory story is local, progressive and accessible", async () => {
   ]);
 
   assert.match(html, /"three": "\.\/assets\/vendor\/three\/three\.module\.min\.js"/);
+  assert.match(html, /"three\/addons\/": "\.\/assets\/vendor\/three\/addons\/"/);
   assert.match(html, /data-factory-story\s+data-story-state="static"/);
   assert.equal([...html.matchAll(/class="factory-story-panel/g)].length, 5);
   assert.doesNotMatch(html, /support\.js|DCLogic|cdn\.jsdelivr\.net|unpkg\.com/);
@@ -113,6 +114,12 @@ test("landing factory story is local, progressive and accessible", async () => {
   assert.match(sceneSource, /"centripetal"/);
   assert.doesNotMatch(sceneSource, /const cameraPosition = vectorAt/);
   assert.match(sceneSource, /\[gripperReleaseProgress, gripperReleasePosition\]/);
+  assert.match(sceneSource, /THREE\.ACESFilmicToneMapping/);
+  assert.match(sceneSource, /THREE\.SRGBColorSpace/);
+  assert.match(sceneSource, /new SSAOPass/);
+  assert.match(sceneSource, /new UnrealBloomPass/);
+  assert.match(sceneSource, /new ShaderPass\(VignetteShader\)/);
+  assert.match(sceneSource, /composer\.render\(0\)/);
 });
 
 test("landing preserves visible focus, readable contrast and mobile fit", async () => {
