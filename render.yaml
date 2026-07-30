@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     region: singapore
-    branch: Recurssion
+    branch: main
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
@@ -25,9 +25,21 @@ services:
       - key: BUYER_CAPABILITY_AUTH_REQUIRED
         value: "false"
       - key: PAYMENT_PROVIDER
-        value: local_demo
+        value: pinch
+      - key: PINCH_CLIENT_ID
+        sync: false
+      - key: PINCH_SECRET_KEY
+        sync: false
+      - key: PINCH_AUTH_URL
+        value: https://auth.getpinch.com.au/connect/token
+      - key: PINCH_API_BASE_URL
+        value: https://api.getpinch.com.au/test/
+      - key: PINCH_API_VERSION
+        value: "2020.1"
       - key: PINCH_RETURN_URL
         value: https://veltact.com/api/pinch/return
+      - key: PINCH_WEBHOOK_SECRET
+        sync: false
       - key: VELTACT_RESEARCH_PROVIDER
         value: fixture
       - key: EMAIL_PROVIDER
