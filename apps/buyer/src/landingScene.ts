@@ -55,6 +55,38 @@ function vectorAt(progress: number, keyframes: readonly VectorKeyframe[]): Vec3 
   return keyframes[keyframes.length - 1][1];
 }
 
+function createTimedCameraCurve(keyframes: readonly VectorKeyframe[]) {
+  return new THREE.CatmullRomCurve3(
+    keyframes.map(([, value]) => new THREE.Vector3(...value)),
+    false,
+    "centripetal",
+  );
+}
+
+function cameraCurveAt(
+  progress: number,
+  keyframes: readonly VectorKeyframe[],
+  curve: THREE.CatmullRomCurve3,
+  target: THREE.Vector3,
+) {
+  if (progress <= keyframes[0][0]) {
+    return target.set(...keyframes[0][1]);
+  }
+
+  for (let index = 0; index < keyframes.length - 1; index += 1) {
+    const current = keyframes[index];
+    const next = keyframes[index + 1];
+    if (progress <= next[0]) {
+      // Uneven keyframe timing creates station dwells without stopping the spline.
+      const segmentProgress = (progress - current[0]) / (next[0] - current[0]);
+      const curveProgress = (index + segmentProgress) / (keyframes.length - 1);
+      return curve.getPoint(curveProgress, target);
+    }
+  }
+
+  return target.set(...keyframes[keyframes.length - 1][1]);
+}
+
 function panelOpacity(progress: number, start: number, end: number) {
   const fadeIn = start <= 0 ? 1 : segment(progress, start, start + 0.025);
   const fadeOut = end >= 1 ? 1 : 1 - segment(progress, end - 0.025, end);
@@ -591,8 +623,19 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     [0.88, [48, 1.5, 2.5]],
     [1, [72, 3, 3]],
   ];
+  const cameraPositionCurve = createTimedCameraCurve(cameraPositions);
+  const cameraTargetCurve = createTimedCameraCurve(cameraTargets);
+  const cameraPosition = new THREE.Vector3();
+  const cameraTarget = new THREE.Vector3();
+  const gripperReleaseProgress = 0.305;
+  solveArm(vectorAt(gripperReleaseProgress, armKeyframes));
+  const gripperReleasePosition: Vec3 = [
+    tipWorld.x,
+    tipWorld.y - 1.35,
+    tipWorld.z,
+  ];
   const bulbPositions: readonly VectorKeyframe[] = [
-    [0.305, [4, 2.3, 0]],
+    [gripperReleaseProgress, gripperReleasePosition],
     [0.455, [24, 2.3, 0]],
     [0.5, [24, 2.3, 0]],
     [0.53, [24, 3.35, 0]],
@@ -645,16 +688,16 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
   };
 
   const updateScene = (progress: number) => {
-    const cameraPosition = vectorAt(progress, cameraPositions);
-    const cameraTarget = vectorAt(progress, cameraTargets);
+    cameraCurveAt(progress, cameraPositions, cameraPositionCurve, cameraPosition);
+    cameraCurveAt(progress, cameraTargets, cameraTargetCurve, cameraTarget);
     const narrow = stage.clientWidth < 720;
     camera.fov = narrow ? 49 : 42;
     camera.position.set(
-      cameraPosition[0],
-      cameraPosition[1] + (narrow ? 0.8 : 0),
-      cameraPosition[2] + (narrow ? 4.5 : 0),
+      cameraPosition.x,
+      cameraPosition.y + (narrow ? 0.8 : 0),
+      cameraPosition.z + (narrow ? 4.5 : 0),
     );
-    camera.lookAt(cameraTarget[0], cameraTarget[1], cameraTarget[2]);
+    camera.lookAt(cameraTarget.x, cameraTarget.y, cameraTarget.z);
     camera.updateProjectionMatrix();
 
     solveArm(vectorAt(progress, armKeyframes));
@@ -687,7 +730,7 @@ export function createFactoryStory(root: HTMLElement): FactoryStoryController {
     const reticlePulse = 1 + 0.18 * Math.sin(progress * 620);
     reticle.scale.set(reticlePulse, reticlePulse, 1);
 
-    if (progress > 0.218 && progress <= 0.308) {
+    if (progress > 0.218 && progress <= gripperReleaseProgress) {
       heroBulb.position.set(tipWorld.x, tipWorld.y - 1.35, tipWorld.z);
     } else if (progress <= 0.218) {
       heroBulb.position.set(sourceX, 0.8, sourceZ);

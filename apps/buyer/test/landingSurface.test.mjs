@@ -109,6 +109,10 @@ test("landing factory story is local, progressive and accessible", async () => {
   assert.match(sceneSource, /window\.devicePixelRatio/);
   assert.match(sceneSource, /visibilitychange/);
   assert.match(sceneSource, /forceContextLoss/);
+  assert.match(sceneSource, /new THREE\.CatmullRomCurve3/);
+  assert.match(sceneSource, /"centripetal"/);
+  assert.doesNotMatch(sceneSource, /const cameraPosition = vectorAt/);
+  assert.match(sceneSource, /\[gripperReleaseProgress, gripperReleasePosition\]/);
 });
 
 test("landing preserves visible focus, readable contrast and mobile fit", async () => {
