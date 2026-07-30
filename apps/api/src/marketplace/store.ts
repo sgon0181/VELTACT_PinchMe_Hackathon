@@ -29,6 +29,7 @@ import {
   createNeedReportRecord,
   readNeedReportPdf
 } from "./needReport.js";
+import { assembleEngagementSpeedReceipt } from "./speedReceipt.js";
 import {
   agentActivityEventSchema,
   supplierCommitmentNotificationSchema,
@@ -1734,6 +1735,24 @@ export function getEngagementForNeed(needId: string): Engagement | undefined {
   return [...engagements.values()].find(
     (engagement) => engagement.needId === needId
   );
+}
+
+export function getEngagementSpeedReceipt(
+  engagementId: string,
+  generatedAt = new Date().toISOString()
+) {
+  const engagement = engagements.get(engagementId);
+  const need = engagement ? needs.get(engagement.needId) : undefined;
+  if (!engagement || !need) return undefined;
+  return assembleEngagementSpeedReceipt({
+    need,
+    researchResult: researchResults.get(need.id),
+    responses: listResponsesForNeed(need.id) ?? [],
+    engagement,
+    deployment: deployments.get(engagement.id),
+    auditEvents,
+    generatedAt
+  });
 }
 
 export function getSupplierCommitmentNotification(

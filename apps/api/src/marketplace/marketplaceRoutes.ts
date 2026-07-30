@@ -18,6 +18,7 @@ import {
   discoverNeedSuppliers,
   getEngagement,
   getEngagementForNeed,
+  getEngagementSpeedReceipt,
   getDeployment,
   getNeed,
   getOrCreateNeedReport,
@@ -743,6 +744,27 @@ marketplaceRouter.post("/need-profiles/:needProfileId/engagements", (request, re
   response.status(201).json({ engagement: serialiseEngagement(result.engagement) });
 });
 
+marketplaceRouter.get("/engagements/:engagementId/receipt", (request, response) => {
+  const engagement = getEngagement(request.params.engagementId);
+  if (!engagement) {
+    response.status(404).json({
+      status: "error",
+      message: "Engagement not found"
+    });
+    return;
+  }
+  if (!requireBuyerAccess(request, response, engagement.needId)) return;
+  const receipt = getEngagementSpeedReceipt(engagement.id);
+  if (!receipt) {
+    response.status(404).json({
+      status: "error",
+      message: "Engagement receipt not found"
+    });
+    return;
+  }
+  response.json({ receipt });
+});
+
 marketplaceRouter.get("/engagements/:engagementId", async (request, response) => {
   let engagement = getEngagement(request.params.engagementId);
   if (!engagement) {
@@ -1407,7 +1429,10 @@ function serialiseBuyerWorkspace(
         .map(serialiseOutreachDelivery) ?? [],
     responses: responses.map(serialiseSupplierResponse),
     engagement: engagement ? serialiseEngagement(engagement) : undefined,
-    deployment: engagement ? getDeployment(engagement.id) : undefined
+    deployment: engagement ? getDeployment(engagement.id) : undefined,
+    speedReceipt: engagement
+      ? getEngagementSpeedReceipt(engagement.id)
+      : undefined
   });
 }
 

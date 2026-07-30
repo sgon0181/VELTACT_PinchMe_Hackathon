@@ -1,6 +1,7 @@
 import {
   detectIntakeLocation,
   deploymentSummarySchema,
+  engagementSpeedReceiptSchema,
   parseIntakeBudgetAmount,
   rapidMatchApiRoute,
   rapidMatchBuyerWorkspaceSchema,
@@ -11,6 +12,7 @@ import {
   type DeploymentMilestoneStatus,
   type DeploymentSummary,
   type Engagement,
+  type EngagementSpeedReceipt,
   type IntakeEvidenceSummary,
   type MarketplaceNeedProfile,
   type NeedProfile,
@@ -76,6 +78,10 @@ type DecisionEnvelope = {
   workspace?: RapidMatchBuyerWorkspace;
   buyerWorkspace?: RapidMatchBuyerWorkspace;
   solutionDecision?: SolutionDecision;
+};
+
+type ReceiptEnvelope = {
+  receipt?: EngagementSpeedReceipt;
 };
 
 export type CreatedBuyerWorkspace = {
@@ -202,7 +208,9 @@ export class RapidMatchService {
           engagement:
             canonical.engagement ?? current?.engagement,
           deployment:
-            canonical.deployment ?? current?.deployment
+            canonical.deployment ?? current?.deployment,
+          speedReceipt:
+            canonical.speedReceipt ?? current?.speedReceipt
         }
       : need
         ? legacyWorkspace(need, current)
@@ -446,13 +454,13 @@ export class RapidMatchService {
     if (!engagement) {
       throw new Error("The API did not create a supplier engagement.");
     }
-    return {
+    return this.loadDeployment({
       ...(canonical ?? workspace),
       phase: "deploy",
       status: "commitment_pending",
       nextAction: "open_pinch_checkout",
       engagement
-    };
+    });
   }
 
   async createPaymentLink(
@@ -509,13 +517,13 @@ export class RapidMatchService {
     if (!deployment) {
       throw new Error("The API did not return the funded delivery plan.");
     }
-    return reconcileWorkspace({
+    return this.loadSpeedReceipt(reconcileWorkspace({
       ...workspace,
       phase: "deploy",
       status: "delivery_active",
       nextAction: "track_delivery",
       deployment
-    });
+    }));
   }
 
   async cancelMilestonePaymentLink(
@@ -539,10 +547,10 @@ export class RapidMatchService {
     if (!deployment) {
       throw new Error("The API did not return the updated delivery plan.");
     }
-    return reconcileWorkspace({
+    return this.loadSpeedReceipt(reconcileWorkspace({
       ...workspace,
       deployment
-    });
+    }));
   }
 
   async completeDemoMilestonePayment(
@@ -566,13 +574,13 @@ export class RapidMatchService {
     if (!deployment) {
       throw new Error("The local demo did not return milestone evidence.");
     }
-    return reconcileWorkspace({
+    return this.loadSpeedReceipt(reconcileWorkspace({
       ...workspace,
       phase: "deploy",
       status: "delivery_active",
       nextAction: "track_delivery",
       deployment
-    });
+    }));
   }
 
   async refreshEngagement(
@@ -614,10 +622,10 @@ export class RapidMatchService {
     if (!deployment) {
       throw new Error("The API did not return the updated deployment.");
     }
-    return reconcileWorkspace({
+    return this.loadSpeedReceipt(reconcileWorkspace({
       ...(canonical ?? workspace),
       deployment
-    });
+    }));
   }
 
   async completeDemoPayment(
@@ -725,16 +733,49 @@ export class RapidMatchService {
           isRecord(payload) ? payload.deployment : undefined
         ) ??
         parseDeployment(payload);
-      return {
+      return this.loadSpeedReceipt({
         ...(canonical ?? workspace),
         deployment
-      };
+      });
     } catch (error) {
       if (!isUnavailableRoute(error)) throw error;
-      return {
+      return this.loadSpeedReceipt({
         ...workspace,
         deployment: fixtureDeployment(workspace)
+      });
+    }
+  }
+
+  async loadSpeedReceipt(
+    workspace: RapidMatchBuyerWorkspace
+  ): Promise<RapidMatchBuyerWorkspace> {
+    const engagement = workspace.engagement;
+    if (!engagement) return workspace;
+    const needProfile = requiredNeedProfile(workspace);
+    try {
+      const payload = await requestJson<ReceiptEnvelope>(
+        routeFor(rapidMatchApiRoute.engagementReceipt, {
+          engagementId: engagement.id
+        }),
+        {
+          method: "GET",
+          buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
+        }
+      );
+      const parsed = engagementSpeedReceiptSchema.safeParse(
+        payload.receipt ?? payload
+      );
+      if (!parsed.success) {
+        throw new Error("The API returned an invalid engagement receipt.");
+      }
+      return {
+        ...workspace,
+        speedReceipt: parsed.data
       };
+    } catch (error) {
+      // Receipt rendering is an additive artifact and must never block the
+      // underlying supplier, payment or deployment workflow.
+      return workspace;
     }
   }
 }
@@ -901,7 +942,8 @@ function legacyWorkspace(
       [],
     responses,
     engagement: current.engagement,
-    deployment: current.deployment
+    deployment: current.deployment,
+    speedReceipt: current.speedReceipt
   };
 }
 

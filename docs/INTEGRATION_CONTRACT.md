@@ -136,6 +136,7 @@ Route templates are exported as `rapidMatchApiRoute`.
 ### Deploy
 
 - `GET /api/engagements/:engagementId`
+- `GET /api/engagements/:engagementId/receipt`
 - `POST /api/engagements/:engagementId/payment-link`
 - `POST /api/engagements/:engagementId/milestones/:milestoneId/payment-link`
 - `POST /api/engagements/:engagementId/milestones/:milestoneId/payment-link/cancel`
@@ -241,6 +242,11 @@ Agents must not emit canonical workflow updates under `veltact:v2:*`.
 - Payment Link creation reuses an existing usable link.
 - Milestone Payment Links are sequential and cannot skip incomplete work.
 - Every milestone stores its own provider, link, payment and evidence IDs.
+- The engagement receipt is a read-only projection of persisted lifecycle
+  timestamps. It labels the industry baseline as a general claim and renders
+  incomplete payment or milestone steps as pending.
+- Local-demo outreach is recorded as prepared, not sent. Local-demo payment is
+  recorded as non-authoritative, not Pinch-verified.
 - Unpaid-link cancellation calls the configured provider before local state
   changes.
 - Browser return does not update authoritative payment state.

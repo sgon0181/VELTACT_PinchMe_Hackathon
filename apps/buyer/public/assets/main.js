@@ -1355,6 +1355,82 @@ function renderSelected(data) {
         <button class="button button-primary button-large" type="button" data-create-payment>${localDemoPaymentAvailable ? "Create local demo payment link" : "Create Pinch payment link"}</button>
       </div>
     </section>
+    ${renderSpeedReceipt(data.speedReceipt)}
+  `;
+}
+function formatReceiptElapsed(elapsedMilliseconds) {
+    const totalSeconds = Math.max(0, Math.floor(elapsedMilliseconds / 1000));
+    if (totalSeconds < 1)
+        return "<1s";
+    if (totalSeconds < 60)
+        return `${totalSeconds}s`;
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (totalMinutes < 60) {
+        return `${totalMinutes}m ${seconds}s`;
+    }
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours}h ${minutes}m`;
+}
+function renderSpeedReceipt(receipt) {
+    if (!receipt) {
+        return `
+      <section class="panel speed-receipt speed-receipt-pending" aria-labelledby="speed-receipt-title">
+        <p class="eyebrow">Speed receipt</p>
+        <h2 id="speed-receipt-title">Lifecycle timing is loading</h2>
+        <p>The buyer-scoped receipt will use backend-recorded timestamps only.</p>
+      </section>
+    `;
+    }
+    const secured = receipt.status === "secured" &&
+        receipt.elapsedMilliseconds !== undefined;
+    const paymentEvidence = receipt.events.find((event) => event.stage === "payment_verified");
+    const sourceLabel = paymentEvidence?.evidenceSource === "local_demo"
+        ? "Local demo evidence"
+        : paymentEvidence?.authoritative
+            ? "Backend-verified evidence"
+            : "Lifecycle in progress";
+    return `
+    <section class="panel speed-receipt" aria-labelledby="speed-receipt-title">
+      <div class="speed-receipt-heading">
+        <div>
+          <p class="eyebrow">Speed receipt</p>
+          <h2 id="speed-receipt-title">${secured
+        ? `Secured in ${escapeHtml(formatReceiptElapsed(receipt.elapsedMilliseconds))}`
+        : "Supplier securing in progress"}</h2>
+          <p>A timestamped record from requirement to funded engagement.</p>
+        </div>
+        <span class="source-badge ${paymentEvidence?.evidenceSource === "local_demo"
+        ? "is-fixture"
+        : ""}">${escapeHtml(sourceLabel)}</span>
+      </div>
+      <div class="speed-baseline">
+        <span>General claim</span>
+        <strong>${escapeHtml(receipt.baseline.label)}</strong>
+      </div>
+      <ol class="speed-receipt-events">
+        ${receipt.events
+        .map((event) => `
+              <li class="is-${event.status}">
+                <span class="receipt-marker" aria-hidden="true"></span>
+                <div>
+                  <strong>${escapeHtml(event.label)}</strong>
+                  ${event.detail
+        ? `<p>${escapeHtml(event.detail)}</p>`
+        : ""}
+                </div>
+                ${event.occurredAt
+        ? `<time datetime="${escapeHtml(event.occurredAt)}">${escapeHtml(formatTime(event.occurredAt))}</time>`
+        : `<span class="receipt-pending-label">${escapeHtml(statusLabel(event.status))}</span>`}
+              </li>
+            `)
+        .join("")}
+      </ol>
+      <div class="speed-receipt-actions">
+        <button class="button button-secondary" type="button" data-print-receipt>Print receipt</button>
+      </div>
+    </section>
   `;
 }
 function hostedPaymentKind(value) {
@@ -1510,6 +1586,7 @@ function renderPayment(data) {
           `
         : ""}
     </section>
+    ${renderSpeedReceipt(data.speedReceipt)}
   `;
 }
 function eligibleDeploymentTransition(deployment) {
@@ -1858,6 +1935,7 @@ function renderDeployment(data) {
             `}
       </div>
     </section>
+    ${renderSpeedReceipt(data.speedReceipt)}
   `;
 }
 function renderRestoreError() {
@@ -2047,6 +2125,7 @@ function bindEvents() {
     bindClick("[data-start-new]", startNewRequirement);
     bindClick("[data-open-registry]", openSupplierRegistry);
     bindClick("[data-close-registry]", closeSupplierRegistry);
+    bindClick("[data-print-receipt]", () => window.print());
     document
         .querySelectorAll("[data-fund-milestone]")
         .forEach((button) => {

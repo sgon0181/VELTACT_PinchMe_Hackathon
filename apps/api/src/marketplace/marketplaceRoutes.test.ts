@@ -6,6 +6,7 @@ import type { Server } from "node:http";
 import {
   aiIntakeResultSchema,
   deploymentSummarySchema,
+  engagementSpeedReceiptSchema,
   engagementSchema,
   needProfileSchema,
   rapidMatchBuyerWorkspaceSchema,
@@ -2511,6 +2512,159 @@ describe("marketplace core routes", () => {
         (event) => event.eventType === "payment.local_demo_secured"
       ).length,
       1
+    );
+  });
+
+  test("assembles an ordered and truthful engagement speed receipt", async (context) => {
+    const originalResearchProvider = env.VELTACT_RESEARCH_PROVIDER;
+    const originalBuyerProtection = env.BUYER_CAPABILITY_AUTH_REQUIRED;
+    env.VELTACT_RESEARCH_PROVIDER = "fixture";
+    context.after(() => {
+      env.VELTACT_RESEARCH_PROVIDER = originalResearchProvider;
+      env.BUYER_CAPABILITY_AUTH_REQUIRED = originalBuyerProtection;
+    });
+    env.PAYMENT_PROVIDER = "local_demo";
+    setPaymentProviderForTest(localDemoPaymentProvider);
+    const created = await postJson("/api/needs", {
+      buyerEmail: "buyer@example.com",
+      profile: automationNeed()
+    });
+    await postJson(
+      `/api/need-profiles/${created.body.need.id}/research`,
+      {}
+    );
+    const firstToken = created.body.need.invitations[0].token;
+    const secondToken = created.body.need.invitations[1].token;
+    await approveOutreachAndClaim(created.body.need.id, firstToken);
+    await claimInvitation(secondToken);
+    const firstResponse = await postJson(
+      `/api/supplier-invitations/${firstToken}/responses`,
+      {
+        canHelp: true,
+        earliestAvailability: "2026-08-01",
+        indicativePriceAud: 18500,
+        relevantExperience:
+          "Completed staged PLC recovery and validation for a packaging line.",
+        proposedApproach: "Assess, isolate, recover and validate.",
+        assumptions: ["Controlled site access is available."],
+        conditions: ["Final scope follows diagnosis."]
+      }
+    );
+    await postJson(
+      `/api/supplier-invitations/${secondToken}/responses`,
+      {
+        canHelp: true,
+        earliestAvailability: "2026-08-03",
+        indicativePriceAud: 21400,
+        relevantExperience:
+          "Delivered controls recovery and documented commissioning.",
+        proposedApproach: "Review evidence, attend site and prove the restart.",
+        assumptions: ["Current drawings can be supplied."],
+        conditions: ["Travel is charged at cost."]
+      }
+    );
+    const selected = await postJson(
+      `/api/need-profiles/${created.body.need.id}/engagements`,
+      { supplierResponseId: firstResponse.body.response.id }
+    );
+    const engagementId = selected.body.engagement.id;
+
+    const pending = await getJson(
+      `/api/engagements/${engagementId}/receipt`
+    );
+    assert.equal(pending.status, 200);
+    const pendingReceipt = engagementSpeedReceiptSchema.parse(
+      pending.body.receipt
+    );
+    assert.equal(pendingReceipt.status, "in_progress");
+    assert.equal(pendingReceipt.elapsedMilliseconds, undefined);
+    assert.equal(
+      pendingReceipt.events.filter(
+        (event) => event.stage === "supplier_response_received"
+      ).length,
+      2
+    );
+    assert.equal(
+      pendingReceipt.events.find(
+        (event) => event.stage === "payment_verified"
+      )?.status,
+      "pending"
+    );
+    assert.ok(
+      pendingReceipt.events.some(
+        (event) =>
+          event.stage === "outreach_delivery" &&
+          event.label.includes("invitation prepared") &&
+          event.detail?.includes("no external delivery")
+      )
+    );
+
+    await postJson(`/api/engagements/${engagementId}/payment-link`, {});
+    await postJson(`/api/engagements/${engagementId}/demo-payment`, {});
+    const secured = await getJson(
+      `/api/engagements/${engagementId}/receipt`
+    );
+    const receipt = engagementSpeedReceiptSchema.parse(secured.body.receipt);
+    assert.equal(receipt.status, "secured");
+    assert.equal(
+      receipt.elapsedMilliseconds,
+      Date.parse(receipt.securedAt as string) - Date.parse(receipt.startedAt)
+    );
+    assert.deepEqual(
+      receipt.events.map((event) => event.sequence),
+      receipt.events.map((_, index) => index + 1)
+    );
+    const stageOrder = [
+      "requirement_created",
+      "analysis_completed",
+      "outreach_delivery",
+      "supplier_response_received",
+      "supplier_selected",
+      "payment_link_created",
+      "payment_verified",
+      "milestone_funded"
+    ];
+    assert.deepEqual(
+      receipt.events
+        .map((event) => stageOrder.indexOf(event.stage))
+        .sort((left, right) => left - right),
+      receipt.events.map((event) => stageOrder.indexOf(event.stage))
+    );
+    const paymentRecorded = receipt.events.find(
+      (event) => event.stage === "payment_verified"
+    );
+    assert.equal(paymentRecorded?.label, "Local demo commitment recorded");
+    assert.equal(paymentRecorded?.evidenceSource, "local_demo");
+    assert.equal(paymentRecorded?.authoritative, false);
+    assert.ok(
+      receipt.events.some(
+        (event) =>
+          event.stage === "milestone_funded" &&
+          event.status === "complete"
+      )
+    );
+    assert.ok(
+      receipt.events.some(
+        (event) =>
+          event.stage === "milestone_funded" &&
+          event.status === "pending"
+      )
+    );
+    assert.equal(receipt.baseline.label, "Industry norm: days to weeks");
+    assert.equal(receipt.baseline.kind, "general_claim");
+
+    env.BUYER_CAPABILITY_AUTH_REQUIRED = true;
+    const unscoped = await getJson(
+      `/api/engagements/${engagementId}/receipt`
+    );
+    assert.equal(unscoped.status, 401);
+    const scoped = await getJson(
+      `/api/engagements/${engagementId}/receipt`,
+      { "x-veltact-buyer-token": created.body.buyerAccessToken }
+    );
+    assert.equal(scoped.status, 200);
+    assert.doesNotThrow(() =>
+      engagementSpeedReceiptSchema.parse(scoped.body.receipt)
     );
   });
 

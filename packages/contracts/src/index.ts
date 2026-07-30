@@ -1053,6 +1053,68 @@ export const deploymentSummarySchema = z.object({
 });
 export type DeploymentSummary = z.infer<typeof deploymentSummarySchema>;
 
+export const engagementReceiptStageSchema = z.enum([
+  "requirement_created",
+  "analysis_completed",
+  "outreach_delivery",
+  "supplier_response_received",
+  "supplier_selected",
+  "payment_link_created",
+  "payment_verified",
+  "milestone_funded"
+]);
+export type EngagementReceiptStage = z.infer<
+  typeof engagementReceiptStageSchema
+>;
+
+export const engagementReceiptEventStatusSchema = z.enum([
+  "complete",
+  "pending",
+  "failed"
+]);
+export type EngagementReceiptEventStatus = z.infer<
+  typeof engagementReceiptEventStatusSchema
+>;
+
+export const engagementReceiptEventSchema = z.object({
+  id: z.string().min(1),
+  sequence: z.number().int().positive(),
+  stage: engagementReceiptStageSchema,
+  status: engagementReceiptEventStatusSchema,
+  label: z.string().trim().min(1),
+  detail: z.string().trim().min(1).optional(),
+  occurredAt: isoDateTimeSchema.optional(),
+  channel: outreachChannelSchema.optional(),
+  supplierId: z.string().min(1).optional(),
+  supplierName: z.string().trim().min(1).optional(),
+  milestoneId: z.string().min(1).optional(),
+  evidenceSource: z.string().trim().min(1).optional(),
+  authoritative: z.boolean().optional()
+});
+export type EngagementReceiptEvent = z.infer<
+  typeof engagementReceiptEventSchema
+>;
+
+export const engagementSpeedReceiptSchema = z.object({
+  schemaVersion: z.literal(1),
+  engagementId: z.string().min(1),
+  needProfileId: z.string().min(1),
+  requirementTitle: z.string().trim().min(1),
+  status: z.enum(["in_progress", "secured"]),
+  startedAt: isoDateTimeSchema,
+  securedAt: isoDateTimeSchema.optional(),
+  elapsedMilliseconds: z.number().int().nonnegative().optional(),
+  baseline: z.object({
+    label: z.literal("Industry norm: days to weeks"),
+    kind: z.literal("general_claim")
+  }),
+  events: z.array(engagementReceiptEventSchema).min(1),
+  generatedAt: isoDateTimeSchema
+});
+export type EngagementSpeedReceipt = z.infer<
+  typeof engagementSpeedReceiptSchema
+>;
+
 export const rapidMatchBuyerWorkspaceSchema = z.object({
   phase: rapidMatchJourneyPhaseSchema,
   status: rapidMatchJourneyStatusSchema,
@@ -1070,7 +1132,8 @@ export const rapidMatchBuyerWorkspaceSchema = z.object({
   responses: z.array(supplierResponseSchema).default([]),
   engagement: engagementSchema.optional(),
   commitmentNotification: supplierCommitmentNotificationSchema.optional(),
-  deployment: deploymentSummarySchema.optional()
+  deployment: deploymentSummarySchema.optional(),
+  speedReceipt: engagementSpeedReceiptSchema.optional()
 });
 export type RapidMatchBuyerWorkspace = z.infer<
   typeof rapidMatchBuyerWorkspaceSchema
@@ -1088,6 +1151,7 @@ export const rapidMatchApiRoute = {
   responses: "/api/need-profiles/:needProfileId/responses",
   createEngagement: "/api/need-profiles/:needProfileId/engagements",
   engagement: "/api/engagements/:engagementId",
+  engagementReceipt: "/api/engagements/:engagementId/receipt",
   paymentLink: "/api/engagements/:engagementId/payment-link",
   milestonePaymentLink:
     "/api/engagements/:engagementId/milestones/:milestoneId/payment-link",
