@@ -6,6 +6,7 @@ const landingHtmlUrl = new URL("../public/landing.html", import.meta.url);
 const landingCssUrl = new URL("../public/landing.css", import.meta.url);
 const landingSourceUrl = new URL("../src/landing.ts", import.meta.url);
 const sceneSourceUrl = new URL("../src/landingScene.ts", import.meta.url);
+const pinchLogoUrl = new URL("../public/assets/brand/pinch-logo.svg", import.meta.url);
 
 function relativeLuminance(hex) {
   const channels = hex
@@ -67,6 +68,14 @@ test("landing animation remains separate from the real product workflow", async 
     html,
     /Find the path\. Connect with the right supplier\. Deploy with control\./,
   );
+  assert.match(html, /class="story-proof story-proof-find"/);
+  assert.match(html, /class="story-proof story-proof-connect"/);
+  assert.match(html, /class="story-proof story-proof-deploy"/);
+  assert.match(html, /RapidMatch shortlist/);
+  assert.match(html, /2 responses ready/);
+  assert.match(html, /assets\/brand\/pinch-logo\.svg/);
+  assert.match(html, /Verified payment evidence/);
+  assert.doesNotMatch(html, /placeholder|image-slot|Drop the real/i);
   assert.match(html, /type="button"[\s\S]*?data-story-jump="find"/);
   assert.match(html, /type="button"[\s\S]*?data-story-jump="connect"/);
   assert.match(html, /type="button"[\s\S]*?data-story-jump="deploy"/);
@@ -74,12 +83,17 @@ test("landing animation remains separate from the real product workflow", async 
 });
 
 test("landing uses a local Three runtime and does not depend on the design export runtime", async () => {
-  const html = await readFile(landingHtmlUrl, "utf8");
+  const [html, pinchLogo] = await Promise.all([
+    readFile(landingHtmlUrl, "utf8"),
+    readFile(pinchLogoUrl, "utf8"),
+  ]);
 
   assert.match(html, /"three": "\.\/assets\/vendor\/three\/three\.module\.min\.js"/);
   assert.match(html, /src="\.\/assets\/landing\.js"/);
   assert.doesNotMatch(html, /support\.js|text\/x-dc|DCLogic|cdn\.jsdelivr\.net/);
   assert.doesNotMatch(html, /unpkg\.com\/(?:react|@babel)/);
+  assert.match(pinchLogo, /<svg[^>]+viewBox="0 0 161 40"/);
+  assert.match(pinchLogo, /#FF5263/);
 });
 
 test("landing controller fails open without gating Trial Demo", async () => {
