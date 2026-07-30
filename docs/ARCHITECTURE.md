@@ -28,7 +28,13 @@ Domain progression:
 
 `evidence -> Need Profile -> research -> selected solution -> report -> matches
 -> approved outreach -> responses -> selection -> engagement -> Pinch
-commitment -> secured -> delivery progress`
+commitment -> secured -> milestone funding -> delivery progress -> speed
+receipt`
+
+Normal workflow activity also builds a private supplier registry. The registry
+is not a second journey or a supplier-enrolment shortcut; it is a persisted
+relationship projection that improves later matching for the same buyer
+account.
 
 The aggregate journey state is a view over domain records. Existing domain
 status enums remain authoritative for Need Profile, invitation, response,
@@ -42,8 +48,8 @@ engagement and payment transitions.
   persistence and provider calls.
 - `packages/contracts`: the only owner of public wire schemas, route templates
   and Socket.IO event names.
-- Pinch, OpenAI, Firecrawl, Resend, SendGrid and Twilio: backend-only provider
-  boundaries.
+- Pinch, OpenAI, Perplexity, Firecrawl, Resend, SendGrid and Twilio:
+  backend-only provider boundaries.
 
 The API serves compiled frontend assets. The supported demo topology is one API
 process and one canonical marketplace repository.
@@ -105,10 +111,12 @@ selected-solution and citation records. PDF rendering must not call AI again.
 - `marketplace/persistence.ts`: canonical atomic snapshot.
 - `marketplace/matching.ts` and `marketplace/suppliers.ts`: deterministic and
   explainable matching.
+- `marketplace/findProviders.ts`: live/fixture research and discovery provider
+  boundary.
+- `marketplace/candidateDiscovery.ts`: one explainable ranking pipeline for
+  live, fixture and registry candidates.
 - `marketplace/outreachDelivery.ts`: controlled email, SMS and WhatsApp
   adapters.
-- V2 supplier discovery: donor provider/provenance logic, mapped into canonical
-  supplier candidates before buyer approval.
 - `realtime.ts`: canonical RapidMatch buyer updates.
 
 The supplier UI may combine profile consent and quote submission into one
@@ -118,6 +126,13 @@ Invitation creation and external delivery remain separate operations. Copying a
 link creates no fabricated delivery record. RFQ and quote exports are generated
 from persisted canonical records.
 
+Supplier registry entries live in the canonical marketplace snapshot. Store
+write-through hooks upgrade provenance after discovery, outreach, response,
+the recorded supplier-securing transition and completed delivery. The linked
+engagement retains whether payment evidence was authoritative. Later
+requirements may inject capability-compatible registry entries into candidate
+discovery with a bounded, explainable history bonus.
+
 ### Deploy
 
 - `payments/*` and `pinch/*`: payer, hosted Payment Link, webhook verification
@@ -125,9 +140,14 @@ from persisted canonical records.
 - Existing RapidMatch `Engagement`: commercial root after supplier selection.
 - V2 project templates and payment evidence: donor logic used to create a
   minimal deployment summary.
+- `marketplace/speedReceipt.ts`: read-only timestamp projection over persisted
+  requirement, response, payment and milestone evidence.
 
 The canonical Deploy contract exposes the commitment, milestones and progress,
 not the full V2 task, issue, document, approval and change-request surface.
+Every funded milestone reuses the same authoritative Pinch boundary and owns
+its own link and evidence IDs. Payment state cannot advance engineering
+progress.
 
 ## Data Ownership
 
@@ -137,6 +157,11 @@ During migration, `VELTACT_V2_DATA_FILE` remains readable only by migration-only
 V2 routes. New canonical journey features must persist under the RapidMatch
 repository. No user-facing workflow may require coordinated reads from both
 stores.
+
+The canonical snapshot includes supplier registry entries, activity events,
+per-milestone payment evidence and the timestamps used to assemble speed
+receipts. Receipt records are projections and are not a competing source of
+truth.
 
 Once parity is achieved:
 
@@ -163,7 +188,8 @@ separate reviewed migration.
 
 - OpenAI may structure intake and return cited solution research when
   configured.
-- Firecrawl or OpenAI web search may return supplier candidate evidence.
+- OpenAI web search, optional Perplexity or Firecrawl may return supplier
+  candidate evidence.
 - Discovery never triggers outreach or enrolment.
 - Buyer approval is required before contact.
 - Supplier confirmation is required before activation.
@@ -173,6 +199,7 @@ separate reviewed migration.
 - Browser return never confirms Pinch payment.
 - Only verified webhook or reconciliation evidence is authoritative.
 - Local demo payment evidence is not a Pinch transaction.
+- Registry history is private, bounded and subordinate to capability fit.
 
 ## UI Constraint
 

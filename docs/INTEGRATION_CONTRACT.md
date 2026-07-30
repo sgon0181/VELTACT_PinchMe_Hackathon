@@ -20,6 +20,7 @@ donor capabilities are migrated.
 - `intakeEvidence`
 - `researchResult`
 - `solutionDecision`
+- `agentActivityEvents`
 - `discoveredSuppliers`
 - `suppliers`
 - `matches`
@@ -28,6 +29,7 @@ donor capabilities are migrated.
 - `responses`
 - `engagement`
 - `deployment`
+- `speedReceipt`
 
 The aggregate does not replace domain records. Need Profile, invitation,
 response, engagement and payment statuses remain authoritative.
@@ -59,6 +61,7 @@ User-facing outcomes map as:
 - `SupplierOutreachDelivery`
 - `SupplierProfile`
 - `SupplierResponse`
+- `SupplierRegistryEntry`
 
 `SupplierResponse` may include:
 
@@ -73,6 +76,12 @@ Public discovery produces `SupplierLead` evidence. It does not create a trusted
 `Supplier`. Buyer outreach approval and supplier confirmation remain separate
 backend records, even when the supplier UI completes confirmation and response
 from one screen.
+
+The private supplier registry is an account-scoped projection of normal
+workflow activity. Its provenance advances monotonically through `discovered`,
+`contacted`, `responded`, `secured` and `delivered`. Registry history may add a
+bounded ranking signal only after a candidate directly matches at least one
+required capability for the selected solution.
 
 Invitation requests select supplier lead IDs and zero or more delivery
 channels. An empty channel list creates copyable links without making an
@@ -124,6 +133,7 @@ Route templates are exported as `rapidMatchApiRoute`.
 ### Connect
 
 - `POST /api/need-profiles/:needProfileId/suppliers/discover`
+- `GET /api/registry?needProfileId=:needProfileId`
 - `POST /api/need-profiles/:needProfileId/invitations/send`
 - `GET /api/need-profiles/:needProfileId/responses`
 - `GET /api/supplier-invitations/:token`
@@ -148,9 +158,13 @@ Route templates are exported as `rapidMatchApiRoute`.
 ### Development
 
 - `POST /api/demo/reset`
+- `POST /api/engagements/:engagementId/demo-payment`
+- `POST /api/engagements/:engagementId/milestones/:milestoneId/demo-payment`
 
 The reset response must identify one canonical buyer workspace and at least two
 supplier invitation paths for comparison. All fixture records remain labelled.
+Demo-payment routes are unavailable in production and record explicitly
+non-authoritative local evidence only.
 
 ### Release Readiness
 
@@ -206,6 +220,7 @@ Find:
 - `rapidmatch:ai_intake.structured`
 - `rapidmatch:research.updated`
 - `rapidmatch:solution_decision.updated`
+- `rapidmatch:agent.activity_updated`
 
 Connect:
 
@@ -257,6 +272,8 @@ Agents must not emit canonical workflow updates under `veltact:v2:*`.
 - Deployment progress is derived and cannot be advanced by payment alone.
 - Fixture and local-demo evidence remain visible.
 - Buyer and supplier controls remain separated by capability.
+- Registry state is private to one account scope and upgrades monotonically.
+- Registry history never overrides a selected-pathway capability mismatch.
 
 ## Environment Conventions
 
@@ -304,38 +321,16 @@ Delivery state semantics:
 
 Cross-owner edits require A0 integration review.
 
-## Canonical Demo Sprint
+## Current Integration Branch
 
-The active integration branch is `codex/canonical-demo-flow`, created from
-`origin/main` commit `5376b0c`. Historical A1-A6 branches are evidence of prior
-work, not merge inputs for this sprint.
+The completed Phase A correctness baseline is `e95a9c9` on `30-jul-night`.
+The active snowball marketplace integration branch is `feature-polish`, created
+from that baseline. Its feature order is registry, live discovery, activity
+timeline, milestone funding, speed receipt and registry-aware ranking.
 
-Agents do not update automatically. Before each assignment, A0 supplies the
-latest integration SHA. The agent must:
-
-1. Fetch `origin`.
-2. Confirm its worktree is clean.
-3. Create a fresh task branch from the supplied
-   `origin/codex/canonical-demo-flow` SHA.
-4. Read the active product, blueprint, architecture and integration documents.
-5. Change only its owned files.
-6. Run its focused tests plus lint, typecheck and build.
-7. Commit and push without merging.
-
-A0 reviews and integrates one workstream at a time. No agent merges directly
-into `main`, `Recurssion` or `codex/canonical-demo-flow`. Do not merge or rebase
-an old agent branch into the sprint.
-
-Integration order:
-
-1. A5 landing simplification.
-2. A2 Find intake and recommendation review.
-3. A1 supplier matching and Connect preparation.
-4. A3 multi-channel outreach, supplier response and realtime status.
-5. A4 commitment and lightweight Deploy.
-6. A6 complete journey certification.
-7. A0 legacy-surface removal after parity.
-
-Only one workstream may edit `apps/buyer/src/main.ts` at a time. A5 must remain
-within landing assets during its first pass; A6 adds tests and release evidence
+Historical A1-A6 branches are implementation evidence, not merge inputs for
+this run. A0 owns shared contracts, route/event names, root configuration and
+integration decisions. No agent merges directly into `main`; a reviewed release
+must start from the committed `feature-polish` tip recorded in
+`CODEX_RUN_REPORT.md`.
 without redesigning product surfaces.
