@@ -25,6 +25,30 @@ this.eligibleDeploymentTransition = eligibleDeploymentTransition;`,
   helperSandbox
 );
 const { eligibleDeploymentTransition } = helperSandbox;
+const fundingHelperStart = mainBundle.indexOf(
+  "function nextFundableMilestone"
+);
+const fundingHelperEnd = mainBundle.indexOf(
+  "\nfunction renderMilestonePaymentEvidence",
+  fundingHelperStart
+);
+assert.notEqual(
+  fundingHelperStart,
+  -1,
+  "milestone funding helper should exist"
+);
+assert.notEqual(
+  fundingHelperEnd,
+  -1,
+  "milestone funding helper should be bounded"
+);
+const fundingSandbox = {};
+vm.runInNewContext(
+  `${mainBundle.slice(fundingHelperStart, fundingHelperEnd)}
+this.nextFundableMilestone = nextFundableMilestone;`,
+  fundingSandbox
+);
+const { nextFundableMilestone } = fundingSandbox;
 
 function milestone(sequence, status) {
   return {
@@ -89,6 +113,38 @@ test("does not skip an ineligible milestone or infer payment completion", () => 
   );
 });
 
+test("offers funding only for the next incomplete post-commitment milestone", () => {
+  assert.equal(
+    nextFundableMilestone({
+      milestones: [
+        milestone(1, "funded"),
+        milestone(2, "not_started")
+      ]
+    }),
+    undefined
+  );
+  assert.equal(
+    nextFundableMilestone({
+      milestones: [
+        milestone(1, "completed"),
+        milestone(2, "not_started"),
+        milestone(3, "not_started")
+      ]
+    }).id,
+    "milestone-2"
+  );
+  assert.equal(
+    nextFundableMilestone({
+      milestones: [
+        milestone(1, "completed"),
+        milestone(2, "awaiting_payment"),
+        milestone(3, "not_started")
+      ]
+    }).id,
+    "milestone-2"
+  );
+});
+
 test("renders one required delivery-update form and keeps a new requirement available", () => {
   assert.match(mainBundle, /id="deployment-milestone-form"/);
   assert.match(mainBundle, /name="latestUpdate"/);
@@ -104,6 +160,14 @@ test("renders one required delivery-update form and keeps a new requirement avai
     /data-refresh-deployment>Refresh deployment<\/button>[\s\S]*data-start-new>Start new requirement<\/button>/
   );
   assert.match(mainBundle, /milestoneUpdateFormHasFocus\(\)/);
+  assert.match(mainBundle, /data-fund-milestone=/);
+  assert.match(mainBundle, /Fund next milestone/);
+  assert.match(
+    mainBundle,
+    /Includes disclosed Veltact service fee:/
+  );
+  assert.match(mainBundle, /Browser return does not fund this milestone/);
+  assert.match(mainBundle, /data-cancel-milestone-payment=/);
 });
 
 test("PATCHes the buyer-scoped milestone route and preserves API errors", async () => {

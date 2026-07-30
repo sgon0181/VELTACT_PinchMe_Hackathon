@@ -89,10 +89,21 @@ copyable invitation links and adds no provider channel to
 - `Engagement`: selected supplier and Pinch commercial state.
 - `PaymentStatus`: backend payment lifecycle.
 - `DeploymentSummary`: lightweight project projection.
-- `DeploymentMilestoneSummary`: at most four demo milestones.
+- `DeploymentMilestoneSummary`: at most four ordered demo milestones, each with
+  its own amount, hosted-link state and payment evidence.
 
 `DeploymentSummary.progressPercentage` must be derived from milestone state.
 Payment may fund a milestone but cannot mark engineering work complete.
+Only the first incomplete milestone can create a Payment Link. The first
+milestone is the supplier commitment; later milestones reuse the same Pinch
+link, webhook and reconciliation machinery without re-running supplier
+selection. Each link carries `milestoneId`, `serviceFeeMinor` and
+`serviceFeeDisclosed: true` metadata.
+
+The service-fee amount is disclosed as an allocation within the milestone
+amount. The interface and API do not claim fee settlement or commission
+collection. A pending unpaid link may be cancelled through the provider; a paid
+milestone cannot be reverted without a separately verified refund lifecycle.
 
 The canonical buyer aggregate does not expose V2 task, issue, document,
 approval or change-request collections.
@@ -126,6 +137,8 @@ Route templates are exported as `rapidMatchApiRoute`.
 
 - `GET /api/engagements/:engagementId`
 - `POST /api/engagements/:engagementId/payment-link`
+- `POST /api/engagements/:engagementId/milestones/:milestoneId/payment-link`
+- `POST /api/engagements/:engagementId/milestones/:milestoneId/payment-link/cancel`
 - `GET /api/engagements/:engagementId/deployment`
 - `PATCH /api/engagements/:engagementId/deployment/milestones/:milestoneId`
 - `GET /api/engagements/:engagementId/commitment-notification`
@@ -226,6 +239,10 @@ Agents must not emit canonical workflow updates under `veltact:v2:*`.
 - Selection requires a submitted `can_help` response.
 - One selected response creates one engagement.
 - Payment Link creation reuses an existing usable link.
+- Milestone Payment Links are sequential and cannot skip incomplete work.
+- Every milestone stores its own provider, link, payment and evidence IDs.
+- Unpaid-link cancellation calls the configured provider before local state
+  changes.
 - Browser return does not update authoritative payment state.
 - Only verified webhook or reconciliation evidence secures the supplier.
 - Commitment notification is idempotent and follows authoritative payment
@@ -252,6 +269,8 @@ Agents must not emit canonical workflow updates under `veltact:v2:*`.
   labelled fixtures.
 - `PERPLEXITY_API_KEY` enables the optional Sonar supplier-discovery adapter.
 - `FIRECRAWL_API_KEY` enables optional discovery fallback.
+- `VELTACT_SERVICE_FEE_BPS` configures the disclosed milestone fee allocation
+  and defaults to `500` (5%).
 - Resend or SendGrid provides email.
 - Twilio provides SMS or WhatsApp.
 - `WEB_ORIGIN` and `PUBLIC_BASE_URL` must identify the API-served public origin.

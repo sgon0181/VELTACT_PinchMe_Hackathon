@@ -299,6 +299,72 @@ export class RapidMatchService {
         next = await this.loadDeployment(next);
         return next;
     }
+    async createMilestonePaymentLink(workspace, milestoneId) {
+        const needProfile = requiredNeedProfile(workspace);
+        const engagement = requiredEngagement(workspace);
+        const payload = await requestJson(routeFor(rapidMatchApiRoute.milestonePaymentLink, {
+            engagementId: engagement.id,
+            milestoneId
+        }), {
+            method: "POST",
+            body: {},
+            buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
+        });
+        const deployment = parseDeployment(payload.deployment);
+        if (!deployment) {
+            throw new Error("The API did not return the funded delivery plan.");
+        }
+        return reconcileWorkspace({
+            ...workspace,
+            phase: "deploy",
+            status: "delivery_active",
+            nextAction: "track_delivery",
+            deployment
+        });
+    }
+    async cancelMilestonePaymentLink(workspace, milestoneId) {
+        const needProfile = requiredNeedProfile(workspace);
+        const engagement = requiredEngagement(workspace);
+        const payload = await requestJson(routeFor(rapidMatchApiRoute.milestonePaymentLinkCancellation, {
+            engagementId: engagement.id,
+            milestoneId
+        }), {
+            method: "POST",
+            body: {},
+            buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
+        });
+        const deployment = parseDeployment(payload.deployment);
+        if (!deployment) {
+            throw new Error("The API did not return the updated delivery plan.");
+        }
+        return reconcileWorkspace({
+            ...workspace,
+            deployment
+        });
+    }
+    async completeDemoMilestonePayment(workspace, milestoneId) {
+        const needProfile = requiredNeedProfile(workspace);
+        const engagement = requiredEngagement(workspace);
+        const payload = await requestJson(routeFor(rapidMatchApiRoute.milestoneDemoPayment, {
+            engagementId: engagement.id,
+            milestoneId
+        }), {
+            method: "POST",
+            body: {},
+            buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
+        });
+        const deployment = parseDeployment(payload.deployment);
+        if (!deployment) {
+            throw new Error("The local demo did not return milestone evidence.");
+        }
+        return reconcileWorkspace({
+            ...workspace,
+            phase: "deploy",
+            status: "delivery_active",
+            nextAction: "track_delivery",
+            deployment
+        });
+    }
     async refreshEngagement(workspace) {
         const engagement = requiredEngagement(workspace);
         return this.loadEngagement(workspace, engagement.id);

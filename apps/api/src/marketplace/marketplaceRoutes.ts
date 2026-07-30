@@ -754,21 +754,25 @@ marketplaceRouter.get("/engagements/:engagementId", async (request, response) =>
   }
   if (!requireBuyerAccess(request, response, engagement.needId)) return;
 
-  if (engagement.paymentStatus === "awaiting_payment" && engagement.paymentLinkId) {
+  const pendingMilestone = getDeployment(engagement.id)?.milestones.find(
+    (milestone) =>
+      milestone.paymentStatus === "awaiting_payment" &&
+      Boolean(milestone.paymentLinkId)
+  );
+  if (pendingMilestone) {
     try {
       const result =
         await marketplaceCommitmentPaymentService.reconcileApprovedPayment({
           engagementId: engagement.id,
+          milestoneId: pendingMilestone.id,
           buyerAccessToken: request.header("x-veltact-buyer-token")
         });
       engagement = getEngagement(request.params.engagementId) ?? engagement;
-      if (
-        result.reconciled &&
-        result.supplierSecured &&
-        !result.duplicate
-      ) {
-        emitPaymentStatusUpdated(engagement);
-        emitEngagementSecured(engagement);
+      if (result.reconciled && result.milestoneFunded && !result.duplicate) {
+        if (result.supplierSecured) {
+          emitPaymentStatusUpdated(engagement);
+          emitEngagementSecured(engagement);
+        }
         emitCurrentDeployment(engagement.id, engagement.needId);
       }
     } catch {
@@ -804,34 +808,105 @@ marketplaceRouter.post("/engagements/:engagementId/payment-link", async (request
       engagement: engagement ? serialiseEngagement(engagement) : undefined,
       hostedCheckoutUrl: result.paymentLink.hostedCheckoutUrl,
       reused: result.reused,
+      ...result.fee,
       commitmentMilestone: deployment?.milestones[0]
     });
   } catch (error) {
-    if (error instanceof CommitmentPaymentError) {
-      response.status(error.statusCode).json({
-        status: "error",
-        message: error.message
-      });
-      return;
-    }
-    if (error instanceof PinchApiError) {
-      response.status(error.statusCode).json({
-        status: "error",
-        message: error.message,
-        upstreamStatus: error.upstreamStatus,
-        upstreamCode: error.upstreamCode
-      });
-      return;
-    }
-
-    response.status(500).json({
-      status: "error",
-      message: "Unexpected payment integration error"
-    });
+    sendPaymentIntegrationError(response, error);
   }
 });
 
+marketplaceRouter.post(
+  "/engagements/:engagementId/milestones/:milestoneId/payment-link",
+  async (request, response) => {
+    try {
+      const returnUrl = new URL(env.PINCH_RETURN_URL);
+      returnUrl.pathname = `/api/pinch/return/${request.params.engagementId}`;
+      returnUrl.search = "";
+      returnUrl.searchParams.set("milestone_id", request.params.milestoneId);
+      returnUrl.hash = "";
+      const result =
+        await marketplaceCommitmentPaymentService.createOrReuseHostedPaymentLink(
+          {
+            engagementId: request.params.engagementId,
+            milestoneId: request.params.milestoneId,
+            buyerAccessToken: request.header("x-veltact-buyer-token"),
+            returnUrl: returnUrl.toString()
+          }
+        );
+      const deployment =
+        await marketplaceDeploymentIntegration.service.getDeployment(
+          request.params.engagementId,
+          request.header("x-veltact-buyer-token")
+        );
+      const milestone = deployment.milestones.find(
+        (candidate) => candidate.id === request.params.milestoneId
+      );
+
+      response.status(result.reused ? 200 : 201).json({
+        hostedCheckoutUrl: result.paymentLink.hostedCheckoutUrl,
+        reused: result.reused,
+        ...result.fee,
+        milestone,
+        deployment
+      });
+    } catch (error) {
+      sendPaymentIntegrationError(response, error);
+    }
+  }
+);
+
+marketplaceRouter.post(
+  "/engagements/:engagementId/milestones/:milestoneId/payment-link/cancel",
+  async (request, response) => {
+    try {
+      await marketplaceCommitmentPaymentService.cancelUnpaidHostedPaymentLink({
+        engagementId: request.params.engagementId,
+        milestoneId: request.params.milestoneId,
+        buyerAccessToken: request.header("x-veltact-buyer-token")
+      });
+      const deployment =
+        await marketplaceDeploymentIntegration.service.getDeployment(
+          request.params.engagementId,
+          request.header("x-veltact-buyer-token")
+        );
+      const engagement = getEngagement(request.params.engagementId);
+      if (engagement) {
+        emitCurrentDeployment(engagement.id, engagement.needId);
+      }
+      response.json({
+        cancelled: true,
+        milestone: deployment.milestones.find(
+          (candidate) => candidate.id === request.params.milestoneId
+        ),
+        deployment
+      });
+    } catch (error) {
+      sendPaymentIntegrationError(response, error);
+    }
+  }
+);
+
 marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, response) => {
+  recordLocalDemoMilestonePayment(request, response);
+});
+
+marketplaceRouter.post(
+  "/engagements/:engagementId/milestones/:milestoneId/demo-payment",
+  (request, response) => {
+    recordLocalDemoMilestonePayment(
+      request,
+      response,
+      request.params.milestoneId
+    );
+  }
+);
+
+function recordLocalDemoMilestonePayment(
+  request: Request,
+  response: Response,
+  requestedMilestoneId?: string
+) {
   if (
     env.NODE_ENV === "production" ||
     env.PAYMENT_PROVIDER !== "local_demo"
@@ -843,7 +918,8 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
     return;
   }
 
-  const engagement = getEngagement(request.params.engagementId);
+  const engagementId = request.params.engagementId as string;
+  const engagement = getEngagement(engagementId);
   if (!engagement) {
     response.status(404).json({
       status: "error",
@@ -853,7 +929,30 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
   }
   if (!requireBuyerAccess(request, response, engagement.needId)) return;
 
-  if (engagement.paymentStatus !== "awaiting_payment" || !engagement.paymentLinkId) {
+  const deployment = getDeployment(engagement.id);
+  const milestone = requestedMilestoneId
+    ? deployment?.milestones.find(
+        (candidate) => candidate.id === requestedMilestoneId
+      )
+    : deployment?.milestones[0];
+  if (!milestone) {
+    response.status(404).json({
+      status: "error",
+      message: "Deployment milestone not found"
+    });
+    return;
+  }
+  const payerId =
+    milestone.pinchPayerId ??
+    (milestone.sequence === 1 ? engagement.pinchPayerId : undefined);
+  const paymentLinkId =
+    milestone.paymentLinkId ??
+    (milestone.sequence === 1 ? engagement.paymentLinkId : undefined);
+  const hostedCheckoutUrl =
+    milestone.hostedCheckoutUrl ??
+    (milestone.sequence === 1 ? engagement.hostedCheckoutUrl : undefined);
+
+  if (milestone.paymentStatus !== "awaiting_payment" || !paymentLinkId) {
     response.status(409).json({
       status: "error",
       message: "Create a payment link before completing the demo payment"
@@ -861,12 +960,12 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
     return;
   }
   if (
-    !engagement.pinchPayerId ||
-    !engagement.hostedCheckoutUrl ||
+    !payerId ||
+    !hostedCheckoutUrl ||
     !isLocalDemoHostedPaymentLink({
-      payerId: engagement.pinchPayerId,
-      paymentLinkId: engagement.paymentLinkId,
-      hostedCheckoutUrl: engagement.hostedCheckoutUrl
+      payerId,
+      paymentLinkId,
+      hostedCheckoutUrl
     })
   ) {
     response.status(409).json({
@@ -876,15 +975,19 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
     return;
   }
 
-  const eventId = `demo-payment:${engagement.id}`;
-  const paymentId = `demo_${engagement.paymentLinkId}`;
+  const eventId = requestedMilestoneId
+    ? `demo-payment:${engagement.id}:${milestone.id}`
+    : `demo-payment:${engagement.id}`;
+  const paymentId = `demo_${paymentLinkId}`;
   const result = recordLocalDemoPayment({
     eventId,
     eventType: "local-demo-payment",
     engagementId: engagement.id,
+    milestoneId: milestone.id,
     paymentId,
     payload: {
-      paymentLinkId: engagement.paymentLinkId,
+      paymentLinkId,
+      milestoneId: milestone.id,
       status: "approved",
       source: "local_demo"
     }
@@ -899,19 +1002,26 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
   }
 
   if (!result.duplicate) {
-    emitPaymentStatusUpdated(result.engagement);
-    emitEngagementSecured(result.engagement);
+    if (milestone.sequence === 1) {
+      emitPaymentStatusUpdated(result.engagement);
+      emitEngagementSecured(result.engagement);
+    }
     emitCurrentDeployment(result.engagement.id, result.engagement.needId);
   }
   response.json({
     engagement: serialiseEngagement(result.engagement),
+    milestone: result.deployment?.milestones.find(
+      (candidate) => candidate.id === milestone.id
+    ),
+    deployment: result.deployment,
     paymentEvidence: {
       ...createLocalDemoPaymentEvidence(env.NODE_ENV),
       eventId,
+      milestoneId: milestone.id,
       paymentId
     }
   });
-});
+}
 
 marketplaceRouter.post("/supplier-invitations/:token/claim", (request, response) => {
   const parsed = supplierClaimSchema.safeParse(request.body ?? {});
@@ -1517,6 +1627,33 @@ function serialiseEngagement(engagement: NonNullable<ReturnType<typeof getEngage
     ...engagement,
     needProfileId: engagement.needId
   };
+}
+
+function sendPaymentIntegrationError(
+  response: Response,
+  error: unknown
+) {
+  if (error instanceof CommitmentPaymentError) {
+    response.status(error.statusCode).json({
+      status: "error",
+      message: error.message
+    });
+    return;
+  }
+  if (error instanceof PinchApiError) {
+    response.status(error.statusCode).json({
+      status: "error",
+      message: error.message,
+      upstreamStatus: error.upstreamStatus,
+      upstreamCode: error.upstreamCode
+    });
+    return;
+  }
+
+  response.status(500).json({
+    status: "error",
+    message: "Unexpected payment integration error"
+  });
 }
 
 function emitCurrentDeployment(

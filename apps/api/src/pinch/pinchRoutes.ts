@@ -162,21 +162,37 @@ pinchRouter.post("/webhooks", async (request, response) => {
     const deployment = engagement
       ? getDeployment(engagement.id)
       : undefined;
-    const commitment = deployment?.milestones[0];
+    const milestone = rapidMatchPayment
+      ? deployment?.milestones.find(
+          (candidate) => candidate.id === rapidMatchPayment.milestoneId
+        )
+      : undefined;
+    const milestonePayerId =
+      milestone?.pinchPayerId ??
+      (milestone?.sequence === 1 ? engagement?.pinchPayerId : undefined);
+    const milestonePaymentLinkId =
+      milestone?.paymentLinkId ??
+      (milestone?.sequence === 1 ? engagement?.paymentLinkId : undefined);
+    const milestoneHostedCheckoutUrl =
+      milestone?.hostedCheckoutUrl ??
+      (milestone?.sequence === 1
+        ? engagement?.hostedCheckoutUrl
+        : undefined);
     const matchesCommitment = Boolean(
       rapidMatchPayment &&
-      engagement?.paymentLinkId &&
-      engagement.pinchPayerId &&
-      engagement.hostedCheckoutUrl &&
-      commitment?.amount &&
+      engagement &&
+      milestonePaymentLinkId &&
+      milestonePayerId &&
+      milestoneHostedCheckoutUrl &&
+      milestone?.amount &&
       matchesExpectedPinchCommitment(rapidMatchPayment, {
         engagementId: engagement.id,
         needProfileId: engagement.needId,
         supplierId: engagement.supplierId,
-        milestoneId: commitment.id,
-        payerId: engagement.pinchPayerId,
-        amountMinor: commitment.amount.amount,
-        currency: commitment.amount.currency
+        milestoneId: milestone.id,
+        payerId: milestonePayerId,
+        amountMinor: milestone.amount.amount,
+        currency: milestone.amount.currency
       })
     );
     if (rapidMatchPayment && !engagement) {
@@ -186,23 +202,25 @@ pinchRouter.post("/webhooks", async (request, response) => {
     } else if (
       rapidMatchPayment &&
       engagement &&
+      milestone &&
       matchesCommitment &&
-      (engagement.paymentStatus === "awaiting_payment" ||
-        engagement.pinchPaymentId === rapidMatchPayment.paymentId)
+      (milestone.paymentStatus === "awaiting_payment" ||
+        milestone.pinchPaymentId === rapidMatchPayment.paymentId)
     ) {
       const result = recordAuthoritativePinchPayment({
         eventId: rapidMatchPayment.eventId,
         eventType: rapidMatchPayment.eventType,
         engagementId: rapidMatchPayment.engagementId,
+        milestoneId: rapidMatchPayment.milestoneId,
         paymentId: rapidMatchPayment.paymentId,
         payload: request.body
       });
-      processed = Boolean(result.engagement);
+      processed = result.milestoneFunded;
       reason = result.duplicate ? "duplicate" : undefined;
 
       if (result.engagement && !result.duplicate) {
-        emitPaymentStatusUpdated(result.engagement);
-        if (result.engagement.status === "supplier_secured") {
+        if (milestone.sequence === 1) {
+          emitPaymentStatusUpdated(result.engagement);
           emitEngagementSecured(result.engagement);
         }
         const updatedDeployment = getDeployment(result.engagement.id);

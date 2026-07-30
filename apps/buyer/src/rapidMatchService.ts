@@ -488,6 +488,93 @@ export class RapidMatchService {
     return next;
   }
 
+  async createMilestonePaymentLink(
+    workspace: RapidMatchBuyerWorkspace,
+    milestoneId: string
+  ): Promise<RapidMatchBuyerWorkspace> {
+    const needProfile = requiredNeedProfile(workspace);
+    const engagement = requiredEngagement(workspace);
+    const payload = await requestJson<EngagementEnvelope>(
+      routeFor(rapidMatchApiRoute.milestonePaymentLink, {
+        engagementId: engagement.id,
+        milestoneId
+      }),
+      {
+        method: "POST",
+        body: {},
+        buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
+      }
+    );
+    const deployment = parseDeployment(payload.deployment);
+    if (!deployment) {
+      throw new Error("The API did not return the funded delivery plan.");
+    }
+    return reconcileWorkspace({
+      ...workspace,
+      phase: "deploy",
+      status: "delivery_active",
+      nextAction: "track_delivery",
+      deployment
+    });
+  }
+
+  async cancelMilestonePaymentLink(
+    workspace: RapidMatchBuyerWorkspace,
+    milestoneId: string
+  ): Promise<RapidMatchBuyerWorkspace> {
+    const needProfile = requiredNeedProfile(workspace);
+    const engagement = requiredEngagement(workspace);
+    const payload = await requestJson<EngagementEnvelope>(
+      routeFor(rapidMatchApiRoute.milestonePaymentLinkCancellation, {
+        engagementId: engagement.id,
+        milestoneId
+      }),
+      {
+        method: "POST",
+        body: {},
+        buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
+      }
+    );
+    const deployment = parseDeployment(payload.deployment);
+    if (!deployment) {
+      throw new Error("The API did not return the updated delivery plan.");
+    }
+    return reconcileWorkspace({
+      ...workspace,
+      deployment
+    });
+  }
+
+  async completeDemoMilestonePayment(
+    workspace: RapidMatchBuyerWorkspace,
+    milestoneId: string
+  ): Promise<RapidMatchBuyerWorkspace> {
+    const needProfile = requiredNeedProfile(workspace);
+    const engagement = requiredEngagement(workspace);
+    const payload = await requestJson<EngagementEnvelope>(
+      routeFor(rapidMatchApiRoute.milestoneDemoPayment, {
+        engagementId: engagement.id,
+        milestoneId
+      }),
+      {
+        method: "POST",
+        body: {},
+        buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
+      }
+    );
+    const deployment = parseDeployment(payload.deployment);
+    if (!deployment) {
+      throw new Error("The local demo did not return milestone evidence.");
+    }
+    return reconcileWorkspace({
+      ...workspace,
+      phase: "deploy",
+      status: "delivery_active",
+      nextAction: "track_delivery",
+      deployment
+    });
+  }
+
   async refreshEngagement(
     workspace: RapidMatchBuyerWorkspace
   ): Promise<RapidMatchBuyerWorkspace> {

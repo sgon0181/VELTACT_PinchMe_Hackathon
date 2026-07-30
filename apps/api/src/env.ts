@@ -66,6 +66,7 @@ const envSchema = z.object({
   VELTACT_DISCOVERY_PROVIDER: z
     .enum(["auto", "openai", "perplexity", "fixture"])
     .default("auto"),
+  VELTACT_SERVICE_FEE_BPS: z.coerce.number().int().min(0).max(10_000).default(500),
   PERPLEXITY_API_KEY: optionalProviderString,
   FIRECRAWL_API_KEY: optionalProviderString,
   PINCH_CLIENT_ID: optionalProviderString,

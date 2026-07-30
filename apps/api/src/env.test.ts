@@ -23,6 +23,24 @@ describe("production Pinch environment", () => {
 
     assert.equal(result.OPENAI_MODEL, "gpt-5.4-mini");
     assert.equal(result.VELTACT_DISCOVERY_PROVIDER, "auto");
+    assert.equal(result.VELTACT_SERVICE_FEE_BPS, 500);
+  });
+
+  test("accepts a bounded disclosed service-fee rate", () => {
+    const result = parseEnvironment({
+      NODE_ENV: "development",
+      PAYMENT_PROVIDER: "local_demo",
+      VELTACT_SERVICE_FEE_BPS: "650"
+    });
+
+    assert.equal(result.VELTACT_SERVICE_FEE_BPS, 650);
+    assert.throws(() =>
+      parseEnvironment({
+        NODE_ENV: "development",
+        PAYMENT_PROVIDER: "local_demo",
+        VELTACT_SERVICE_FEE_BPS: "10001"
+      })
+    );
   });
 
   test("accepts the optional Perplexity supplier discovery mode", () => {

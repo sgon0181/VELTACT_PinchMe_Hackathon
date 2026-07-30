@@ -2332,6 +2332,16 @@ dl .is-missing dd,
   border-bottom: 0;
 }
 
+.service-fee-disclosure {
+  margin: 14px 0 0;
+  border-left: 3px solid var(--blue);
+  padding: 10px 13px;
+  background: var(--blue-soft);
+  color: #174f72;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 .secondary-actions {
   justify-content: flex-end;
   margin-top: 12px;
@@ -2483,6 +2493,78 @@ dl .is-missing dd,
 .milestone-progress {
   font-family: var(--font-mono);
   font-size: 0.78rem;
+}
+
+.milestone-evidence {
+  display: block;
+  width: fit-content;
+  margin-top: 7px;
+  border-left: 3px solid var(--line-strong);
+  padding: 5px 9px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.milestone-evidence.is-authoritative {
+  border-left-color: var(--green);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.milestone-evidence.is-pending {
+  border-left-color: var(--amber);
+  background: var(--amber-soft);
+  color: #6a4400;
+}
+
+.milestone-evidence.is-local-demo {
+  border-left-color: var(--blue);
+  background: var(--blue-soft);
+  color: #174f72;
+}
+
+.milestone-funding-panel {
+  margin-top: 24px;
+  border: 1px solid var(--line-strong);
+  border-left: 4px solid var(--blue);
+  border-radius: 5px;
+  padding: 20px;
+  background: #fff;
+}
+
+.milestone-funding-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.milestone-funding-heading h3 {
+  margin: 4px 0 0;
+  font-size: 1.15rem;
+}
+
+.milestone-funding-heading p:last-child {
+  max-width: 720px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.milestone-funding-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.milestone-funding-action {
+  margin-top: 18px;
+}
+
+.milestone-payment-utilities {
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .milestone-update-form {
@@ -2900,6 +2982,14 @@ dl .is-missing dd,
 
   .milestone-update-heading {
     align-items: flex-start;
+  }
+
+  .milestone-funding-heading {
+    display: grid;
+  }
+
+  .milestone-funding-facts {
+    grid-template-columns: 1fr;
   }
 
   .outcome-actions {

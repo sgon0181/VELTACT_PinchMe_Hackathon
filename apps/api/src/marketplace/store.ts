@@ -43,7 +43,7 @@ import {
   type SupplierRegistryResponse,
   type SupplierRegistrySource
 } from "@veltact/contracts";
-import { syncCommitmentPayment } from "../deployment/templates.js";
+import { deriveDeploymentSummary } from "../deployment/templates.js";
 import type {
   Engagement,
   LocalDemoPaymentEvidence,
@@ -1809,48 +1809,187 @@ export function attachPaymentLinkToEngagement(input: {
   paymentLinkId: string;
   hostedCheckoutUrl: string;
 }): Engagement | undefined {
+  const deployment = deployments.get(input.engagementId);
+  const commitment = deployment?.milestones[0];
+  if (!commitment) return undefined;
+  attachPaymentLinkToMilestone({
+    ...input,
+    milestoneId: commitment.id,
+    provider: input.paymentLinkId.startsWith("local_demo_link_")
+      ? "local_demo"
+      : "pinch",
+    serviceFeeMinor: 0,
+    serviceFeeDisclosed: true
+  });
+  return engagements.get(input.engagementId);
+}
+
+export function attachPaymentLinkToMilestone(input: {
+  engagementId: string;
+  milestoneId: string;
+  provider: "pinch" | "local_demo";
+  payerId: string;
+  paymentLinkId: string;
+  hostedCheckoutUrl: string;
+  serviceFeeMinor: number;
+  serviceFeeDisclosed: true;
+}): DeploymentSummary | undefined {
   const engagement = engagements.get(input.engagementId);
-  if (!engagement) {
+  const deployment = deployments.get(input.engagementId);
+  const milestone = deployment?.milestones.find(
+    (candidate) => candidate.id === input.milestoneId
+  );
+  if (!engagement || !deployment || !milestone) {
     return undefined;
   }
 
   const need = needs.get(engagement.needId);
   const now = new Date().toISOString();
-  engagement.pinchPayerId = input.payerId;
-  engagement.paymentLinkId = input.paymentLinkId;
-  engagement.hostedCheckoutUrl = input.hostedCheckoutUrl;
-  engagement.status = "payment_pending";
-  engagement.paymentStatus = "awaiting_payment";
-  engagement.updatedAt = now;
+  milestone.pinchPayerId = input.payerId;
+  milestone.paymentLinkId = input.paymentLinkId;
+  milestone.hostedCheckoutUrl = input.hostedCheckoutUrl;
+  milestone.paymentStatus = "awaiting_payment";
+  milestone.status = "awaiting_payment";
+  milestone.serviceFeeMinor = input.serviceFeeMinor;
+  milestone.serviceFeeDisclosed = input.serviceFeeDisclosed;
+  milestone.latestUpdate = `Awaiting payment confirmation for ${milestone.title}.`;
+  milestone.updatedAt = now;
+  deployment.latestUpdate = milestone.latestUpdate;
+  deployment.updatedAt = now;
+  deployments.set(
+    deployment.engagementId,
+    deriveDeploymentSummary(deployment)
+  );
 
-  if (need) {
-    need.status = "payment_pending";
-    need.updatedAt = now;
+  if (milestone.sequence === 1) {
+    engagement.pinchPayerId = input.payerId;
+    engagement.paymentLinkId = input.paymentLinkId;
+    engagement.hostedCheckoutUrl = input.hostedCheckoutUrl;
+    engagement.status = "payment_pending";
+    engagement.paymentStatus = "awaiting_payment";
+    engagement.updatedAt = now;
+
+    if (need) {
+      need.status = "payment_pending";
+      need.updatedAt = now;
+    }
   }
 
   commitMarketplaceMutation({
-    eventType: "payment_link.created",
+    eventType:
+      milestone.sequence === 1
+        ? "payment_link.created"
+        : "milestone.payment_link_created",
     actorType: "buyer",
     entityType: "payment",
-    entityId: engagement.id,
+    entityId: milestone.id,
     metadata: {
-      paymentStatus: engagement.paymentStatus
+      engagementId: engagement.id,
+      milestoneId: milestone.id,
+      paymentStatus: milestone.paymentStatus,
+      provider: input.provider,
+      serviceFeeMinor: input.serviceFeeMinor,
+      serviceFeeDisclosed: input.serviceFeeDisclosed
     }
   });
-  return engagement;
+  return structuredClone(deployments.get(deployment.engagementId));
+}
+
+export function cancelPaymentLinkForMilestone(input: {
+  engagementId: string;
+  milestoneId: string;
+}): DeploymentSummary | undefined {
+  const engagement = engagements.get(input.engagementId);
+  const deployment = deployments.get(input.engagementId);
+  const milestone = deployment?.milestones.find(
+    (candidate) => candidate.id === input.milestoneId
+  );
+  if (
+    !engagement ||
+    !deployment ||
+    !milestone ||
+    !["link_created", "awaiting_payment", "pending"].includes(
+      milestone.paymentStatus
+    )
+  ) {
+    return undefined;
+  }
+
+  const now = new Date().toISOString();
+  milestone.paymentStatus = "cancelled";
+  milestone.status = "not_started";
+  milestone.paymentLinkId = undefined;
+  milestone.hostedCheckoutUrl = undefined;
+  milestone.pinchPayerId = undefined;
+  milestone.serviceFeeMinor = undefined;
+  milestone.serviceFeeDisclosed = undefined;
+  milestone.latestUpdate = `${milestone.title} payment link was cancelled before payment.`;
+  milestone.updatedAt = now;
+  deployment.latestUpdate = milestone.latestUpdate;
+  deployment.updatedAt = now;
+  deployments.set(
+    deployment.engagementId,
+    deriveDeploymentSummary(deployment)
+  );
+
+  if (milestone.sequence === 1) {
+    engagement.paymentStatus = "cancelled";
+    engagement.status = "supplier_selected";
+    engagement.paymentLinkId = undefined;
+    engagement.hostedCheckoutUrl = undefined;
+    engagement.pinchPayerId = undefined;
+    engagement.updatedAt = now;
+    const need = needs.get(engagement.needId);
+    if (need) {
+      need.status = "selected";
+      need.updatedAt = now;
+    }
+  }
+
+  commitMarketplaceMutation({
+    eventType: "milestone.payment_link_cancelled",
+    actorType: "buyer",
+    entityType: "payment",
+    entityId: milestone.id,
+    metadata: {
+      engagementId: engagement.id,
+      milestoneId: milestone.id,
+      paymentStatus: milestone.paymentStatus
+    }
+  });
+  return structuredClone(deployments.get(deployment.engagementId));
 }
 
 export function recordAuthoritativePinchPayment(input: {
   eventId: string;
   eventType: string;
   engagementId: string;
+  milestoneId?: string;
   paymentId?: string;
   payload: unknown;
-}): { engagement?: Engagement; duplicate: boolean } {
+}): {
+  engagement?: Engagement;
+  deployment?: DeploymentSummary;
+  duplicate: boolean;
+  milestoneFunded: boolean;
+} {
+  const existingEngagement = engagements.get(input.engagementId);
+  const existingDeployment = deployments.get(input.engagementId);
+  const existingMilestone = input.milestoneId
+    ? existingDeployment?.milestones.find(
+        (milestone) => milestone.id === input.milestoneId
+      )
+    : existingDeployment?.milestones[0];
   if (processedPinchEventIds.has(input.eventId)) {
     return {
-      engagement: engagements.get(input.engagementId),
-      duplicate: true
+      engagement: existingEngagement,
+      deployment: existingDeployment
+        ? structuredClone(existingDeployment)
+        : undefined,
+      duplicate: true,
+      milestoneFunded:
+        existingMilestone?.paymentStatus === "paid" ||
+        (!existingMilestone && existingEngagement?.paymentStatus === "paid")
     };
   }
 
@@ -1873,19 +2012,20 @@ export function recordAuthoritativePinchPayment(input: {
       }
     });
     return {
-      engagement: engagements.get(input.engagementId),
-      duplicate: true
+      engagement: existingEngagement,
+      deployment: existingDeployment
+        ? structuredClone(existingDeployment)
+        : undefined,
+      duplicate: true,
+      milestoneFunded:
+        existingMilestone?.paymentStatus === "paid" ||
+        (!existingMilestone && existingEngagement?.paymentStatus === "paid")
     };
   }
 
   processedPinchEventIds.add(input.eventId);
   const receivedAt = new Date().toISOString();
-  pinchWebhookEvidence.set(input.eventId, {
-    ...input,
-    receivedAt
-  });
-
-  const engagement = engagements.get(input.engagementId);
+  const engagement = existingEngagement;
   if (!engagement) {
     commitMarketplaceMutation({
       eventType: "payment.unmatched",
@@ -1894,81 +2034,139 @@ export function recordAuthoritativePinchPayment(input: {
       entityId: input.engagementId,
       metadata: { eventType: input.eventType }
     });
-    return { duplicate: false };
+    return { duplicate: false, milestoneFunded: false };
+  }
+  if (input.milestoneId && !existingMilestone) {
+    commitMarketplaceMutation({
+      eventType: "payment.unmatched_milestone",
+      actorType: "payment_provider",
+      entityType: "payment",
+      entityId: input.milestoneId,
+      metadata: {
+        engagementId: input.engagementId,
+        eventType: input.eventType
+      }
+    });
+    return {
+      engagement,
+      deployment: existingDeployment
+        ? structuredClone(existingDeployment)
+        : undefined,
+      duplicate: false,
+      milestoneFunded: false
+    };
   }
 
+  pinchWebhookEvidence.set(input.eventId, {
+    ...input,
+    receivedAt
+  });
   const need = needs.get(engagement.needId);
-  engagement.status = "supplier_secured";
-  engagement.paymentStatus = "paid";
-  engagement.pinchPaymentId = input.paymentId ?? engagement.pinchPaymentId;
-  engagement.localDemoPaymentId = undefined;
-  engagement.paymentEvidenceProvider = "pinch";
-  engagement.paymentEvidenceSource =
+  const evidenceSource =
     input.eventType === "payment-api-reconciliation"
       ? "pinch_reconciliation"
       : "pinch_webhook";
-  engagement.paymentEvidenceAuthoritative = true;
-  engagement.securedAt = receivedAt;
-  engagement.updatedAt = receivedAt;
-
-  const deployment = deployments.get(engagement.id);
-  if (deployment) {
-    const synced = syncCommitmentPayment(
-      deployment,
-      engagement.paymentStatus,
-      receivedAt
+  if (existingMilestone && existingDeployment) {
+    existingMilestone.paymentStatus = "paid";
+    existingMilestone.status = "funded";
+    existingMilestone.pinchPaymentId =
+      input.paymentId ?? existingMilestone.pinchPaymentId;
+    existingMilestone.localDemoPaymentId = undefined;
+    existingMilestone.paymentEvidenceProvider = "pinch";
+    existingMilestone.paymentEvidenceSource = evidenceSource;
+    existingMilestone.paymentEvidenceAuthoritative = true;
+    existingMilestone.paymentEvidenceEventId = input.eventId;
+    existingMilestone.fundedAt = receivedAt;
+    existingMilestone.latestUpdate =
+      `${existingMilestone.title} funded after verified Pinch evidence.`;
+    existingMilestone.updatedAt = receivedAt;
+    existingDeployment.latestUpdate = existingMilestone.latestUpdate;
+    existingDeployment.updatedAt = receivedAt;
+    deployments.set(
+      engagement.id,
+      deriveDeploymentSummary(existingDeployment)
     );
-    if (synced.changed) {
-      deployments.set(engagement.id, synced.deployment);
-    }
   }
 
-  if (need) {
-    need.status = "secured";
-    need.updatedAt = receivedAt;
-    recordRegistryStageForSupplier(need, engagement.supplierId, "secured", {
-      occurredAt: receivedAt,
-      engagementId: engagement.id
-    });
+  const commitmentPayment =
+    !existingMilestone || existingMilestone.sequence === 1;
+  if (commitmentPayment) {
+    engagement.status = "supplier_secured";
+    engagement.paymentStatus = "paid";
+    engagement.pinchPaymentId = input.paymentId ?? engagement.pinchPaymentId;
+    engagement.localDemoPaymentId = undefined;
+    engagement.paymentEvidenceProvider = "pinch";
+    engagement.paymentEvidenceSource = evidenceSource;
+    engagement.paymentEvidenceAuthoritative = true;
+    engagement.securedAt = receivedAt;
+    engagement.updatedAt = receivedAt;
+
+    if (need) {
+      need.status = "secured";
+      need.updatedAt = receivedAt;
+      recordRegistryStageForSupplier(need, engagement.supplierId, "secured", {
+        occurredAt: receivedAt,
+        engagementId: engagement.id
+      });
+    }
   }
 
   commitMarketplaceMutation({
-    eventType: "payment.secured",
+    eventType: commitmentPayment ? "payment.secured" : "milestone.funded",
     actorType: "payment_provider",
     entityType: "payment",
-    entityId: engagement.id,
+    entityId: existingMilestone?.id ?? engagement.id,
     metadata: {
       eventType: input.eventType,
-      paymentStatus: engagement.paymentStatus
+      engagementId: engagement.id,
+      milestoneId: existingMilestone?.id ?? null,
+      paymentStatus: existingMilestone?.paymentStatus ?? engagement.paymentStatus,
+      authoritative: true
     }
   });
-  return { engagement, duplicate: false };
+  return {
+    engagement,
+    deployment: structuredClone(deployments.get(engagement.id)),
+    duplicate: false,
+    milestoneFunded: true
+  };
 }
 
 export function recordLocalDemoPayment(input: {
   eventId: string;
   eventType: string;
   engagementId: string;
+  milestoneId?: string;
   paymentId: string;
   payload: unknown;
-}): { engagement?: Engagement; duplicate: boolean } {
+}): {
+  engagement?: Engagement;
+  deployment?: DeploymentSummary;
+  duplicate: boolean;
+  milestoneFunded: boolean;
+} {
+  const existingEngagement = engagements.get(input.engagementId);
+  const existingDeployment = deployments.get(input.engagementId);
+  const existingMilestone = input.milestoneId
+    ? existingDeployment?.milestones.find(
+        (milestone) => milestone.id === input.milestoneId
+      )
+    : existingDeployment?.milestones[0];
   if (localDemoPaymentEvidence.has(input.eventId)) {
     return {
-      engagement: engagements.get(input.engagementId),
-      duplicate: true
+      engagement: existingEngagement,
+      deployment: existingDeployment
+        ? structuredClone(existingDeployment)
+        : undefined,
+      duplicate: true,
+      milestoneFunded:
+        existingMilestone?.paymentStatus === "paid" ||
+        (!existingMilestone && existingEngagement?.paymentStatus === "paid")
     };
   }
 
   const receivedAt = new Date().toISOString();
-  localDemoPaymentEvidence.set(input.eventId, {
-    provider: "local_demo",
-    source: "local_demo",
-    authoritative: false,
-    ...input,
-    receivedAt
-  });
-
-  const engagement = engagements.get(input.engagementId);
+  const engagement = existingEngagement;
   if (!engagement) {
     commitMarketplaceMutation({
       eventType: "payment.local_demo_unmatched",
@@ -1983,56 +2181,106 @@ export function recordLocalDemoPayment(input: {
         eventType: input.eventType
       }
     });
-    return { duplicate: false };
+    return { duplicate: false, milestoneFunded: false };
+  }
+  if (input.milestoneId && !existingMilestone) {
+    commitMarketplaceMutation({
+      eventType: "payment.local_demo_unmatched_milestone",
+      actorType: "system",
+      actorId: "local_demo",
+      entityType: "payment",
+      entityId: input.milestoneId,
+      metadata: {
+        engagementId: input.engagementId,
+        authoritative: false
+      }
+    });
+    return {
+      engagement,
+      deployment: existingDeployment
+        ? structuredClone(existingDeployment)
+        : undefined,
+      duplicate: false,
+      milestoneFunded: false
+    };
   }
 
+  localDemoPaymentEvidence.set(input.eventId, {
+    provider: "local_demo",
+    source: "local_demo",
+    authoritative: false,
+    ...input,
+    receivedAt
+  });
   const need = needs.get(engagement.needId);
-  engagement.status = "supplier_secured";
-  engagement.paymentStatus = "paid";
-  engagement.pinchPaymentId = undefined;
-  engagement.localDemoPaymentId = input.paymentId;
-  engagement.paymentEvidenceProvider = "local_demo";
-  engagement.paymentEvidenceSource = "local_demo";
-  engagement.paymentEvidenceAuthoritative = false;
-  engagement.securedAt = receivedAt;
-  engagement.updatedAt = receivedAt;
-
-  const deployment = deployments.get(engagement.id);
-  if (deployment) {
-    const synced = syncCommitmentPayment(
-      deployment,
-      engagement.paymentStatus,
-      receivedAt
+  if (existingMilestone && existingDeployment) {
+    existingMilestone.paymentStatus = "paid";
+    existingMilestone.status = "funded";
+    existingMilestone.pinchPaymentId = undefined;
+    existingMilestone.localDemoPaymentId = input.paymentId;
+    existingMilestone.paymentEvidenceProvider = "local_demo";
+    existingMilestone.paymentEvidenceSource = "local_demo";
+    existingMilestone.paymentEvidenceAuthoritative = false;
+    existingMilestone.paymentEvidenceEventId = input.eventId;
+    existingMilestone.fundedAt = receivedAt;
+    existingMilestone.latestUpdate =
+      `${existingMilestone.title} funded with non-authoritative local demo evidence.`;
+    existingMilestone.updatedAt = receivedAt;
+    existingDeployment.latestUpdate = existingMilestone.latestUpdate;
+    existingDeployment.updatedAt = receivedAt;
+    deployments.set(
+      engagement.id,
+      deriveDeploymentSummary(existingDeployment)
     );
-    if (synced.changed) {
-      deployments.set(engagement.id, synced.deployment);
+  }
+
+  const commitmentPayment =
+    !existingMilestone || existingMilestone.sequence === 1;
+  if (commitmentPayment) {
+    engagement.status = "supplier_secured";
+    engagement.paymentStatus = "paid";
+    engagement.pinchPaymentId = undefined;
+    engagement.localDemoPaymentId = input.paymentId;
+    engagement.paymentEvidenceProvider = "local_demo";
+    engagement.paymentEvidenceSource = "local_demo";
+    engagement.paymentEvidenceAuthoritative = false;
+    engagement.securedAt = receivedAt;
+    engagement.updatedAt = receivedAt;
+
+    if (need) {
+      need.status = "secured";
+      need.updatedAt = receivedAt;
+      recordRegistryStageForSupplier(need, engagement.supplierId, "secured", {
+        occurredAt: receivedAt,
+        engagementId: engagement.id
+      });
     }
   }
 
-  if (need) {
-    need.status = "secured";
-    need.updatedAt = receivedAt;
-    recordRegistryStageForSupplier(need, engagement.supplierId, "secured", {
-      occurredAt: receivedAt,
-      engagementId: engagement.id
-    });
-  }
-
   commitMarketplaceMutation({
-    eventType: "payment.local_demo_secured",
+    eventType: commitmentPayment
+      ? "payment.local_demo_secured"
+      : "milestone.local_demo_funded",
     actorType: "system",
     actorId: "local_demo",
     entityType: "payment",
-    entityId: engagement.id,
+    entityId: existingMilestone?.id ?? engagement.id,
     metadata: {
       provider: "local_demo",
       source: "local_demo",
       authoritative: false,
       eventType: input.eventType,
-      paymentStatus: engagement.paymentStatus
+      engagementId: engagement.id,
+      milestoneId: existingMilestone?.id ?? null,
+      paymentStatus: existingMilestone?.paymentStatus ?? engagement.paymentStatus
     }
   });
-  return { engagement, duplicate: false };
+  return {
+    engagement,
+    deployment: structuredClone(deployments.get(engagement.id)),
+    duplicate: false,
+    milestoneFunded: true
+  };
 }
 
 export function resetMarketplaceStore(options: { preserveAudit?: boolean } = {}) {

@@ -110,6 +110,7 @@ export type PinchWebhookEvidence = {
   eventId: string;
   eventType: string;
   engagementId: string;
+  milestoneId?: string;
   paymentId?: string;
   receivedAt: string;
   payload: unknown;
@@ -122,6 +123,7 @@ export type LocalDemoPaymentEvidence = {
   eventId: string;
   eventType: string;
   engagementId: string;
+  milestoneId?: string;
   paymentId: string;
   receivedAt: string;
   payload: unknown;

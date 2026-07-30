@@ -6,6 +6,7 @@ import {
 import {
   createDeploymentSummary,
   deriveDeploymentSummary,
+  ensureMilestoneFundingSchedule,
   milestoneProgress,
   syncCommitmentPayment
 } from "./templates.js";
@@ -119,12 +120,18 @@ export class DeploymentService {
     }
 
     const parsed = parsePersistedDeployment(existing);
-    const synced = syncCommitmentPayment(
+    const scheduled = ensureMilestoneFundingSchedule(
       parsed,
+      engagement.commitmentAmount
+    );
+    const synced = syncCommitmentPayment(
+      scheduled.deployment,
       engagement.paymentStatus,
       updatedAt
     );
-    return synced.changed ? this.save(synced.deployment) : parsed;
+    return scheduled.changed || synced.changed
+      ? this.save(synced.deployment)
+      : parsed;
   }
 
   private async save(deployment: DeploymentSummary) {

@@ -26,7 +26,12 @@ describe("DeploymentService", () => {
       ["Diagnosis", "Recovery", "Validation", "Handover"]
     );
     assert.equal(plc.milestones[0]?.amount?.amount, 150_000);
-    assert.equal(plc.milestones.slice(1).every((milestone) => !milestone.amount), true);
+    assert.equal(
+      plc.milestones.every(
+        (milestone) => milestone.amount?.amount === 150_000
+      ),
+      true
+    );
 
     const roboticsAdapter = new MemoryDeploymentAdapter(roboticsEngagement());
     const robotics = await new DeploymentService(roboticsAdapter).getDeployment(

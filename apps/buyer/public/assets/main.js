@@ -1457,6 +1457,7 @@ function renderPayment(data) {
     const commitmentAmount = data.deployment?.milestones[0]?.amount ??
         selectedSupplier(data)?.response.indicativePrice ??
         profile.budget;
+    const serviceFeeMinor = data.deployment?.milestones[0]?.serviceFeeMinor;
     return `
     <section class="panel payment-panel">
       <div class="payment-heading">
@@ -1479,6 +1480,9 @@ function renderPayment(data) {
         <strong>${escapeHtml(paymentPresentation.boundaryTitle)}</strong>
         <span>${escapeHtml(paymentPresentation.boundaryCopy)}</span>
       </div>
+      ${serviceFeeMinor === undefined
+        ? ""
+        : `<p class="service-fee-disclosure">Includes disclosed Veltact service fee: <strong>${money(serviceFeeMinor, commitmentAmount?.currency ?? "AUD")}</strong>. This records the fee allocation; it does not claim settlement.</p>`}
       <div class="payment-evidence payment-evidence-pending">
         <strong>Payment evidence</strong>
         <span>Secured only by verified Pinch webhook or API reconciliation — never by browser return.</span>
@@ -1642,6 +1646,90 @@ function renderAuthoritativePaymentEvidence(engagement, amount) {
     </div>
   `;
 }
+function nextFundableMilestone(deployment) {
+    const nextIncomplete = [...deployment.milestones]
+        .sort((left, right) => left.sequence - right.sequence)
+        .find((milestone) => milestone.status !== "completed");
+    if (!nextIncomplete ||
+        nextIncomplete.sequence === 1 ||
+        !["not_started", "awaiting_payment"].includes(nextIncomplete.status)) {
+        return undefined;
+    }
+    return nextIncomplete;
+}
+function renderMilestonePaymentEvidence(milestone) {
+    if (milestone.paymentStatus === "awaiting_payment") {
+        return `
+      <span class="milestone-evidence is-pending">
+        Awaiting provider evidence. Browser return does not fund this milestone.
+      </span>
+    `;
+    }
+    if (milestone.paymentEvidenceProvider === "local_demo") {
+        return `
+      <span class="milestone-evidence is-local-demo">
+        Local demo only / non-authoritative evidence${milestone.localDemoPaymentId ? ` / ${escapeHtml(shortId(milestone.localDemoPaymentId))}` : ""}
+      </span>
+    `;
+    }
+    if (milestone.paymentEvidenceAuthoritative) {
+        return `
+      <span class="milestone-evidence is-authoritative">
+        Verified by ${escapeHtml(paymentEvidenceSourceLabel(milestone.paymentEvidenceSource))}${milestone.pinchPaymentId ? ` / ${escapeHtml(shortId(milestone.pinchPaymentId))}` : ""}
+      </span>
+    `;
+    }
+    return "";
+}
+function renderNextMilestoneFunding(deployment, profile) {
+    const milestone = nextFundableMilestone(deployment);
+    if (!milestone?.amount)
+        return "";
+    const hostedUrl = milestone.hostedCheckoutUrl;
+    const presentation = paymentLinkPresentation(hostedUrl);
+    const localDemo = hostedPaymentKind(hostedUrl) === "local_demo";
+    return `
+    <section class="milestone-funding-panel" aria-labelledby="next-milestone-funding-title">
+      <div class="milestone-funding-heading">
+        <div>
+          <p class="eyebrow">Next commercial release</p>
+          <h3 id="next-milestone-funding-title">${escapeHtml(deploymentMilestoneTitle(milestone, profile))}</h3>
+          <p>Only this next incomplete milestone is eligible. Payment does not mark engineering work complete.</p>
+        </div>
+        <span class="status-chip is-${milestone.status}">${escapeHtml(statusLabel(milestone.status))}</span>
+      </div>
+      <dl class="payment-summary milestone-funding-facts">
+        ${fact("Milestone amount", money(milestone.amount.amount, milestone.amount.currency))}
+        ${fact("Veltact service fee", milestone.serviceFeeMinor === undefined
+        ? "Disclosed before checkout"
+        : money(milestone.serviceFeeMinor, milestone.amount.currency), milestone.serviceFeeMinor === undefined)}
+      </dl>
+      ${milestone.serviceFeeMinor === undefined
+        ? ""
+        : `<p class="service-fee-disclosure">Includes disclosed Veltact service fee: <strong>${money(milestone.serviceFeeMinor, milestone.amount.currency)}</strong>. This records the fee allocation; it does not claim settlement.</p>`}
+      ${renderMilestonePaymentEvidence(milestone)}
+      <div class="primary-action-row milestone-funding-action">
+        <div>
+          <strong>${hostedUrl ? presentation.actionTitle : "Fund next milestone"}</strong>
+          <span>${hostedUrl ? presentation.actionCopy : "Veltact creates a milestone-specific hosted checkout with the amount, fee and milestone ID in its payment metadata."}</span>
+        </div>
+        ${hostedUrl
+        ? `<a class="button button-primary" href="${safeHttpUrl(hostedUrl)}" target="_blank" rel="noreferrer">${escapeHtml(presentation.openLabel)}</a>`
+        : `<button class="button button-primary" type="button" data-fund-milestone="${escapeHtml(milestone.id)}">Fund next milestone</button>`}
+      </div>
+      ${hostedUrl
+        ? `
+            <div class="secondary-actions milestone-payment-utilities">
+              ${localDemoPaymentAvailable && localDemo
+            ? `<button class="button button-quiet" type="button" data-demo-milestone-payment="${escapeHtml(milestone.id)}">Record local demo milestone evidence</button>`
+            : ""}
+              <button class="button button-quiet" type="button" data-cancel-milestone-payment="${escapeHtml(milestone.id)}">Cancel unpaid link</button>
+            </div>
+          `
+        : ""}
+    </section>
+  `;
+}
 function renderDeployment(data) {
     const engagement = data.engagement;
     if (!engagement) {
@@ -1726,13 +1814,15 @@ function renderDeployment(data) {
                       <span class="milestone-index">${milestone.sequence}</span>
                       <span>
                         <strong>${escapeHtml(deploymentMilestoneTitle(milestone, profile))}</strong>
-                        <small>${escapeHtml(statusLabel(milestone.status))}${milestone.latestUpdate ? ` / ${escapeHtml(milestone.latestUpdate)}` : ""}</small>
+                        <small>${escapeHtml(statusLabel(milestone.status))}${milestone.amount ? ` / ${escapeHtml(money(milestone.amount.amount, milestone.amount.currency))}` : ""}${milestone.latestUpdate ? ` / ${escapeHtml(milestone.latestUpdate)}` : ""}</small>
+                        ${renderMilestonePaymentEvidence(milestone)}
                       </span>
                       <span class="milestone-progress">${milestone.progressPercentage}%</span>
                     </li>
                   `)
             .join("")}
             </ol>
+            ${renderNextMilestoneFunding(deployment, profile)}
             ${projection
             ? `
                   <div class="warning-strip milestone-update-unavailable">
@@ -1957,6 +2047,33 @@ function bindEvents() {
     bindClick("[data-start-new]", startNewRequirement);
     bindClick("[data-open-registry]", openSupplierRegistry);
     bindClick("[data-close-registry]", closeSupplierRegistry);
+    document
+        .querySelectorAll("[data-fund-milestone]")
+        .forEach((button) => {
+        button.addEventListener("click", () => {
+            const milestoneId = button.dataset.fundMilestone;
+            if (milestoneId)
+                void createMilestonePayment(milestoneId);
+        });
+    });
+    document
+        .querySelectorAll("[data-demo-milestone-payment]")
+        .forEach((button) => {
+        button.addEventListener("click", () => {
+            const milestoneId = button.dataset.demoMilestonePayment;
+            if (milestoneId)
+                void completeDemoMilestonePayment(milestoneId);
+        });
+    });
+    document
+        .querySelectorAll("[data-cancel-milestone-payment]")
+        .forEach((button) => {
+        button.addEventListener("click", () => {
+            const milestoneId = button.dataset.cancelMilestonePayment;
+            if (milestoneId)
+                void cancelMilestonePayment(milestoneId);
+        });
+    });
     document
         .querySelectorAll("input[name='supplier-response']")
         .forEach((radio) => {
@@ -2277,6 +2394,40 @@ async function completeDemoPayment() {
         persistContext();
         liveMessage =
             "Local demo payment recorded as non-authoritative development evidence.";
+    });
+}
+async function createMilestonePayment(milestoneId) {
+    if (!workspace?.engagement || !workspace.deployment)
+        return;
+    await runAction("Creating milestone payment link", async () => {
+        workspace = await service.createMilestonePaymentLink(workspace, milestoneId);
+        view = "deployment";
+        persistContext();
+        liveMessage = "Milestone payment link is ready with disclosed fee metadata.";
+    });
+}
+async function completeDemoMilestonePayment(milestoneId) {
+    if (!workspace?.engagement ||
+        !workspace.deployment ||
+        !localDemoPaymentAvailable) {
+        return;
+    }
+    await runAction("Recording local demo milestone evidence", async () => {
+        workspace = await service.completeDemoMilestonePayment(workspace, milestoneId);
+        view = "deployment";
+        persistContext();
+        liveMessage =
+            "Milestone funded with explicitly non-authoritative local demo evidence.";
+    });
+}
+async function cancelMilestonePayment(milestoneId) {
+    if (!workspace?.engagement || !workspace.deployment)
+        return;
+    await runAction("Cancelling unpaid milestone link", async () => {
+        workspace = await service.cancelMilestonePaymentLink(workspace, milestoneId);
+        view = "deployment";
+        persistContext();
+        liveMessage = "Unpaid milestone payment link cancelled.";
     });
 }
 async function refreshDeployment() {
