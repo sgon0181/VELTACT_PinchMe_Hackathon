@@ -1,4 +1,4 @@
-export type SupplierDemoScenario = "plc" | "robotics";
+export type SupplierDemoScenario = "general" | "plc" | "robotics";
 
 export type SupplierDemoResponse = {
   key: string;
@@ -10,6 +10,7 @@ export type SupplierDemoResponse = {
     companyName: string;
     contactName: string;
     contactEmail: string;
+    contactPhone: string;
   };
   response: {
     canHelp: true;
@@ -23,7 +24,7 @@ export type SupplierDemoResponse = {
 };
 
 const supplierDemoResponses: Record<
-  SupplierDemoScenario,
+  Exclude<SupplierDemoScenario, "general">,
   readonly SupplierDemoResponse[]
 > = {
   plc: [
@@ -36,7 +37,8 @@ const supplierDemoResponses: Record<
       company: {
         companyName: "Metro Controls Response",
         contactName: "Alex Chen",
-        contactEmail: "alex@fixture.veltact.test"
+        contactEmail: "alex@fixture.veltact.test",
+        contactPhone: "+61400000501"
       },
       response: {
         canHelp: true,
@@ -65,7 +67,8 @@ const supplierDemoResponses: Record<
       company: {
         companyName: "Western Automation Response",
         contactName: "Priya Nair",
-        contactEmail: "priya@fixture.veltact.test"
+        contactEmail: "priya@fixture.veltact.test",
+        contactPhone: "+61400000502"
       },
       response: {
         canHelp: true,
@@ -96,7 +99,8 @@ const supplierDemoResponses: Record<
       company: {
         companyName: "Precision Robotics Response",
         contactName: "Mia Williams",
-        contactEmail: "mia@fixture.veltact.test"
+        contactEmail: "mia@fixture.veltact.test",
+        contactPhone: "+61400000503"
       },
       response: {
         canHelp: true,
@@ -125,7 +129,8 @@ const supplierDemoResponses: Record<
       company: {
         companyName: "Applied Automation Response",
         contactName: "Jordan Lee",
-        contactEmail: "jordan@fixture.veltact.test"
+        contactEmail: "jordan@fixture.veltact.test",
+        contactPhone: "+61400000504"
       },
       response: {
         canHelp: true,
@@ -154,9 +159,14 @@ const supplierDemoResponses: Record<
  * objects directly into marketplace persistence.
  */
 export function getSupplierDemoResponses(
-  scenario: SupplierDemoScenario
+  scenario: SupplierDemoScenario,
+  requirementText = ""
 ): SupplierDemoResponse[] {
-  return supplierDemoResponses[scenario].map((entry) => ({
+  const responses =
+    scenario === "general"
+      ? generalSupplierDemoResponses(requirementText)
+      : supplierDemoResponses[scenario];
+  return responses.map((entry) => ({
     ...entry,
     company: { ...entry.company },
     response: {
@@ -170,7 +180,92 @@ export function getSupplierDemoResponses(
 export function supplierDemoScenarioFromRequirement(
   requirementText: string
 ): SupplierDemoScenario {
-  return /robot|pallet|abb|fanuc/i.test(requirementText)
-    ? "robotics"
-    : "plc";
+  if (/robot|pallet|abb|fanuc/i.test(requirementText)) {
+    return "robotics";
+  }
+  if (/\bplc|siemens|allen[- ]bradley|hmi|scada|controller\b/i.test(requirementText)) {
+    return "plc";
+  }
+  return "general";
+}
+
+function generalSupplierDemoResponses(
+  requirementText: string
+): readonly SupplierDemoResponse[] {
+  const capability = generalCapabilitySummary(requirementText);
+  return [
+    {
+      key: "general-fastest-response",
+      scenario: "general",
+      label: "Regional Industrial Response / fastest response (Fixture)",
+      evidenceLabel: "Fixture",
+      tradeOff: "fastest_response",
+      company: {
+        companyName: "Regional Industrial Response",
+        contactName: "Casey Morgan",
+        contactEmail: "casey@fixture.veltact.test",
+        contactPhone: "+61400000505"
+      },
+      response: {
+        canHelp: true,
+        earliestAvailability: "Next business day",
+        indicativePriceAud: 5600,
+        relevantExperience:
+          `Recent industrial maintenance callouts involving ${capability}, evidence-led assessment and controlled production handover.`,
+        proposedApproach:
+          `Review the buyer evidence, attend site to confirm the ${capability} scope under the factory's isolation procedure, then issue a separately approved intervention and validation plan.`,
+        assumptions: [
+          "Equipment identification and recent fault history are available",
+          "The buyer provides approved site access and isolation support"
+        ],
+        conditions: [
+          "Price covers assessment and a written findings report",
+          "Parts and repair work require separate buyer approval"
+        ]
+      }
+    },
+    {
+      key: "general-lower-price",
+      scenario: "general",
+      label: "Industrial Service Network / lower price (Fixture)",
+      evidenceLabel: "Fixture",
+      tradeOff: "lower_price",
+      company: {
+        companyName: "Industrial Service Network",
+        contactName: "Taylor Singh",
+        contactEmail: "taylor@fixture.veltact.test",
+        contactPhone: "+61400000506"
+      },
+      response: {
+        canHelp: true,
+        earliestAvailability: "Within two business days",
+        indicativePriceAud: 3800,
+        relevantExperience:
+          `Planned and breakdown maintenance scopes involving ${capability}, fault-history review and acceptance evidence.`,
+        proposedApproach:
+          `Complete a remote evidence review first, then attend within two business days to define the ${capability} intervention and handover criteria.`,
+        assumptions: [
+          "Nameplate details and maintenance records are supplied before attendance",
+          "The buyer accepts remote triage before the site visit"
+        ],
+        conditions: [
+          "Price includes one assessment shift",
+          "Specialist subcontractors and replacement components are excluded"
+        ]
+      }
+    }
+  ];
+}
+
+function generalCapabilitySummary(requirementText: string): string {
+  if (/gearbox|mechanical contractor|thermal protection/i.test(requirementText)) {
+    return "industrial gearbox diagnostics and mechanical maintenance";
+  }
+  if (/extrud|heater band|barrel heating|process heating/i.test(requirementText)) {
+    return "industrial process heating and extrusion equipment diagnostics";
+  }
+  if (/pump|hydraulic/i.test(requirementText)) {
+    return "industrial pump and hydraulic diagnostics";
+  }
+  return "the buyer-reviewed industrial equipment capabilities";
 }

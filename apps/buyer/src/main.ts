@@ -3,6 +3,7 @@ import {
   intakeEvidenceSummarySchema,
   solutionDecisionSchema,
   solutionResearchResultSchema,
+  truncateIntakeTitle,
   type AiIntakeResult,
   type IntakeEvidenceSummary,
   type NeedProfile,
@@ -3912,7 +3913,7 @@ function parseBudgetAmount(value: string) {
 function titleFromDescription(description: string) {
   const firstSentence = description.split(/[.!?]/)[0]?.trim();
   return firstSentence
-    ? firstSentence.slice(0, 90)
+    ? truncateIntakeTitle(firstSentence)
     : "Industrial supplier requirement";
 }
 

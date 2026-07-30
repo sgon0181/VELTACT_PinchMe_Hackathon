@@ -67,13 +67,44 @@ describe("deterministic supplier response fixtures", () => {
       ),
       "plc"
     );
+    assert.equal(
+      supplierDemoScenarioFromRequirement(
+        "Diagnose an overheating conveyor motor gearbox"
+      ),
+      "general"
+    );
   });
 
   test("keeps every fixture price valid for the supplier form", () => {
-    for (const scenario of ["plc", "robotics"] as const) {
+    for (const scenario of ["plc", "robotics", "general"] as const) {
       for (const entry of getSupplierDemoResponses(scenario)) {
         assert.equal(entry.response.indicativePriceAud % 100, 0);
       }
     }
+  });
+
+  test("templates complete generic responses from requirement capability", () => {
+    const responses = getSupplierDemoResponses(
+      "general",
+      "Conveyor gearbox requires industrial mechanical maintenance"
+    );
+    const rendered = JSON.stringify(responses);
+
+    assert.equal(responses.length, 2);
+    assert.match(rendered, /gearbox diagnostics/i);
+    assert.doesNotMatch(rendered, /Siemens|\bPLC\b|controller|backup/i);
+    assert.notEqual(
+      responses[0].response.indicativePriceAud,
+      responses[1].response.indicativePriceAud
+    );
+    assert.ok(
+      responses.every(
+        (entry) =>
+          entry.company.companyName &&
+          entry.company.contactName &&
+          entry.company.contactEmail &&
+          entry.company.contactPhone
+      )
+    );
   });
 });

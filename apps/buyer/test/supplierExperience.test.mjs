@@ -55,6 +55,15 @@ describe("concise token-scoped supplier experience", () => {
     assert.match(script, /await claimInvitation\(invitationToken, formData\)/);
     assert.match(script, /await postSupplierResponse\(/);
     assert.match(script, /reasons\.slice\(0, 3\)/);
+    assert.match(script, /setFormValueIfEmpty\("companyName"/);
+    assert.match(
+      script,
+      /Complete the required company and contact fields before submitting/
+    );
+    assert.doesNotMatch(
+      script,
+      /setFormValue\("sourceDisclosureAccepted"/
+    );
     assert.ok(
       script.indexOf("await claimInvitation") <
         script.indexOf("await postSupplierResponse")

@@ -1,5 +1,18 @@
 import { z } from "zod";
 
+export {
+  detectIntakeBudget,
+  detectIntakeCapabilities,
+  detectIntakeEquipment,
+  detectIntakeLocation,
+  detectIntakeUrgency,
+  intakeCategoryFromEquipment,
+  intakeTitleFromRequirement,
+  isIntakeRecoveryRequirement,
+  isIntakeUrgent,
+  truncateIntakeTitle
+} from "./intakeExtraction.js";
+
 export const needPrioritySchema = z.enum(["urgent", "soon", "planned"]);
 export type NeedPriority = z.infer<typeof needPrioritySchema>;
 

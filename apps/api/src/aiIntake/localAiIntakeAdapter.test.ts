@@ -161,4 +161,26 @@ describe("structureRequirementLocally", () => {
     assert.equal(result.generatedProfile.urgency, "Within 60 days");
     assert.ok(!result.missingFields.includes("required response timing"));
   });
+
+  test("extracts a Newcastle gearbox requirement with compact budget and 48-hour timing", () => {
+    const result = structureRequirementLocally({
+      rawRequirement:
+        "Conveyor motor gearbox on our bottling line in Newcastle NSW is overheating and tripping thermal protection every 2-3 hours. Production down to 40% capacity. Need an industrial mechanical contractor to diagnose and repair within 48 hours. Budget around 20k AUD."
+    });
+
+    assert.equal(result.generatedProfile.location, "Newcastle, NSW");
+    assert.equal(result.generatedProfile.budgetRange, "Up to AUD 20,000");
+    assert.equal(result.generatedProfile.urgency, "Within 2 days");
+    assert.equal(
+      result.generatedProfile.category,
+      "Industrial mechanical maintenance"
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial gearbox diagnostics"
+      )
+    );
+    assert.ok(result.generatedProfile.title.endsWith("…"));
+    assert.doesNotMatch(result.generatedProfile.title, /\stripping t…$/);
+  });
 });

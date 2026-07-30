@@ -30,6 +30,7 @@ const quoteDownload = document.querySelector("#download-quote");
 let claimComplete = false;
 let demoResponses = [];
 let demoResponsesForRequirement;
+let demoPresetIndexForInvitationToken;
 let demoRequirementText = "";
 
 form.addEventListener("submit", (event) => submitResponse(event, token));
@@ -215,6 +216,8 @@ async function configureDemoControls() {
   try {
     const demoModule = await import("./supplierDemoResponses.js");
     demoResponsesForRequirement = demoModule.demoResponsesForRequirement;
+    demoPresetIndexForInvitationToken =
+      demoModule.demoPresetIndexForInvitationToken;
   } catch {
     return;
   }
@@ -234,6 +237,13 @@ function populateDemoResponses() {
       return option;
     })
   );
+  if (demoResponses.length && demoPresetIndexForInvitationToken) {
+    const selectedIndex = demoPresetIndexForInvitationToken(
+      token || "",
+      demoResponses.length
+    );
+    demoSelect.value = demoResponses[selectedIndex].id;
+  }
 }
 
 function renderIdentity(profile, claim, invitation) {
@@ -323,6 +333,10 @@ function fillDemoResponse() {
 
   const canHelp = form.querySelector('input[name="canHelp"][value="true"]');
   if (canHelp instanceof HTMLInputElement) canHelp.checked = true;
+  setFormValueIfEmpty("companyName", selected.company.companyName);
+  setFormValueIfEmpty("contactName", selected.company.contactName);
+  setFormValueIfEmpty("contactEmail", selected.company.contactEmail);
+  setFormValueIfEmpty("contactPhone", selected.company.contactPhone);
   setFormValue("earliestAvailability", selected.earliestAvailability);
   setFormValue("indicativePriceAud", String(selected.indicativePriceAud));
   setFormValue("relevantExperience", selected.relevantExperience);
@@ -335,7 +349,32 @@ function fillDemoResponse() {
 
 async function submitResponse(event, invitationToken) {
   event.preventDefault();
-  if (!invitationToken || !form.reportValidity()) return;
+  if (!invitationToken) return;
+  if (!form.reportValidity()) {
+    const invalidField = form.querySelector(":invalid");
+    const invalidName = invalidField?.getAttribute("name");
+    if (invalidName === "sourceDisclosureAccepted") {
+      setFormStatus(
+        "Confirm the supplier identity statement before submitting.",
+        "error"
+      );
+    } else if (
+      ["companyName", "contactName", "contactEmail", "contactPhone"].includes(
+        invalidName
+      )
+    ) {
+      setFormStatus(
+        "Complete the required company and contact fields before submitting.",
+        "error"
+      );
+    } else {
+      setFormStatus(
+        "Complete the required opportunity response fields before submitting.",
+        "error"
+      );
+    }
+    return;
+  }
 
   submitButton.disabled = true;
   setFormStatus(
@@ -655,6 +694,13 @@ function setFormStatus(message, tone) {
 function setFormValue(name, value) {
   const field = form.elements.namedItem(name);
   if (field && "value" in field) field.value = value;
+}
+
+function setFormValueIfEmpty(name, value) {
+  const field = form.elements.namedItem(name);
+  if (field && "value" in field && !String(field.value).trim()) {
+    field.value = value;
+  }
 }
 
 function formatMoney(amount) {

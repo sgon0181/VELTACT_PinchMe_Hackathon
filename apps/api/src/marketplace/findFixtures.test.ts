@@ -7,7 +7,8 @@ import type {
 import { createFixtureResearch } from "../v2/fixtures.js";
 import {
   createMarketplaceFixtureResearch,
-  createMarketplaceFixtureSupplierLeads
+  createMarketplaceFixtureSupplierLeads,
+  inferMarketplaceDemoScenario
 } from "./findFixtures.js";
 
 const roboticsProfile: MarketplaceNeedProfile = {
@@ -47,6 +48,79 @@ const expectedOfficialSources = [
     sourceType: "manufacturer"
   }
 ] as const;
+
+const gearboxProfile: MarketplaceNeedProfile = {
+  title:
+    "Conveyor motor gearbox on our bottling line in Newcastle NSW is overheating and…",
+  description:
+    "Conveyor motor gearbox on our bottling line in Newcastle NSW is overheating and tripping thermal protection every 2-3 hours. Production down to 40% capacity.",
+  category: "Industrial mechanical maintenance",
+  industry: "Beverage manufacturing",
+  equipmentOrTechnology: [
+    "Industrial gearbox",
+    "Industrial motor",
+    "Packaging conveyor",
+    "Bottling line"
+  ],
+  location: "Newcastle, NSW",
+  urgencyDays: 2,
+  budgetAud: 20_000,
+  buyerPriority: "speed",
+  requiredCapabilities: [
+    "Industrial gearbox diagnostics",
+    "Industrial motor diagnostics",
+    "Industrial mechanical maintenance",
+    "Mechanical condition assessment",
+    "Conveyor fault recovery"
+  ]
+};
+
+describe("marketplace fixture scenario inference", () => {
+  test("selects robotics, PLC and generic scenarios explicitly", () => {
+    assert.equal(inferMarketplaceDemoScenario(roboticsProfile), "robotics");
+    assert.equal(
+      inferMarketplaceDemoScenario({
+        ...roboticsProfile,
+        title: "Siemens controller fault",
+        description: "A Siemens PLC stopped the filling line.",
+        category: "Industrial automation",
+        equipmentOrTechnology: ["Siemens PLC"],
+        requiredCapabilities: ["PLC fault finding"]
+      }),
+      "plc"
+    );
+    assert.equal(inferMarketplaceDemoScenario(gearboxProfile), "general");
+  });
+
+  test("templates generic pathways and supplier matches from the requirement", () => {
+    const generatedAt = new Date("2026-07-30T00:00:00.000Z");
+    const research = createMarketplaceFixtureResearch(
+      "marketplace-gearbox-need",
+      gearboxProfile,
+      generatedAt
+    );
+    const leads = createMarketplaceFixtureSupplierLeads(
+      "marketplace-gearbox-need",
+      gearboxProfile,
+      generatedAt
+    );
+    const rendered = JSON.stringify({ research, leads });
+
+    assert.equal(research.approaches.length, 3);
+    assert.match(research.id, /research:general$/);
+    assert.match(rendered, /Industrial gearbox/);
+    assert.match(rendered, /Industrial gearbox diagnostics/);
+    assert.match(rendered, /Newcastle/);
+    assert.doesNotMatch(rendered, /Siemens|\bPLC\b|controller|backup/i);
+    assert.ok(
+      leads.every((lead) =>
+        lead.matchReasons.some((reason) =>
+          /Industrial gearbox diagnostics/i.test(reason)
+        )
+      )
+    );
+  });
+});
 
 describe("robotics research fixture citations", () => {
   test("uses current official primary sources in both canonical fixture paths", () => {

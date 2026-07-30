@@ -1,4 +1,4 @@
-import { aiIntakeResultSchema, intakeEvidenceSummarySchema, solutionDecisionSchema, solutionResearchResultSchema } from "@veltact/contracts";
+import { aiIntakeResultSchema, intakeEvidenceSummarySchema, solutionDecisionSchema, solutionResearchResultSchema, truncateIntakeTitle } from "@veltact/contracts";
 import { BackendAiIntakeService, DemoAiIntakeService } from "./aiIntakeService.js";
 import { apiBaseUrl, demoControlsEnabled, localDemoPaymentEnabled, outreachOverrideAvailability } from "./apiBase.js";
 import { companyLogoFor } from "./companyLogos.js";
@@ -3082,7 +3082,7 @@ function parseBudgetAmount(value) {
 function titleFromDescription(description) {
     const firstSentence = description.split(/[.!?]/)[0]?.trim();
     return firstSentence
-        ? firstSentence.slice(0, 90)
+        ? truncateIntakeTitle(firstSentence)
         : "Industrial supplier requirement";
 }
 function priorityLabel(value) {
