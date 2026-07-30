@@ -1648,6 +1648,30 @@ export function recordAuthoritativePinchPayment(input: {
     };
   }
 
+  const existingPaymentEvidence = input.paymentId
+    ? [...pinchWebhookEvidence.values()].find(
+        (evidence) => evidence.paymentId === input.paymentId
+      )
+    : undefined;
+  if (existingPaymentEvidence) {
+    processedPinchEventIds.add(input.eventId);
+    commitMarketplaceMutation({
+      eventType: "payment.duplicate",
+      actorType: "payment_provider",
+      entityType: "payment",
+      entityId: input.engagementId,
+      metadata: {
+        eventType: input.eventType,
+        duplicateOfEventId: existingPaymentEvidence.eventId,
+        paymentId: existingPaymentEvidence.paymentId ?? null
+      }
+    });
+    return {
+      engagement: engagements.get(input.engagementId),
+      duplicate: true
+    };
+  }
+
   processedPinchEventIds.add(input.eventId);
   const receivedAt = new Date().toISOString();
   pinchWebhookEvidence.set(input.eventId, {

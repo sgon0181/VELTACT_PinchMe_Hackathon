@@ -2057,6 +2057,35 @@ dl .is-missing dd,
   color: #6a4400;
 }
 
+.payment-evidence {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.payment-evidence-pending {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 15px;
+  border: 0;
+  border-left: 4px solid var(--blue);
+  padding: 13px 15px;
+  background: var(--blue-soft);
+  color: #174f72;
+}
+
+.payment-evidence-heading h3 {
+  margin: 4px 0 0;
+  font-size: 1rem;
+}
+
+.payment-evidence-facts {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 14px;
+  border-bottom: 0;
+}
+
 .secondary-actions {
   justify-content: flex-end;
   margin-top: 12px;
@@ -2568,7 +2597,8 @@ dl .is-missing dd,
   .warning-strip,
   .separate-link-notice,
   .safety-boundary,
-  .payment-boundary {
+  .payment-boundary,
+  .payment-evidence-pending {
     grid-template-columns: 1fr;
   }
 

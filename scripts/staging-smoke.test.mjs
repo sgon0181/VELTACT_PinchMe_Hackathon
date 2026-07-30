@@ -30,6 +30,8 @@ const fixtureHealth = {
     accountPersistence: true,
     buyerCapabilityAuth: false,
     pinch: false,
+    pinchApi: false,
+    pinchWebhook: false,
     localDemoPayment: true,
     openAi: false,
     v2Research: true,
@@ -54,6 +56,8 @@ const strictHealth = {
     accountPersistence: true,
     buyerCapabilityAuth: true,
     pinch: true,
+    pinchApi: true,
+    pinchWebhook: true,
     localDemoPayment: false,
     openAi: true,
     v2Research: true,
@@ -161,6 +165,22 @@ describe("staging readiness command", () => {
       calls.some(({ path }) => path === "/api/pinch/health"),
       true
     );
+  });
+
+  test("requires both Pinch API and webhook readiness in strict mode", () => {
+    for (const capability of ["pinchApi", "pinchWebhook"]) {
+      const health = structuredClone(strictHealth);
+      health.readiness[capability] = false;
+      health.readiness.pinch = false;
+
+      const result = classifyReadiness(health);
+      assert.equal(result.classification, "not-ready");
+      assert.ok(
+        result.reasons.some((reason) =>
+          reason.includes(`readiness.${capability} is false`)
+        )
+      );
+    }
   });
 
   test("rejects malformed health without reflecting an unexpected provider value", async () => {

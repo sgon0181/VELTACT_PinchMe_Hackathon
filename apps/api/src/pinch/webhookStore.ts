@@ -2,15 +2,21 @@ type StoredWebhookEvent = {
   id?: string;
   type?: string;
   eventDate?: string;
+  processed: boolean;
+  reason?: string;
   receivedAt: string;
 };
 
 const webhookEvents: StoredWebhookEvent[] = [];
 
-export function recordWebhookEvent(payload: unknown) {
+export function recordWebhookEvent(
+  payload: unknown,
+  outcome: { processed: boolean; reason?: string }
+) {
   const event = normaliseWebhookPayload(payload);
   webhookEvents.unshift({
     ...event,
+    ...outcome,
     receivedAt: new Date().toISOString()
   });
 
@@ -22,7 +28,9 @@ export function listWebhookEvents() {
   return webhookEvents;
 }
 
-function normaliseWebhookPayload(payload: unknown): Omit<StoredWebhookEvent, "receivedAt"> {
+function normaliseWebhookPayload(
+  payload: unknown
+): Pick<StoredWebhookEvent, "id" | "type" | "eventDate"> {
   if (typeof payload !== "object" || payload === null) {
     return {};
   }

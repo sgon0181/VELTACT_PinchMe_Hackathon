@@ -1254,6 +1254,10 @@ function renderPayment(data) {
         <strong>${escapeHtml(paymentPresentation.boundaryTitle)}</strong>
         <span>${escapeHtml(paymentPresentation.boundaryCopy)}</span>
       </div>
+      <div class="payment-evidence payment-evidence-pending">
+        <strong>Payment evidence</strong>
+        <span>Secured only by verified Pinch webhook or API reconciliation — never by browser return.</span>
+      </div>
       <div class="primary-action-row">
         <div>
           <strong>${escapeHtml(paymentPresentation.actionTitle)}</strong>
@@ -1383,6 +1387,36 @@ function deploymentPaymentEvidence(engagement) {
         legacyFallback: Boolean(legacyLocalDemoPaymentId)
     };
 }
+function paymentEvidenceSourceLabel(source) {
+    if (source === "pinch_webhook") {
+        return "Pinch webhook (signature verified)";
+    }
+    if (source === "pinch_reconciliation") {
+        return "Pinch API reconciliation";
+    }
+    return "Pinch provider evidence";
+}
+function renderAuthoritativePaymentEvidence(engagement, amount) {
+    const evidence = deploymentPaymentEvidence(engagement);
+    if (!evidence.authoritative)
+        return "";
+    return `
+    <div class="payment-evidence">
+      <div class="payment-evidence-heading">
+        <p class="eyebrow">Verified commitment</p>
+        <h3>Payment evidence</h3>
+      </div>
+      <dl class="payment-summary payment-evidence-facts">
+        ${fact("Source", paymentEvidenceSourceLabel(evidence.source))}
+        ${fact("Payment ID", evidence.evidenceId ? shortId(evidence.evidenceId) : "Not recorded", !evidence.evidenceId)}
+        ${fact("Amount", amount
+        ? `${money(amount.amount, amount.currency)} ${amount.currency}`
+        : "Not recorded", !amount)}
+        ${fact("Recorded", formatTime(engagement.securedAt), !engagement.securedAt)}
+      </dl>
+    </div>
+  `;
+}
 function renderDeployment(data) {
     const engagement = data.engagement;
     if (!engagement) {
@@ -1396,17 +1430,6 @@ function renderDeployment(data) {
     const profile = requireNeedProfile(data);
     const supplier = supplierFor(data, engagement.supplierId);
     const paymentEvidence = deploymentPaymentEvidence(engagement);
-    const paymentEvidenceValue = paymentEvidence.evidenceId
-        ? shortId(paymentEvidence.evidenceId)
-        : paymentEvidence.authoritative
-            ? paymentEvidence.source === "pinch_webhook"
-                ? "Pinch webhook confirmed"
-                : paymentEvidence.source === "pinch_reconciliation"
-                    ? "Pinch reconciliation confirmed"
-                    : "Provider confirmation recorded"
-            : paymentEvidence.localDemo
-                ? "Local demo record"
-                : "Provider confirmation recorded";
     const projection = Boolean(deployment?.milestones.some((item) => item.id.includes("fixture")));
     const milestones = deployment
         ? [...deployment.milestones].sort((left, right) => left.sequence - right.sequence)
@@ -1439,8 +1462,8 @@ function renderDeployment(data) {
         ${fact("Supplier", supplierName(supplier, engagement.supplierId))}
         ${fact("Current milestone", currentMilestoneTitle, !currentMilestone)}
         ${fact("Next milestone", nextMilestoneTitle, !nextMilestone)}
-        ${fact(paymentEvidence.localDemo ? "Development evidence" : "Payment evidence", paymentEvidenceValue, false)}
       </dl>
+      ${renderAuthoritativePaymentEvidence(engagement, deployment?.milestones[0]?.amount)}
       ${paymentEvidence.localDemo
         ? `
             <div class="payment-boundary">

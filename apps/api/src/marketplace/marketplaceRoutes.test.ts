@@ -1830,6 +1830,51 @@ describe("marketplace core routes", () => {
     assert.equal(missingInvitation.status, 404);
   });
 
+  test("acknowledges a signed payment event that cannot be matched", async () => {
+    const evidenceCount = listPinchWebhookEvidence().length;
+    const eventId = "evt_signed_unmatched_engagement";
+    const unknownEngagementId = "engagement-does-not-exist";
+    const webhook = await postSignedWebhook({
+      Id: eventId,
+      Type: "realtime-payment",
+      EventDate: new Date().toISOString(),
+      Data: {
+        Payment: {
+          Id: "pmt_unmatched",
+          Amount: 1_850_000,
+          Currency: "AUD",
+          Status: "approved",
+          Payer: {
+            Id: "pyr_unmatched"
+          },
+          Metadata: JSON.stringify({
+            engagementId: unknownEngagementId,
+            needId: "need-does-not-exist",
+            supplierId: "supplier-does-not-exist",
+            milestoneId: "milestone-does-not-exist",
+            commitmentType: "commercial_commitment",
+            commitmentAmountMinor: "1850000",
+            commitmentCurrency: "AUD"
+          })
+        }
+      }
+    });
+
+    assert.equal(webhook.status, 200);
+    assert.equal(webhook.body.received, true);
+    assert.equal(webhook.body.processed, false);
+    assert.equal(webhook.body.reason, "no_matching_engagement");
+    assert.equal(getEngagement(unknownEngagementId), undefined);
+    assert.equal(listPinchWebhookEvidence().length, evidenceCount);
+
+    const events = await getJson("/api/pinch/webhooks/events");
+    const storedEvent = events.body.events.find(
+      (event: { id?: string }) => event.id === eventId
+    );
+    assert.equal(storedEvent?.processed, false);
+    assert.equal(storedEvent?.reason, "no_matching_engagement");
+  });
+
   test("preserves cents and secures and notifies only after verified Pinch event", async () => {
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",
@@ -1998,6 +2043,94 @@ describe("marketplace core routes", () => {
 
     const stillSecured = await getJson(`/api/engagements/${selected.body.engagement.id}`);
     assert.equal(stillSecured.body.engagement.securedAt, secured.body.engagement.securedAt);
+  });
+
+  test("deduplicates one Pinch payment across reconciliation and webhook evidence", async () => {
+    const created = await postJson("/api/needs", {
+      buyerEmail: "buyer@example.com",
+      profile: automationNeed()
+    });
+    const token = created.body.need.invitations[0].token;
+    await approveOutreachAndClaim(created.body.need.id, token);
+    const submitted = await postJson(`/api/supplier-invitations/${token}/responses`, {
+      canHelp: true,
+      earliestAvailability: "2026-07-28",
+      indicativePriceAud: 18500,
+      relevantExperience: "Completed urgent PLC recovery for a packaging line.",
+      conditions: "Remote diagnostics required before site attendance."
+    });
+    const selected = await postJson(
+      `/api/need-profiles/${created.body.need.id}/engagements`,
+      {
+        supplierResponseId: submitted.body.response.id
+      }
+    );
+    const paymentLink = await postJson(
+      `/api/engagements/${selected.body.engagement.id}/payment-link`,
+      {}
+    );
+    const pendingEngagement = paymentLink.body.engagement;
+    const paymentId = `pmt_${pendingEngagement.paymentLinkId}`;
+
+    const reconciled = await getJson(
+      `/api/engagements/${pendingEngagement.id}`
+    );
+    assert.equal(reconciled.status, 200);
+    assert.equal(reconciled.body.engagement.status, "supplier_secured");
+    assert.equal(
+      reconciled.body.engagement.paymentEvidenceSource,
+      "pinch_reconciliation"
+    );
+    assert.equal(listPinchWebhookEvidence().length, 1);
+    const firstEvidence = listPinchWebhookEvidence()[0];
+    const firstSecuredAt = reconciled.body.engagement.securedAt;
+
+    const webhook = await postSignedWebhook({
+      Id: "evt_reconciled_payment_webhook",
+      Type: "realtime-payment",
+      EventDate: new Date().toISOString(),
+      Data: {
+        Payment: {
+          Id: paymentId,
+          Amount: 1_850_000,
+          Currency: "AUD",
+          Status: "approved",
+          Payer: {
+            Id: pendingEngagement.pinchPayerId
+          },
+          Metadata: JSON.stringify({
+            engagementId: pendingEngagement.id,
+            needId: created.body.need.id,
+            supplierId: pendingEngagement.supplierId,
+            milestoneId: `${pendingEngagement.id}-m1-diagnosis`,
+            commitmentType: "commercial_commitment",
+            commitmentAmountMinor: "1850000",
+            commitmentCurrency: "AUD"
+          })
+        }
+      }
+    });
+
+    assert.equal(webhook.status, 200);
+    assert.equal(webhook.body.processed, true);
+    assert.equal(webhook.body.reason, "duplicate");
+    assert.equal(listPinchWebhookEvidence().length, 1);
+    assert.equal(listPinchWebhookEvidence()[0]?.eventId, firstEvidence?.eventId);
+
+    const stillSecured = await getJson(
+      `/api/engagements/${pendingEngagement.id}`
+    );
+    assert.equal(stillSecured.body.engagement.securedAt, firstSecuredAt);
+    assert.equal(
+      stillSecured.body.engagement.paymentEvidenceSource,
+      "pinch_reconciliation"
+    );
+    assert.equal(
+      listMarketplaceAuditEvents().filter(
+        (event) => event.eventType === "payment.secured"
+      ).length,
+      1
+    );
   });
 
   test("completes the local demo through the secured state without an external payment", async () => {

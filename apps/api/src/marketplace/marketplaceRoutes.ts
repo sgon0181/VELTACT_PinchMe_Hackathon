@@ -32,7 +32,6 @@ import {
   listSupplierLeadsForNeed,
   markInvitationViewed,
   prepareSupplierLeadInvitationsForNeed,
-  recordAuthoritativePinchPayment,
   recordLocalDemoPayment,
   researchNeed,
   resetMarketplaceStore,
@@ -57,7 +56,6 @@ import {
 } from "../payments/commitmentPaymentService.js";
 import { marketplaceCommitmentPaymentService } from "../payments/marketplaceCommitment.js";
 import { isLocalDemoHostedPaymentLink } from "../payments/localDemoPaymentProvider.js";
-import { getPaymentProvider } from "../payments/providerRegistry.js";
 import {
   getSupplierDemoResponses,
   type SupplierDemoResponse
@@ -724,30 +722,20 @@ marketplaceRouter.get("/engagements/:engagementId", async (request, response) =>
 
   if (engagement.paymentStatus === "awaiting_payment" && engagement.paymentLinkId) {
     try {
-      const approvedPayment = await getPaymentProvider().getApprovedPaymentForLink(
-        engagement.paymentLinkId
-      );
-      if (approvedPayment) {
-        const result = recordAuthoritativePinchPayment({
-          eventId: `pinch-api:${approvedPayment.paymentId}`,
-          eventType: "payment-api-reconciliation",
+      const result =
+        await marketplaceCommitmentPaymentService.reconcileApprovedPayment({
           engagementId: engagement.id,
-          paymentId: approvedPayment.paymentId,
-          payload: {
-            paymentLinkId: engagement.paymentLinkId,
-            paymentId: approvedPayment.paymentId,
-            status: approvedPayment.status
-          }
+          buyerAccessToken: request.header("x-veltact-buyer-token")
         });
-
-        if (result.engagement) {
-          engagement = result.engagement;
-          if (!result.duplicate) {
-            emitPaymentStatusUpdated(result.engagement);
-            emitEngagementSecured(result.engagement);
-            emitCurrentDeployment(result.engagement.id, result.engagement.needId);
-          }
-        }
+      engagement = getEngagement(request.params.engagementId) ?? engagement;
+      if (
+        result.reconciled &&
+        result.supplierSecured &&
+        !result.duplicate
+      ) {
+        emitPaymentStatusUpdated(engagement);
+        emitEngagementSecured(engagement);
+        emitCurrentDeployment(engagement.id, engagement.needId);
       }
     } catch {
       // Keep the visible state pending if Pinch cannot be reached during a refresh.

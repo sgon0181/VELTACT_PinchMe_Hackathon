@@ -66,6 +66,45 @@ test("reports account credential persistence readiness", async () => {
   assert.equal(env.ACCOUNT_DATA_FILE, configuredAccountDataFile);
 });
 
+test("reports Pinch API and webhook readiness independently", async () => {
+  const { env } = await import("../env.js");
+  const original = {
+    PAYMENT_PROVIDER: env.PAYMENT_PROVIDER,
+    PINCH_CLIENT_ID: env.PINCH_CLIENT_ID,
+    PINCH_SECRET_KEY: env.PINCH_SECRET_KEY,
+    PINCH_AUTH_URL: env.PINCH_AUTH_URL,
+    PINCH_API_BASE_URL: env.PINCH_API_BASE_URL,
+    PINCH_RETURN_URL: env.PINCH_RETURN_URL,
+    PINCH_WEBHOOK_SECRET: env.PINCH_WEBHOOK_SECRET
+  };
+  Object.assign(env, {
+    PAYMENT_PROVIDER: "pinch",
+    PINCH_CLIENT_ID: "test-client",
+    PINCH_SECRET_KEY: "test-secret",
+    PINCH_AUTH_URL: "https://pinch.test/auth",
+    PINCH_API_BASE_URL: "https://pinch.test/api",
+    PINCH_RETURN_URL: "https://staging.veltact.test/api/pinch/return",
+    PINCH_WEBHOOK_SECRET: undefined
+  });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/health`);
+    const health = (await response.json()) as {
+      readiness: {
+        pinch: boolean;
+        pinchApi: boolean;
+        pinchWebhook: boolean;
+      };
+    };
+
+    assert.equal(health.readiness.pinchApi, true);
+    assert.equal(health.readiness.pinchWebhook, false);
+    assert.equal(health.readiness.pinch, false);
+  } finally {
+    Object.assign(env, original);
+  }
+});
+
 test("keeps the Render free-tier account store explicitly ephemeral", async () => {
   const renderConfiguration = await readFile(
     path.join(repositoryRoot, "render.yaml"),
