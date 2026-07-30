@@ -2,6 +2,11 @@ export function parseUrgencyDays(requiredBy: string): number | undefined {
   const normalised = requiredBy.trim().toLowerCase();
   if (!normalised) return undefined;
 
+  const hourMatch = normalised.match(/(\d+(?:\.\d+)?)\s*hours?\b/);
+  if (hourMatch) {
+    return Math.max(1, Math.ceil(Number(hourMatch[1]) / 24));
+  }
+
   if (/\b(today|tonight|immediate(?:ly)?|urgent(?:ly)?)\b/.test(normalised)) {
     return 1;
   }

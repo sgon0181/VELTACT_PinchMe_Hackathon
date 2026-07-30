@@ -9,6 +9,7 @@ import {
   intakeTitleFromRequirement,
   isIntakeRecoveryRequirement,
   isIntakeUrgent,
+  parseIntakeBudgetAmount,
   truncateIntakeTitle
 } from "../dist/index.js";
 
@@ -60,6 +61,15 @@ describe("shared deterministic intake extraction", () => {
     assert.equal(
       detectIntakeBudget("Budget is AUD 120,000 to AUD 180,000"),
       "AUD 120,000 to AUD 180,000"
+    );
+  });
+
+  test("parses compact and range budget values for API submission", () => {
+    assert.equal(parseIntakeBudgetAmount("Around 20k AUD"), 20_000);
+    assert.equal(parseIntakeBudgetAmount("Up to AUD 20,000"), 20_000);
+    assert.equal(
+      parseIntakeBudgetAmount("AUD 120,000 to AUD 180,000"),
+      180_000
     );
   });
 

@@ -241,6 +241,18 @@ export function detectIntakeBudget(
   return amount ? `Up to AUD ${formatIntakeAmount(amount)}` : undefined;
 }
 
+export function parseIntakeBudgetAmount(value: string): number | undefined {
+  const matches = [
+    ...value.matchAll(/(\d+(?:,\d{3})*(?:\.\d+)?)\s*([kK])?/g)
+  ];
+  const match = matches.at(-1);
+  if (!match) return undefined;
+
+  const numeric = Number(match[1].replaceAll(",", ""));
+  if (!Number.isFinite(numeric)) return undefined;
+  return Math.round(match[2] ? numeric * 1_000 : numeric);
+}
+
 export function intakeTitleFromRequirement(
   rawRequirement: string,
   equipmentOrTechnology: string[],

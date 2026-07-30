@@ -1,5 +1,7 @@
 import {
+  detectIntakeLocation,
   deploymentSummarySchema,
+  parseIntakeBudgetAmount,
   rapidMatchApiRoute,
   rapidMatchBuyerWorkspaceSchema,
   solutionDecisionSchema,
@@ -927,9 +929,10 @@ function requirementToMarketplaceProfile(
     category: input.category || inferCategory(input.description),
     industry: "Manufacturing",
     equipmentOrTechnology: input.equipmentOrTechnology,
-    location: input.location,
+    location: detectIntakeLocation(input.location) ?? input.location,
     urgencyDays: parseUrgencyDays(input.requiredBy),
-    budgetAud: input.budgetAmount || parseBudgetAmount(input.budgetRange),
+    budgetAud:
+      input.budgetAmount || parseIntakeBudgetAmount(input.budgetRange),
     constraints: input.constraints,
     buyerPriority: priority,
     requiredCapabilities: input.requiredCapabilities.length
@@ -1320,11 +1323,6 @@ function inferCapabilities(description: string) {
   if (normalised.includes("safety")) capabilities.add("Machinery safety");
   capabilities.add("Industrial onsite support");
   return [...capabilities];
-}
-
-function parseBudgetAmount(value: string) {
-  const match = value.match(/(\d[\d,]*)/);
-  return match ? Number(match[1].replaceAll(",", "")) : undefined;
 }
 
 function availabilityLabel(days?: number) {

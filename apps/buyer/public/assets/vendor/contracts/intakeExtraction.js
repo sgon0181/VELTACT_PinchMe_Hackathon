@@ -176,6 +176,18 @@ export function detectIntakeBudget(rawRequirement) {
     const amount = explicit?.[1] ?? explicit?.[2] ?? contextual?.[1];
     return amount ? `Up to AUD ${formatIntakeAmount(amount)}` : undefined;
 }
+export function parseIntakeBudgetAmount(value) {
+    const matches = [
+        ...value.matchAll(/(\d+(?:,\d{3})*(?:\.\d+)?)\s*([kK])?/g)
+    ];
+    const match = matches.at(-1);
+    if (!match)
+        return undefined;
+    const numeric = Number(match[1].replaceAll(",", ""));
+    if (!Number.isFinite(numeric))
+        return undefined;
+    return Math.round(match[2] ? numeric * 1_000 : numeric);
+}
 export function intakeTitleFromRequirement(rawRequirement, equipmentOrTechnology, requiresRecovery) {
     if (equipmentOrTechnology.some((item) => item.includes("Plastics extrusion machine"))) {
         return requiresRecovery

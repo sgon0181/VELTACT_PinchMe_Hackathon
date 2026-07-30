@@ -1,6 +1,8 @@
 import {
   aiIntakeResultSchema,
+  detectIntakeLocation,
   intakeEvidenceSummarySchema,
+  parseIntakeBudgetAmount,
   solutionDecisionSchema,
   solutionResearchResultSchema,
   truncateIntakeTitle,
@@ -3198,12 +3200,16 @@ function applyStructuredResult(result: AiIntakeResult) {
     category: profile.category,
     equipmentOrTechnology: profile.equipmentOrTechnology,
     requiredCapabilities: profile.requiredCapabilities,
-    location: profile.location ?? intakeDraft.location,
+    location:
+      detectIntakeLocation(profile.location ?? intakeDraft.location) ??
+      profile.location ??
+      intakeDraft.location,
     requiredBy: profile.urgency ?? intakeDraft.requiredBy,
     budgetRange: profile.budgetRange ?? intakeDraft.budgetRange,
-    budgetAmount: parseBudgetAmount(
-      profile.budgetRange ?? intakeDraft.budgetRange
-    ),
+    budgetAmount:
+      parseIntakeBudgetAmount(
+        profile.budgetRange ?? intakeDraft.budgetRange
+      ) ?? 0,
     constraints: profile.certificationsOrConstraints
   };
   if (profile.buyerPriority) priority = profile.buyerPriority;
@@ -3225,7 +3231,8 @@ function syncIntakeDraft(form: HTMLFormElement) {
     location: formValue(formData, "location"),
     requiredBy: formValue(formData, "requiredBy"),
     budgetRange: formValue(formData, "budgetRange"),
-    budgetAmount: parseBudgetAmount(formValue(formData, "budgetRange")),
+    budgetAmount:
+      parseIntakeBudgetAmount(formValue(formData, "budgetRange")) ?? 0,
     constraints: csvValues(formData, "constraints")
   };
 }
@@ -4281,12 +4288,6 @@ function cloneInput(input: BuyerRequirementInput): BuyerRequirementInput {
     requiredCapabilities: [...input.requiredCapabilities],
     constraints: [...input.constraints]
   };
-}
-
-function parseBudgetAmount(value: string) {
-  const matches = [...value.matchAll(/(\d[\d,]*)/g)];
-  const last = matches.at(-1)?.[1];
-  return last ? Number(last.replaceAll(",", "")) : 0;
 }
 
 function titleFromDescription(description: string) {
