@@ -664,35 +664,103 @@ export function createLumenStory(root) {
         box(0.04, 0.8, 0.04, materials.dark, x, 4.2, -4.15);
         box(0.04, 0.8, 0.04, materials.dark, x, 4.2, -5.05);
     }
-    const signTexture = (text) => {
+    const signPalettes = {
+        find: {
+            faceStart: "#751b2d",
+            faceEnd: "#d64a46",
+            border: "#9edcf4",
+            text: "#f4fbff",
+            accent: "#70c4e8",
+            light: 0x9edcf4,
+        },
+        connect: {
+            faceStart: "#b7e5f5",
+            faceEnd: "#5d9fc5",
+            border: "#d64a46",
+            text: "#0a1a2b",
+            accent: "#c72f42",
+            light: 0xff6673,
+        },
+        deploy: {
+            faceStart: "#691529",
+            faceEnd: "#c63b4d",
+            border: "#a9e3f5",
+            text: "#f5fbff",
+            accent: "#73c6e8",
+            light: 0xa9e3f5,
+        },
+    };
+    const signTextures = [];
+    const signTexture = (text, palette) => {
         const canvas = document.createElement("canvas");
-        canvas.width = 128;
-        canvas.height = 80;
+        canvas.width = 512;
+        canvas.height = 256;
         const context = canvas.getContext("2d");
         if (!context) {
             throw new Error("Canvas 2D is unavailable");
         }
-        context.fillStyle = "#141c2a";
-        context.fillRect(0, 0, 128, 80);
-        context.strokeStyle = "#2c3a52";
+        const faceGradient = context.createLinearGradient(0, 0, 512, 256);
+        faceGradient.addColorStop(0, palette.faceStart);
+        faceGradient.addColorStop(1, palette.faceEnd);
+        context.fillStyle = faceGradient;
+        context.fillRect(0, 0, 512, 256);
+        const shadeGradient = context.createLinearGradient(0, 0, 0, 256);
+        shadeGradient.addColorStop(0, "rgba(255,255,255,0.16)");
+        shadeGradient.addColorStop(0.38, "rgba(255,255,255,0)");
+        shadeGradient.addColorStop(1, "rgba(4,12,24,0.26)");
+        context.fillStyle = shadeGradient;
+        context.fillRect(0, 0, 512, 256);
+        context.strokeStyle = palette.border;
+        context.lineWidth = 12;
+        context.strokeRect(10, 10, 492, 236);
+        context.strokeStyle = "rgba(7,17,30,0.34)";
         context.lineWidth = 3;
-        context.strokeRect(3, 3, 122, 74);
-        context.fillStyle = "#a83430";
-        context.fillRect(10, 12, 22, 9);
-        context.fillStyle = "#b8cce8";
-        context.font = "bold 26px monospace";
-        context.fillText(text, 10, 58);
-        return new THREE.CanvasTexture(canvas);
+        context.strokeRect(30, 30, 452, 196);
+        context.fillStyle = palette.accent;
+        context.fillRect(36, 34, 94, 15);
+        context.save();
+        context.fillStyle = palette.text;
+        context.font = `800 ${text.length > 5 ? 72 : 84}px monospace`;
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        context.shadowColor = palette.border;
+        context.shadowBlur = 16;
+        context.fillText(text, 256, 145);
+        context.restore();
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 4);
+        signTextures.push(texture);
+        return texture;
     };
-    const addSign = (text, x, y, z) => {
-        const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.94), new THREE.MeshBasicMaterial({ map: signTexture(text) }));
+    const addSign = (text, x, y, z, palette) => {
+        const signWidth = 2.45;
+        const signHeight = 1.3;
+        box(signWidth + 0.18, signHeight + 0.18, 0.16, materials.dark, x, y, z - 0.09, scene, true);
+        const sign = new THREE.Mesh(new THREE.PlaneGeometry(signWidth, signHeight), new THREE.MeshBasicMaterial({
+            map: signTexture(text, palette),
+            toneMapped: false,
+        }));
         sign.position.set(x, y, z);
         scene.add(sign);
-        box(0.1, y, 0.1, materials.dark, x, y / 2, z - 0.08);
+        const postHeight = y - signHeight / 2;
+        for (const offset of [-0.72, 0.72]) {
+            box(0.09, postHeight, 0.09, materials.dark, x + offset, postHeight / 2, z - 0.14);
+        }
+        const lampMaterial = new THREE.MeshStandardMaterial({
+            color: palette.light,
+            emissive: palette.light,
+            emissiveIntensity: 1.8,
+            roughness: 0.4,
+        });
+        box(0.88, 0.07, 0.09, lampMaterial, x, y + signHeight / 2 + 0.11, z, scene, true);
+        const spillLight = new THREE.PointLight(palette.light, 5.5, 5.2, 2);
+        spillLight.position.set(x, y + 0.1, z + 1.15);
+        scene.add(spillLight);
     };
-    addSign("BIN 01", 0, 2.7, -2.95);
-    addSign("FIT 02", 27.2, 2.7, -2.95);
-    addSign("DOCK 03", 41, 2.7, -2.95);
+    addSign("FIND", 0, 2.95, -2.95, signPalettes.find);
+    addSign("CONNECT", 25.8, 2.95, -2.95, signPalettes.connect);
+    addSign("DEPLOY", 41, 2.95, -2.95, signPalettes.deploy);
     const pallet = (x, z, rotationY = 0) => {
         const group = new THREE.Group();
         group.position.set(x, 0, z);
@@ -1126,6 +1194,7 @@ export function createLumenStory(root) {
             glowTexture.dispose();
             poolTexture.dispose();
             hazardTexture.dispose();
+            signTextures.forEach((texture) => texture.dispose());
             renderer.dispose();
             renderer.domElement.remove();
         },

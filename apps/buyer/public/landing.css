@@ -407,12 +407,12 @@ body.landing-ready .landing-loader {
 
 .story-panel::before {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -24px;
-  width: 2px;
+  top: -18px;
+  bottom: -18px;
+  left: -28px;
+  width: 3px;
   background: var(--signal);
-  box-shadow: 0 0 18px rgba(214, 74, 70, 0.34);
+  box-shadow: 0 0 22px rgba(214, 74, 70, 0.42);
   content: "";
 }
 
@@ -422,10 +422,19 @@ body.landing-ready .landing-loader {
   display: block;
   color: var(--signal);
   font-family: var(--mono);
-  font-size: 0.7rem;
   font-weight: 600;
   line-height: 1.5;
   text-transform: uppercase;
+}
+
+.story-kicker,
+.story-note {
+  font-size: 0.7rem;
+}
+
+.story-index {
+  font-size: 0.95rem;
+  line-height: 1.35;
 }
 
 .story-panel h1,
@@ -812,20 +821,21 @@ body.landing-ready .landing-loader {
   right: 3vw;
   z-index: 20;
   display: grid;
-  width: 108px;
-  height: 300px;
+  width: 146px;
+  height: 405px;
   transform: translateY(-50%);
   grid-template-rows: repeat(3, 1fr);
 }
 
 .story-rail-track {
   position: absolute;
-  top: 18px;
+  top: 24px;
   right: 0;
-  bottom: 18px;
-  width: 1px;
+  bottom: 24px;
+  width: 2px;
   overflow: hidden;
   background: rgba(143, 163, 191, 0.28);
+  box-shadow: 0 0 14px rgba(143, 197, 232, 0.16);
 }
 
 .story-rail-fill {
@@ -841,12 +851,12 @@ body.landing-ready .landing-loader {
   position: relative;
   display: grid;
   width: 100%;
-  min-height: 48px;
+  min-height: 64px;
   align-content: center;
   justify-items: end;
-  gap: 3px;
+  gap: 4px;
   border: 0;
-  padding: 0 18px 0 0;
+  padding: 0 24px 0 0;
   background: transparent;
   color: rgba(143, 163, 191, 0.58);
   cursor: pointer;
@@ -860,9 +870,9 @@ body.landing-ready .landing-loader {
 .story-rail-step::after {
   position: absolute;
   top: 50%;
-  right: -4px;
-  width: 7px;
-  height: 7px;
+  right: -5px;
+  width: 10px;
+  height: 10px;
   transform: translateY(-50%);
   border: 1px solid rgba(143, 163, 191, 0.55);
   border-radius: 50%;
@@ -876,12 +886,12 @@ body.landing-ready .landing-loader {
 
 .story-rail-step span {
   font-family: var(--mono);
-  font-size: 0.58rem;
+  font-size: 0.78rem;
 }
 
 .story-rail-step strong {
   font-family: var(--mono);
-  font-size: 0.67rem;
+  font-size: 0.9rem;
 }
 
 .story-rail-step:hover,
@@ -1112,7 +1122,10 @@ body.landing-ready .landing-loader {
   }
 
   .story-panel::before {
-    left: -12px;
+    top: -12px;
+    bottom: -12px;
+    left: -13px;
+    width: 2px;
   }
 
   .story-panel h1 {
@@ -1244,18 +1257,22 @@ body.landing-ready .landing-loader {
   .story-rail {
     top: calc(var(--header-height) + 86px);
     right: 16px;
-    width: 88px;
-    height: 176px;
+    width: 116px;
+    height: 232px;
     transform: none;
   }
 
   .story-rail-step {
-    min-height: 44px;
-    padding-right: 14px;
+    min-height: 58px;
+    padding-right: 19px;
+  }
+
+  .story-rail-step span {
+    font-size: 0.66rem;
   }
 
   .story-rail-step strong {
-    font-size: 0.58rem;
+    font-size: 0.78rem;
   }
 
   .story-scroll-hint {
@@ -1362,9 +1379,12 @@ body.landing-ready .landing-loader {
     padding: 0 5px;
   }
 
-  .story-kicker,
-  .story-index {
+  .story-kicker {
     font-size: 0.6rem;
+  }
+
+  .story-index {
+    font-size: 0.8rem;
   }
 }
 

@@ -123,6 +123,13 @@ test("scene keeps the protagonist right-weighted and chapters seekable", async (
   assert.match(source, /window\.scrollTo\(\{ behavior: "smooth", top \}\)/);
   assert.match(source, /button\.addEventListener\("click", handler\)/);
   assert.match(source, /button\.removeEventListener\("click", handler\)/);
+  assert.match(source, /addSign\("FIND"/);
+  assert.match(source, /addSign\("CONNECT"/);
+  assert.match(source, /addSign\("DEPLOY"/);
+  assert.doesNotMatch(source, /BIN 01|FIT 02|DOCK 03/);
+  assert.match(source, /const signWidth = 2\.45;/);
+  assert.match(source, /const signHeight = 1\.3;/);
+  assert.match(source, /new THREE\.PointLight\(palette\.light, 5\.5, 5\.2, 2\)/);
 });
 
 test("landing is progressive, responsive and keyboard accessible", async () => {
@@ -141,6 +148,9 @@ test("landing is progressive, responsive and keyboard accessible", async () => {
   assert.match(css, /\.story\s*\{[\s\S]*?min-height: 700svh;/);
   assert.match(css, /\.story-stage\s*\{[\s\S]*?position: sticky;/);
   assert.match(css, /\.story-panel\s*\{[\s\S]*?left: 7vw;/);
+  assert.match(css, /\.story-index\s*\{[\s\S]*?font-size: 0\.95rem;/);
+  assert.match(css, /\.story-rail\s*\{[\s\S]*?width: 146px;[\s\S]*?height: 405px;/);
+  assert.match(css, /\.story-rail-step strong\s*\{[\s\S]*?font-size: 0\.9rem;/);
   assert.match(css, /@media \(max-width: 680px\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(
