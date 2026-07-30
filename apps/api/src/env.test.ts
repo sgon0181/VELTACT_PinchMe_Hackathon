@@ -18,10 +18,12 @@ describe("production Pinch environment", () => {
   test("uses an available low-latency OpenAI model by default", () => {
     const result = parseEnvironment({
       NODE_ENV: "development",
-      PAYMENT_PROVIDER: "local_demo"
+      PAYMENT_PROVIDER: "local_demo",
+      OPENAI_API_KEY: ""
     });
 
     assert.equal(result.OPENAI_MODEL, "gpt-5.4-mini");
+    assert.equal(result.OPENAI_API_KEY, undefined);
     assert.equal(result.VELTACT_DISCOVERY_PROVIDER, "auto");
     assert.equal(result.VELTACT_SERVICE_FEE_BPS, 500);
   });
