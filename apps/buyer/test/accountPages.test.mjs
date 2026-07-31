@@ -41,4 +41,17 @@ describe("account entry pages", () => {
     assert.doesNotMatch(accountBundle, /x-veltact-buyer-token/);
     assert.doesNotMatch(accountBundle, /supplier-invitations/);
   });
+
+  test("focuses transition headings without interrupting an active account form", () => {
+    for (const page of [signIn, createAccount]) {
+      assert.match(page, /id="account-form-title" tabindex="-1"/);
+      assert.match(page, /id="account-session-title" tabindex="-1"/);
+      assert.match(page, /aria-labelledby="account-form-title"/);
+      assert.match(page, /aria-labelledby="account-session-title"/);
+    }
+    assert.match(accountBundle, /focusPanelHeading\(sessionPanel, "#account-session-title"\)/);
+    assert.match(accountBundle, /focusPanelHeading\(formPanel, "#account-form-title"\)/);
+    assert.match(accountBundle, /!accountFormInteracted/);
+    assert.match(accountBundle, /!accountFormHasFocus\(\)/);
+  });
 });

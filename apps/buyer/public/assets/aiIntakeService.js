@@ -1,4 +1,4 @@
-import { aiIntakeResultSchema, detectIntakeBudget, detectIntakeCapabilities, detectIntakeEquipment, detectIntakeLocation, detectIntakeUrgency, intakeCategoryFromEquipment, intakeTitleFromRequirement, isIntakeRecoveryRequirement, isIntakeUrgent, rapidMatchApiRoute } from "@veltact/contracts";
+import { AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH, AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE, aiIntakeResultSchema, detectIntakeBudget, detectIntakeCapabilities, detectIntakeEquipment, detectIntakeLocation, detectIntakeUrgency, intakeCategoryFromEquipment, intakeTitleFromRequirement, isIntakeRecoveryRequirement, isIntakeUrgent, rapidMatchApiRoute } from "@veltact/contracts";
 import { apiBaseUrl } from "./apiBase.js";
 const API_BASE = apiBaseUrl();
 export class BackendAiIntakeService {
@@ -8,6 +8,7 @@ export class BackendAiIntakeService {
         return this.lastSourceMode;
     }
     async structureRequirement(input) {
+        assertRawRequirementWithinLimit(input.rawRequirement);
         try {
             const response = await fetch(canonicalApiUrl(rapidMatchApiRoute.structureRequirement), {
                 method: "POST",
@@ -16,9 +17,11 @@ export class BackendAiIntakeService {
                 },
                 body: JSON.stringify(input)
             });
-            const payload = (await response.json());
+            const responseText = await response.text();
+            const payload = parseJsonObject(responseText);
             if (!response.ok) {
-                throw new Error(payload.message ?? "Unable to structure the requirement.");
+                throw new Error(payload.message ??
+                    `Unable to structure the requirement (HTTP ${response.status}). Check the factory context and try again.`);
             }
             const parsedResult = aiIntakeResultSchema.safeParse(payload.aiIntakeResult ?? payload.result);
             if (!parsedResult.success) {
@@ -45,6 +48,7 @@ export class DemoAiIntakeService {
     }
     async structureRequirement(input) {
         // Local-only fallback for demo environments where the API server is not running.
+        assertRawRequirementWithinLimit(input.rawRequirement);
         await delay(320);
         const evidenceText = (input.evidence ?? [])
             .map((item) => item.extractedText)
@@ -95,6 +99,24 @@ export class DemoAiIntakeService {
 function canonicalApiUrl(route) {
     const base = API_BASE.replace(/\/$/, "");
     return base.endsWith("/api") ? `${base}${route.slice(4)}` : `${base}${route}`;
+}
+function assertRawRequirementWithinLimit(value) {
+    if (value.trim().length > AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH) {
+        throw new Error(AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE);
+    }
+}
+function parseJsonObject(value) {
+    if (!value.trim())
+        return {};
+    try {
+        const parsed = JSON.parse(value);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? parsed
+            : {};
+    }
+    catch {
+        return {};
+    }
 }
 function delay(ms) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));

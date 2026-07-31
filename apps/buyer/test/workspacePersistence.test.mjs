@@ -150,3 +150,26 @@ test("a missing workspace restored from browser storage recovers to fresh intake
     /restoredFromStorage:\s*!explicitNeedProfileId\s*&&\s*Boolean\(needProfileId\)/
   );
 });
+
+test("persists the reviewed pre-Need draft in tab-scoped storage", () => {
+  assert.match(
+    mainBundle,
+    /if \(!identity\.needProfileId\) \{\s*restorePreNeedIntakeDraft\(\)/
+  );
+  assert.match(
+    mainBundle,
+    /safeSessionStorageSet\(\s*PRE_NEED_INTAKE_DRAFT_KEY,\s*serializePreNeedIntakeDraft/
+  );
+  assert.match(
+    mainBundle,
+    /syncIntakeDraft\(requirementForm\);\s*intakeRevision \+= 1;\s*persistPreNeedIntakeDraft\(\)/
+  );
+  assert.match(
+    mainBundle,
+    /safeSessionStorageRemove\(PRE_NEED_INTAKE_DRAFT_KEY\)/
+  );
+  assert.match(
+    mainBundle,
+    /File details restored; reattach before rerunning analysis/
+  );
+});

@@ -1,9 +1,12 @@
-import { aiIntakeResultSchema, detectIntakeLocation, intakeEvidenceSummarySchema, parseIntakeBudgetAmount, solutionDecisionSchema, solutionResearchResultSchema, truncateIntakeTitle } from "@veltact/contracts";
+import { AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH, AI_INTAKE_RAW_REQUIREMENT_MIN_LENGTH, aiIntakeResultSchema, detectIntakeLocation, formatSupplierAvailability, intakeEvidenceSummarySchema, parseIntakeBudgetAmount, solutionDecisionSchema, solutionResearchResultSchema, truncateIntakeTitle } from "@veltact/contracts";
 import { BackendAiIntakeService, DemoAiIntakeService } from "./aiIntakeService.js";
 import { apiBaseUrl, demoControlsEnabled, localDemoPaymentEnabled, outreachOverrideAvailability } from "./apiBase.js";
+import { copyText } from "./clipboard.js";
 import { companyLogoFor } from "./companyLogos.js";
+import { PRE_NEED_INTAKE_DRAFT_KEY, intakeRawRequirementGuidance, parseBuyerRequirementInput, parsePreNeedIntakeDraft, serializePreNeedIntakeDraft, validateIntakeRawRequirement } from "./intakeDraftPersistence.js";
 import { dedupeIntakeMissingFields } from "./intakeMissingFields.js";
 import { RapidMatchService } from "./rapidMatchService.js";
+import { buyerWorkspacePresentationSignature } from "./workspacePresentation.js";
 const service = new RapidMatchService();
 const aiIntakeService = new BackendAiIntakeService();
 const localAiIntakeService = new DemoAiIntakeService();
@@ -91,6 +94,8 @@ let historyReady = false;
 let historyView;
 let handlingPopState = false;
 let lastFocusedView;
+let renderedView;
+let pendingRenderInteractionState;
 const emptyInput = {
     companyName: "",
     contactName: "",
@@ -167,6 +172,7 @@ async function bootstrap() {
     const outreachOverrideGate = outreachOverrideAvailability();
     const identity = readWorkspaceIdentity();
     if (!identity.needProfileId) {
+        restorePreNeedIntakeDraft();
         [
             demoControlsAvailable,
             localDemoPaymentAvailable,
@@ -265,6 +271,16 @@ function render() {
     if (!booting && workspace) {
         view = resolveLegalBuyerView(workspace, view);
     }
+    if (renderedView !== undefined && renderedView !== view) {
+        pendingRenderInteractionState = undefined;
+    }
+    else {
+        const interactionState = captureRenderInteractionState(app);
+        if (interactionState.focusedPath ||
+            interactionState.openDetailsPaths.length) {
+            pendingRenderInteractionState = interactionState;
+        }
+    }
     syncBuyerHistory();
     const phase = currentPhase();
     if (phase === "deploy") {
@@ -310,6 +326,10 @@ function render() {
     bindEvents();
     configurePolling();
     configureRealtime();
+    if (pendingRenderInteractionState?.view === view) {
+        restoreRenderInteractionState(app, pendingRenderInteractionState);
+    }
+    renderedView = view;
     focusPrimaryHeadingAfterViewChange();
 }
 function renderAgentActivityTimeline() {
@@ -552,6 +572,8 @@ function renderWorkspaceStatus() {
 function renderIntake() {
     const structured = Boolean(aiIntakeResult);
     const missing = intakeMissingFields();
+    const rawRequirementError = validateIntakeRawRequirement(intakeDraft.description);
+    const primaryActionDisabled = loadState === "loading" || Boolean(rawRequirementError);
     const evidence = intakeEvidence.length
         ? `
       <div class="evidence-list" aria-label="Attached evidence">
@@ -597,8 +619,9 @@ function renderIntake() {
         </div>
         <label class="field field-wide">
           <span>Factory context</span>
-          <textarea name="description" rows="6" placeholder="Packaging line stopped after intermittent Siemens PLC faults in Western Sydney. Need someone today. Speed matters." required>${escapeHtml(intakeDraft.description)}</textarea>
-          <small>Use plain language. Veltact does not diagnose equipment or instruct machinery changes.</small>
+          <textarea name="description" rows="6" minlength="${AI_INTAKE_RAW_REQUIREMENT_MIN_LENGTH}" maxlength="${AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH}" aria-describedby="factory-context-guidance factory-context-boundary" aria-invalid="${intakeDraft.description && rawRequirementError ? "true" : "false"}" placeholder="Packaging line stopped after intermittent Siemens PLC faults in Western Sydney. Need someone today. Speed matters." required>${escapeHtml(intakeDraft.description)}</textarea>
+          <small id="factory-context-guidance">${escapeHtml(intakeRawRequirementGuidance(intakeDraft.description))}</small>
+          <small id="factory-context-boundary">Use plain language. Veltact does not diagnose equipment or instruct machinery changes.</small>
         </label>
       </section>
 
@@ -634,7 +657,7 @@ function renderIntake() {
           <strong>${escapeHtml(primaryActionHeading())}</strong>
           <span>${escapeHtml(primaryActionDescription())}</span>
         </div>
-        <button class="button button-primary" type="submit" ${loadState === "loading" ? "disabled" : ""}>
+        <button class="button button-primary" type="submit" data-analyse-requirement aria-describedby="factory-context-guidance" ${primaryActionDisabled ? "disabled" : ""}>
           Analyse requirement
         </button>
       </div>
@@ -1315,7 +1338,7 @@ function renderResponseCard(data, response, readOnly = false, activeResponseId =
         <span class="match-score">${match ? `${Math.round(match.score)}%` : "N/A"}</span>
       </label>
       <dl class="comparison-facts">
-        ${comparisonFact("Availability", response.availability ?? "Not provided", !response.availability)}
+        ${comparisonFact("Availability", formatSupplierAvailability(response.availability ?? "Not provided"), !response.availability)}
         ${comparisonFact("Price", response.indicativePrice
         ? money(response.indicativePrice.amount, response.indicativePrice.currency)
         : "Not provided", !validPrice)}
@@ -1343,7 +1366,7 @@ function renderSelected(data) {
       <h2>${renderCompanyIdentity(supplierName(selection.supplier, selection.response.supplierId), true)}</h2>
       <p class="terminal-copy">The engagement exists, but the supplier is not secured until payment evidence is confirmed by the backend.</p>
       <dl class="selection-summary">
-        ${fact("Availability", selection.response.availability ?? "Not provided", !selection.response.availability)}
+        ${fact("Availability", formatSupplierAvailability(selection.response.availability ?? "Not provided"), !selection.response.availability)}
         ${fact("Indicative price", selection.response.indicativePrice
         ? money(selection.response.indicativePrice.amount, selection.response.indicativePrice.currency)
         : "Not provided", !selection.response.indicativePrice)}
@@ -1995,10 +2018,13 @@ function bindEvents() {
             return;
         syncIntakeDraft(requirementForm);
         intakeRevision += 1;
+        persistPreNeedIntakeDraft();
+        updateIntakePrimaryActionState(requirementForm);
     });
     requirementForm?.addEventListener("submit", (event) => {
         event.preventDefault();
         syncIntakeDraft(requirementForm);
+        persistPreNeedIntakeDraft();
         if (intakeMode === "ai" && !aiIntakeResult) {
             void structureRequirement(requirementForm, true);
             return;
@@ -2033,6 +2059,7 @@ function bindEvents() {
             const next = button.dataset.priority;
             if (priorities.has(next))
                 priority = next;
+            persistPreNeedIntakeDraft();
             render();
         });
     });
@@ -2056,6 +2083,7 @@ function bindEvents() {
             intakeEvidence = intakeEvidence.filter((_, itemIndex) => itemIndex !== index);
             intakeRevision += 1;
             aiIntakeResult = undefined;
+            persistPreNeedIntakeDraft();
             render();
         });
     });
@@ -2168,13 +2196,23 @@ function bindEvents() {
     document
         .querySelectorAll("[data-copy-link]")
         .forEach((button) => {
-        button.addEventListener("click", () => {
+        button.addEventListener("click", async () => {
             const url = button.dataset.copyLink;
             if (!url)
                 return;
-            void copyText(url).then(() => {
-                showLiveMessage("Secure supplier link copied.");
-            });
+            button.disabled = true;
+            button.textContent = "Copying…";
+            try {
+                const method = await copyText(url);
+                showLiveMessage(method === "legacy"
+                    ? "Secure supplier link copied using the browser fallback."
+                    : "Secure supplier link copied.");
+            }
+            catch (error) {
+                loadState = "error";
+                errorMessage = errorText(error);
+                render();
+            }
         });
     });
 }
@@ -2187,6 +2225,14 @@ function openSupplierComparison() {
 }
 async function structureRequirement(form, analyseWhenComplete = false) {
     syncIntakeDraft(form);
+    const rawRequirementError = validateIntakeRawRequirement(intakeDraft.description);
+    if (rawRequirementError) {
+        loadState = "error";
+        errorMessage = rawRequirementError;
+        persistPreNeedIntakeDraft();
+        render();
+        return;
+    }
     const requestRevision = intakeRevision;
     const requestMode = intakeMode;
     const requestId = ++activeIntakeRequestId;
@@ -2215,6 +2261,7 @@ async function structureRequirement(form, analyseWhenComplete = false) {
         aiIntakeResult = outcome.result;
         intakeSourceMode = outcome.sourceMode;
         applyStructuredResult(outcome.result);
+        persistPreNeedIntakeDraft();
         loadState = "success";
         continueToAnalysis =
             analyseWhenComplete && !validateDraft(intakeDraft);
@@ -2784,6 +2831,8 @@ async function pollWorkspace() {
         if (!isCurrentWorkspaceRefresh(activeWorkspace, activeEpoch, workspace, workspaceEpoch)) {
             return;
         }
+        const presentationChanged = buyerWorkspacePresentationSignature(activeWorkspace) !==
+            buyerWorkspacePresentationSignature(refreshedWorkspace);
         workspace = refreshedWorkspace;
         const startingView = view;
         const nextResponses = submittedResponses(workspace).length;
@@ -2799,7 +2848,7 @@ async function pollWorkspace() {
         }
         else {
             persistContext();
-            if (!milestoneUpdateFormHasFocus())
+            if (presentationChanged && !milestoneUpdateFormHasFocus())
                 render();
         }
         if (view !== startingView)
@@ -2811,6 +2860,100 @@ async function pollWorkspace() {
     finally {
         isPolling = false;
     }
+}
+function captureRenderInteractionState(root) {
+    const activeElement = document.activeElement instanceof HTMLElement &&
+        root.contains(document.activeElement)
+        ? document.activeElement
+        : undefined;
+    const focusedPath = activeElement
+        ? elementPathWithin(root, activeElement)
+        : undefined;
+    const textControl = activeElement instanceof HTMLInputElement ||
+        activeElement instanceof HTMLTextAreaElement
+        ? activeElement
+        : undefined;
+    return {
+        view,
+        ...(focusedPath
+            ? {
+                focusedPath,
+                focusedSignature: renderElementSignature(activeElement),
+                selectionStart: textControl?.selectionStart,
+                selectionEnd: textControl?.selectionEnd
+            }
+            : {}),
+        openDetailsPaths: Array.from(root.querySelectorAll("details[open]"))
+            .map((details) => elementPathWithin(root, details))
+            .filter((path) => Boolean(path)),
+        scrollX: window.scrollX,
+        scrollY: window.scrollY
+    };
+}
+function restoreRenderInteractionState(root, state) {
+    for (const path of state.openDetailsPaths) {
+        const details = elementAtPath(root, path);
+        if (details instanceof HTMLDetailsElement) {
+            details.open = true;
+        }
+    }
+    const focusTarget = state.focusedPath
+        ? elementAtPath(root, state.focusedPath)
+        : undefined;
+    if (focusTarget instanceof HTMLElement &&
+        renderElementSignature(focusTarget) === state.focusedSignature) {
+        focusTarget.focus({ preventScroll: true });
+        if ((focusTarget instanceof HTMLInputElement ||
+            focusTarget instanceof HTMLTextAreaElement) &&
+            state.selectionStart !== undefined &&
+            state.selectionEnd !== undefined) {
+            focusTarget.setSelectionRange(state.selectionStart, state.selectionEnd);
+        }
+    }
+    window.scrollTo({
+        top: state.scrollY,
+        left: state.scrollX,
+        behavior: "auto"
+    });
+}
+function elementPathWithin(root, element) {
+    const path = [];
+    let current = element;
+    while (current && current !== root) {
+        const parent = current.parentElement;
+        if (!parent)
+            return undefined;
+        path.unshift(Array.from(parent.children).indexOf(current));
+        current = parent;
+    }
+    return current === root ? path : undefined;
+}
+function elementAtPath(root, path) {
+    let current = root;
+    for (const index of path) {
+        const child = current.children[index];
+        if (!child)
+            return undefined;
+        current = child;
+    }
+    return current;
+}
+function renderElementSignature(element) {
+    if (!element)
+        return "";
+    const stableData = Array.from(element.attributes)
+        .filter((attribute) => attribute.name.startsWith("data-"))
+        .map((attribute) => `${attribute.name}=${attribute.value}`)
+        .sort()
+        .join("&");
+    return [
+        element.tagName,
+        element.id,
+        element.getAttribute("name") ?? "",
+        element.getAttribute("value") ?? "",
+        element.getAttribute("aria-label") ?? "",
+        stableData
+    ].join("|");
 }
 function isCurrentWorkspaceRefresh(activeWorkspace, activeEpoch, currentWorkspace, currentEpoch) {
     return (activeEpoch === currentEpoch &&
@@ -2845,12 +2988,15 @@ function loadDemo(input, robotics) {
     liveMessage = robotics
         ? "Robotic integration demo loaded into the same intake."
         : "PLC demo loaded into the same intake.";
+    persistPreNeedIntakeDraft();
     render();
 }
 async function addEvidenceFromInput(input, fallbackKind) {
     const form = input.form;
-    if (form)
+    if (form) {
         syncIntakeDraft(form);
+        persistPreNeedIntakeDraft();
+    }
     const file = input.files?.[0];
     if (!file)
         return;
@@ -2867,6 +3013,7 @@ async function addEvidenceFromInput(input, fallbackKind) {
         aiIntakeResult = undefined;
         loadState = "idle";
         liveMessage = `${file.name} attached for intake structuring.`;
+        persistPreNeedIntakeDraft();
     }
     catch (error) {
         loadState = "error";
@@ -2952,10 +3099,26 @@ function syncIntakeDraft(form) {
         constraints: csvValues(formData, "constraints")
     };
 }
-function validateDraft(input) {
-    if (input.description.trim().length < 24) {
-        return "Add a little more factory context before creating the Need Profile.";
+function updateIntakePrimaryActionState(form) {
+    const description = form.querySelector("textarea[name='description']");
+    const guidance = form.querySelector("#factory-context-guidance");
+    const submit = form.querySelector("[data-analyse-requirement]");
+    const validationError = validateIntakeRawRequirement(intakeDraft.description);
+    if (description) {
+        description.setAttribute("aria-invalid", intakeDraft.description && validationError ? "true" : "false");
     }
+    if (guidance) {
+        guidance.textContent = intakeRawRequirementGuidance(intakeDraft.description);
+    }
+    if (submit) {
+        submit.disabled =
+            loadState === "loading" || Boolean(validationError);
+    }
+}
+function validateDraft(input) {
+    const rawRequirementError = validateIntakeRawRequirement(input.description);
+    if (rawRequirementError)
+        return rawRequirementError;
     if (!input.title)
         return "Add a requirement title.";
     if (!input.category)
@@ -3067,6 +3230,7 @@ function readWorkspaceIdentity() {
     if (freshEntryRequested) {
         safeStorageRemove(LAST_NEED_KEY);
         safeSessionStorageSet(NEW_REQUIREMENT_KEY, "1");
+        safeSessionStorageRemove(PRE_NEED_INTAKE_DRAFT_KEY);
     }
     const explicitNeedProfileId = url.searchParams.get("needId") ??
         url.searchParams.get("needProfileId") ??
@@ -3173,10 +3337,32 @@ function setNeedProfileUrl(needProfileId) {
         [BUYER_VIEW_HISTORY_KEY]: view
     }, "", `${url.pathname}${url.search}`);
     safeSessionStorageRemove(NEW_REQUIREMENT_KEY);
+    safeSessionStorageRemove(PRE_NEED_INTAKE_DRAFT_KEY);
     safeStorageSet(LAST_NEED_KEY, needProfileId);
 }
 function saveBuyerToken(needProfileId, token) {
     safeStorageSet(`${TOKEN_PREFIX}${needProfileId}`, token);
+}
+function persistPreNeedIntakeDraft() {
+    if (workspace)
+        return;
+    safeSessionStorageSet(PRE_NEED_INTAKE_DRAFT_KEY, serializePreNeedIntakeDraft({
+        requirementInput: intakeDraft,
+        priority,
+        intakeSourceMode,
+        intakeResult: aiIntakeResult,
+        evidence: intakeEvidence
+    }));
+}
+function restorePreNeedIntakeDraft() {
+    const stored = parsePreNeedIntakeDraft(safeSessionStorageGet(PRE_NEED_INTAKE_DRAFT_KEY));
+    if (!stored)
+        return;
+    intakeDraft = cloneInput(stored.requirementInput);
+    priority = stored.priority;
+    intakeSourceMode = stored.intakeSourceMode;
+    aiIntakeResult = stored.intakeResult;
+    intakeEvidence = stored.evidence;
 }
 function persistContext() {
     const current = workspace;
@@ -3254,7 +3440,7 @@ function loadContext(needProfileId) {
                 ? value.intakeSourceMode
                 : undefined,
             intakeResult: intakeResult.success ? intakeResult.data : undefined,
-            requirementInput: parseStoredRequirement(value.requirementInput),
+            requirementInput: parseBuyerRequirementInput(value.requirementInput),
             intakeEvidence: evidence.success ? evidence.data : undefined,
             researchResult: researchResult.success
                 ? researchResult.data
@@ -3267,30 +3453,6 @@ function loadContext(needProfileId) {
     catch {
         return {};
     }
-}
-function parseStoredRequirement(value) {
-    if (!value || typeof value !== "object")
-        return undefined;
-    const input = value;
-    if (typeof input.description !== "string" ||
-        typeof input.title !== "string") {
-        return undefined;
-    }
-    return {
-        companyName: stringValue(input.companyName),
-        contactName: stringValue(input.contactName),
-        contactEmail: stringValue(input.contactEmail),
-        title: input.title,
-        description: input.description,
-        category: stringValue(input.category),
-        equipmentOrTechnology: stringArray(input.equipmentOrTechnology),
-        requiredCapabilities: stringArray(input.requiredCapabilities),
-        location: stringValue(input.location),
-        requiredBy: stringValue(input.requiredBy),
-        budgetRange: stringValue(input.budgetRange),
-        budgetAmount: typeof input.budgetAmount === "number" ? input.budgetAmount : 0,
-        constraints: stringArray(input.constraints)
-    };
 }
 function resolveRestoredView(data, storedView) {
     if (storedView === "registry")
@@ -3333,6 +3495,7 @@ function resetRequirementState(needProfileId) {
     }
     safeStorageRemove(LAST_NEED_KEY);
     safeSessionStorageSet(NEW_REQUIREMENT_KEY, "1");
+    safeSessionStorageRemove(PRE_NEED_INTAKE_DRAFT_KEY);
     workspaceEpoch += 1;
     workspace = undefined;
     supplierRegistry = undefined;
@@ -3753,6 +3916,9 @@ function primaryActionDescription() {
 function fileEvidenceNote(item) {
     if (item.kind === "written")
         return "Written evidence ready";
+    if (!item.dataUrl && !item.extractedText) {
+        return "File details restored; reattach before rerunning analysis";
+    }
     if (aiIntakeResult && intakeSourceMode === "fixture") {
         return "Provided; local adapter did not interpret file content";
     }
@@ -3962,32 +4128,10 @@ function dedupeSimilarStrings(values) {
     }
     return kept.map((entry) => entry.value);
 }
-function stringValue(value) {
-    return typeof value === "string" ? value : "";
-}
-function stringArray(value) {
-    return Array.isArray(value)
-        ? value.filter((item) => typeof item === "string")
-        : [];
-}
 function bindClick(selector, handler) {
     document.querySelector(selector)?.addEventListener("click", () => {
         void handler();
     });
-}
-async function copyText(value) {
-    if (navigator.clipboard) {
-        await navigator.clipboard.writeText(value);
-        return;
-    }
-    const textarea = document.createElement("textarea");
-    textarea.value = value;
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.append(textarea);
-    textarea.select();
-    document.execCommand("copy");
-    textarea.remove();
 }
 function showLiveMessage(message) {
     liveMessage = message;

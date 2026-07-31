@@ -1,4 +1,5 @@
 import { z } from "zod";
+export { formatSupplierAvailability } from "./dateFormatting.js";
 export { detectIntakeBudget, detectIntakeCapabilities, detectIntakeEquipment, detectIntakeLocation, detectIntakeUrgency, intakeCategoryFromEquipment, intakeTitleFromRequirement, isIntakeRecoveryRequirement, isIntakeUrgent, parseIntakeBudgetAmount, truncateIntakeTitle } from "./intakeExtraction.js";
 export const needPrioritySchema = z.enum(["urgent", "soon", "planned"]);
 export const buyerPrioritySchema = z.enum([
@@ -8,6 +9,9 @@ export const buyerPrioritySchema = z.enum([
     "trust",
     "price"
 ]);
+export const AI_INTAKE_RAW_REQUIREMENT_MIN_LENGTH = 24;
+export const AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH = 8_000;
+export const AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE = "Factory context is too long. Keep it to 8,000 characters or fewer.";
 export const needProfileStatusSchema = z.enum([
     "draft",
     "submitted",
@@ -252,7 +256,11 @@ export const aiIntakeProfileSchema = z.object({
     buyerPriority: buyerPrioritySchema.optional()
 });
 export const aiIntakeResultSchema = z.object({
-    rawRequirement: z.string().trim().min(1),
+    rawRequirement: z
+        .string()
+        .trim()
+        .min(1)
+        .max(AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH, AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE),
     generatedProfile: aiIntakeProfileSchema,
     confidence: z.number().min(0).max(1).optional(),
     missingFields: z.array(z.string().trim().min(1)).default([])
@@ -736,6 +744,14 @@ export const aiIntakeEvidenceSchema = z.object({
     mimeType: z.string().trim().min(1).optional(),
     extractedText: z.string().trim().optional(),
     dataUrl: z.string().trim().startsWith("data:").max(5_600_000).optional()
+});
+export const aiIntakeStructureRequestSchema = z.object({
+    rawRequirement: z
+        .string()
+        .trim()
+        .max(AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH, AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE)
+        .default(""),
+    evidence: z.array(aiIntakeEvidenceSchema).max(6).default([])
 });
 export const intakeEvidenceStatusSchema = z.enum([
     "provided",

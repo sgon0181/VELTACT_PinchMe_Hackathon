@@ -72,6 +72,31 @@ test("keeps the canonical report and outreach controls visible", () => {
   assert.match(mainBundle, /Site Assessment \/ Scoping Visit/);
 });
 
+test("keeps invalid intake disabled with nearby guidance and reports copy outcomes", () => {
+  assert.match(
+    mainBundle,
+    /minlength="\$\{AI_INTAKE_RAW_REQUIREMENT_MIN_LENGTH\}"/
+  );
+  assert.match(
+    mainBundle,
+    /maxlength="\$\{AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH\}"/
+  );
+  assert.match(mainBundle, /id="factory-context-guidance"/);
+  assert.match(
+    mainBundle,
+    /primaryActionDisabled \? "disabled" : ""/
+  );
+  assert.match(mainBundle, /button\.textContent = "Copying…"/);
+  assert.match(
+    mainBundle,
+    /Secure supplier link copied using the browser fallback/
+  );
+  assert.match(
+    mainBundle,
+    /errorMessage = errorText\(error\)/
+  );
+});
+
 test("downloads the canonical buyer-scoped PDF without exposing the token", async () => {
   globalThis.window = {
     location: { origin: "https://buyer.veltact.example" }

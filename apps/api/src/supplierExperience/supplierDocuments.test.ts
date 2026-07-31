@@ -36,9 +36,22 @@ describe("token-scoped supplier PDF documents", () => {
     assert.match(quoteText, /^%PDF-1\.4/);
     assert.match(quoteText, /Supplier quote summary/);
     assert.match(quoteText, /Indicative price/);
+    assert.match(quoteText, /Earliest availability: 30 Jul 2026/);
+    assert.doesNotMatch(quoteText, /Earliest availability: 2026-07-30/);
     assert.match(quoteText, /No safeguard bypass/);
     assert.doesNotMatch(quoteText, /private-token-123/);
     assert.doesNotMatch(quoteText, /supplier has been paid|payout complete/i);
+  });
+
+  test("preserves a human availability phrase in the quote PDF", () => {
+    const context = documentContext();
+    assert.ok(context.response);
+    context.response.earliestAvailability = "Within four hours";
+    context.response.availability = "Within four hours";
+
+    const quoteText = buildSupplierQuotePdf(context).body.toString("ascii");
+
+    assert.match(quoteText, /Earliest availability: Within four hours/);
   });
 
   test("serves and protects canonical PDF routes through the real app", async () => {

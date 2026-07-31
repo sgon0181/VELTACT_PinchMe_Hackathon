@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export { formatSupplierAvailability } from "./dateFormatting.js";
+
 export {
   detectIntakeBudget,
   detectIntakeCapabilities,
@@ -25,6 +27,11 @@ export const buyerPrioritySchema = z.enum([
   "price"
 ]);
 export type BuyerPriority = z.infer<typeof buyerPrioritySchema>;
+
+export const AI_INTAKE_RAW_REQUIREMENT_MIN_LENGTH = 24;
+export const AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH = 8_000;
+export const AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE =
+  "Factory context is too long. Keep it to 8,000 characters or fewer.";
 
 export const needProfileStatusSchema = z.enum([
   "draft",
@@ -321,7 +328,14 @@ export const aiIntakeProfileSchema = z.object({
 export type AiIntakeProfile = z.infer<typeof aiIntakeProfileSchema>;
 
 export const aiIntakeResultSchema = z.object({
-  rawRequirement: z.string().trim().min(1),
+  rawRequirement: z
+    .string()
+    .trim()
+    .min(1)
+    .max(
+      AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH,
+      AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE
+    ),
   generatedProfile: aiIntakeProfileSchema,
   confidence: z.number().min(0).max(1).optional(),
   missingFields: z.array(z.string().trim().min(1)).default([])
@@ -933,6 +947,21 @@ export const aiIntakeEvidenceSchema = z.object({
   dataUrl: z.string().trim().startsWith("data:").max(5_600_000).optional()
 });
 export type AiIntakeEvidence = z.infer<typeof aiIntakeEvidenceSchema>;
+
+export const aiIntakeStructureRequestSchema = z.object({
+  rawRequirement: z
+    .string()
+    .trim()
+    .max(
+      AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH,
+      AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE
+    )
+    .default(""),
+  evidence: z.array(aiIntakeEvidenceSchema).max(6).default([])
+});
+export type AiIntakeStructureRequest = z.infer<
+  typeof aiIntakeStructureRequestSchema
+>;
 
 export const intakeEvidenceStatusSchema = z.enum([
   "provided",

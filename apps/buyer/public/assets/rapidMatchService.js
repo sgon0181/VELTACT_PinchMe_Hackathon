@@ -996,6 +996,7 @@ function fixtureDeployment(workspace) {
     const engagement = requiredEngagement(workspace);
     const needProfile = requiredNeedProfile(workspace);
     const robotics = /robot|palletis/i.test(`${needProfile.title} ${needProfile.description} ${needProfile.category}`);
+    const plcRecovery = /\bplc\b|siemens|programmable logic|control system/i.test(`${needProfile.title} ${needProfile.description} ${needProfile.category}`);
     const titles = robotics
         ? [
             "Site Assessment / Scoping Visit",
@@ -1003,7 +1004,9 @@ function fixtureDeployment(workspace) {
             "Installation",
             "Commissioning"
         ]
-        : ["Diagnosis", "Recovery", "Validation", "Handover"];
+        : plcRecovery
+            ? ["Diagnosis", "Recovery", "Validation", "Handover"]
+            : ["Site Assessment", "Approved Work", "Validation", "Handover"];
     const secured = engagement.status === "supplier_secured";
     const paymentPending = engagement.paymentStatus !== "not_started";
     const updatedAt = engagement.updatedAt;
@@ -1011,7 +1014,9 @@ function fixtureDeployment(workspace) {
         engagementId: engagement.id,
         title: robotics
             ? "Robotic integration delivery"
-            : "PLC recovery delivery",
+            : plcRecovery
+                ? "PLC recovery delivery"
+                : "Industrial response delivery",
         status: secured ? "active" : paymentPending ? "commitment_pending" : "not_started",
         progressPercentage: 0,
         currentMilestoneId: `${engagement.id}-fixture-milestone-1`,

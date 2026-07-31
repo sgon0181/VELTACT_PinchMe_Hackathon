@@ -9,16 +9,9 @@ import {
   intakeTitleFromRequirement,
   isIntakeRecoveryRequirement,
   isIntakeUrgent,
+  type AiIntakeEvidence,
   type AiIntakeResult
 } from "@veltact/contracts";
-
-export type AiIntakeEvidence = {
-  kind: "written" | "pdf" | "photo";
-  name: string;
-  mimeType?: string;
-  extractedText?: string;
-  dataUrl?: string;
-};
 
 export type StructureRequirementRequest = {
   rawRequirement: string;

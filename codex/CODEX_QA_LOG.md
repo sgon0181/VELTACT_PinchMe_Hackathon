@@ -42,3 +42,53 @@ accessibility, console, or responsive-layout defects.
   refrigeration category, one honest missing field (buyer email), and no console
   warning/error. Because a defect interrupted the journey, this cycle does not count
   as clean and will restart from intake.
+
+### Cycle 1R — Darwin cold-store emergency (complete, defects found)
+
+- **Response variation:** PlantBridge and Regional Maintenance Partners both
+  submitted can-help offers through their separate private links. The buyer selected
+  PlantBridge for its earlier response date despite the higher indicative price.
+- **Journey evidence:** link-only outreach truthfully reported that no external
+  delivery was requested; opening the synthetic return left payment pending; explicit
+  local-demo evidence secured the engagement; all four milestones were separately
+  funded, started and completed with buyer-facing delivery updates.
+- **Final verification:** the selected registry relationship became `Delivered`, the
+  other respondent remained `Responded`, the fixture research/discovery activity
+  timeline contained its full ordered history, the speed receipt retained every
+  commitment and milestone-funding event, and all four milestones reached 100%.
+  Buyer, both supplier and payment-return tabs had no console warning/error.
+- **Defects found:** supplier-entered date-only availability appeared as raw ISO text;
+  supplier/account state changes lacked focus placement; unchanged buyer polling
+  repeatedly collapsed the open milestone form and discarded focus; a refrigeration
+  engagement was labelled `PLC recovery deployment`; an in-progress milestone showed
+  50% locally while overall engineering progress stayed at the previous completed-only
+  percentage.
+- **Additional adversarial/static defects queued from the same pass:** unsaved intake
+  and supplier response drafts did not survive refresh, intake had no explicit size
+  bound or empty-state unlock guidance, clipboard denial could become an unhandled
+  dead action, and long unbroken PDF content could overflow.
+- **Result:** not clean. Fixes and focused regressions are being integrated before the
+  scenario matrix restarts.
+
+### Remediation gate after Cycle 1R
+
+- Added UTC-safe date-only presentation across buyer, supplier receipt and quote PDF;
+  long unbroken PDF tokens now split to the printable width.
+- Added refresh-safe pre-Need and token-scoped unsent supplier drafts, explicit
+  24–8,000 character intake boundaries, disabled-state guidance, provider guards and
+  clipboard fallback/recovery.
+- Added focus placement for supplier/account state transitions and buyer rerender
+  preservation for focused controls, text selection, scroll position and open
+  disclosures. Polling now skips a rerender when only the receipt-generation
+  timestamp changed.
+- Added a general industrial deployment template so non-PLC work is not labelled as
+  PLC recovery. PLC and robotics inference and their deterministic milestone sets are
+  explicitly regression-tested. Overall engineering progress now averages the
+  milestone progress values, so an in-progress first milestone reports 13% rather
+  than contradicting its own 50% card.
+- **Full gate:** 297 tests passed (14 staging/contracts, 164 API, 110 buyer,
+  9 shared contracts); typecheck and production build passed.
+- **Served browser retest:** both supplier receipts and the buyer comparison render
+  `1 Aug 2026` / `2 Aug 2026` with no raw date-only ISO; receipt and comparison
+  headings receive focus; typed and structured pre-Need drafts survive reload; and a
+  priority choice retains keyboard focus through its same-view rerender.

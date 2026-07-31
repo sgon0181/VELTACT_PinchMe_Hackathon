@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import {
+  AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH,
+  AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE
+} from "@veltact/contracts";
 
 test("buyer fallback keeps a planned Siemens PLC shutdown on its stated six-week timeline", async () => {
   const previousWindow = globalThis.window;
@@ -97,5 +101,55 @@ test("buyer fallback rejects binary-only evidence instead of reading its filenam
     } else {
       globalThis.window = previousWindow;
     }
+  }
+});
+
+test("rejects oversized context before fetch and recovers friendly errors from non-JSON responses", async () => {
+  const previousWindow = globalThis.window;
+  const previousFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.window = {
+    location: { origin: "http://localhost:4001" },
+    setTimeout: globalThis.setTimeout.bind(globalThis)
+  };
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    return new Response("upstream payload rejection", {
+      status: 413,
+      headers: { "content-type": "text/plain" }
+    });
+  };
+
+  try {
+    const { BackendAiIntakeService } = await import(
+      `../public/assets/aiIntakeService.js?limits=${Date.now()}`
+    );
+    const service = new BackendAiIntakeService();
+
+    await assert.rejects(
+      service.structureRequirement({
+        rawRequirement: "x".repeat(
+          AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH + 1
+        )
+      }),
+      new RegExp(AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE.replace(/[,.]/g, "\\$&"))
+    );
+    assert.equal(fetchCalls, 0, "oversized input must not reach any provider");
+
+    await assert.rejects(
+      service.structureRequirement({
+        rawRequirement:
+          "A conveyor motor fault at our industrial factory needs onsite repair tomorrow."
+      }),
+      /HTTP 413.*Check the factory context and try again/i
+    );
+    assert.equal(fetchCalls, 1);
+  } finally {
+    if (previousWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = previousWindow;
+    }
+    globalThis.fetch = previousFetch;
   }
 });
