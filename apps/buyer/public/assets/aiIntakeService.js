@@ -138,6 +138,12 @@ function detectConstraints(normalised, isUrgent, evidence) {
     if (/\bcold store\b|\bcold-storage\b|\bfreezer\b|-\d+\s*°?c\b/.test(normalised)) {
         constraints.add("Temperature-critical cold storage");
     }
+    if (/\bwastewater\b|\bsewage\b|\bsludge\b/.test(normalised)) {
+        constraints.add("Wastewater treatment environment");
+    }
+    if (/\bbypass pumping\b|keep(?:s|ing)? (?:the )?process stable|maintain(?:ing)? (?:the )?process/.test(normalised)) {
+        constraints.add("Maintain wastewater process continuity");
+    }
     if (isUrgent)
         constraints.add("Minimal downtime");
     if (/adjacent production|avoid(?:s|ing)? disrupting|maintain(?:ing)? production|staged installation/.test(normalised)) {

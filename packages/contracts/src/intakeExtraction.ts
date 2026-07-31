@@ -257,13 +257,13 @@ export function detectIntakeUrgency(
   }
 
   const relative = rawRequirement.match(
-    /\bwithin\s+(\d{1,3})\s+(business\s+)?(day|week)s?\b/i
+    /\bwithin\s+(\d{1,3})\s+(?:(business|calendar)\s+)?(day|week)s?\b/i
   );
   if (relative) {
     const count = Number(relative[1]);
     const unit = relative[3]?.toLowerCase() ?? "day";
-    const business = relative[2] ? "business " : "";
-    return `Within ${count} ${business}${unit}${count === 1 ? "" : "s"}`;
+    const qualifier = relative[2] ? `${relative[2].toLowerCase()} ` : "";
+    return `Within ${count} ${qualifier}${unit}${count === 1 ? "" : "s"}`;
   }
 
   return isUrgent ? "Required today" : undefined;

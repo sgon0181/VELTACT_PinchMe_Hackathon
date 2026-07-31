@@ -1078,7 +1078,7 @@ function requirementToMarketplaceProfile(
     description: input.description,
     problemSummary: input.description,
     category: input.category || inferCategory(input.description),
-    industry: "Manufacturing",
+    industry: inferBuyerIndustry(input.description),
     equipmentOrTechnology: input.equipmentOrTechnology,
     location: detectIntakeLocation(input.location) ?? input.location,
     requiredBy: input.requiredBy || undefined,
@@ -1101,7 +1101,7 @@ function marketplaceProfileFromNeed(
     description: needProfile.description,
     problemSummary: needProfile.description,
     category: needProfile.category,
-    industry: "Manufacturing",
+    industry: inferBuyerIndustry(needProfile.description),
     equipmentOrTechnology: needProfile.mustHaves
       .filter((item) => item.startsWith("Equipment: "))
       .map((item) => item.slice("Equipment: ".length)),
@@ -1465,6 +1465,23 @@ function isRobotics(profile: MarketplaceNeedProfile) {
       ...(profile.equipmentOrTechnology ?? [])
     ].join(" ")
   );
+}
+
+export function inferBuyerIndustry(description: string) {
+  if (/\bwastewater\b|\bwater treatment\b|\bsewage\b|\bsludge\b/i.test(description)) {
+    return "Water and wastewater utilities";
+  }
+  if (
+    /\bcold store\b|\bcold-storage\b|\bcold logistics\b|\brefrigerat(?:ion|ed)\b/i.test(
+      description
+    )
+  ) {
+    return "Cold storage and logistics";
+  }
+  if (/\bgrain terminal\b|\bgrain handling\b|\bshiploader\b/i.test(description)) {
+    return "Bulk materials and grain handling";
+  }
+  return "Manufacturing";
 }
 
 function inferCategory(description: string) {

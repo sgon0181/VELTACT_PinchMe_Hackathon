@@ -184,6 +184,26 @@ describe("structureRequirementLocally", () => {
     assert.doesNotMatch(result.generatedProfile.title, /\stripping t…$/);
   });
 
+  test("retains wastewater timing and process-continuity constraints", () => {
+    const result = structureRequirementLocally({
+      rawRequirement:
+        "At our wastewater treatment plant in Ballarat VIC, the sludge dewatering conveyor gearbox is leaking oil and running hot. We need an industrial mechanical maintenance contractor within 5 calendar days while bypass pumping keeps the process stable. Approved budget range is AUD 28,000-36,000."
+    });
+
+    assert.equal(result.generatedProfile.urgency, "Within 5 calendar days");
+    assert.ok(
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Wastewater treatment environment"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Maintain wastewater process continuity"
+      )
+    );
+    assert.ok(!result.missingFields.includes("required response timing"));
+  });
+
   test("preserves grain-terminal contamination and electromechanical repair scope", () => {
     const result = structureRequirementLocally({
       rawRequirement:

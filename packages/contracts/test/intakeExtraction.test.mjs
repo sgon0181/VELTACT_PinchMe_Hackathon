@@ -47,6 +47,17 @@ describe("shared deterministic intake extraction", () => {
     assert.doesNotMatch(title, /\stripping t…$/);
   });
 
+  test("retains calendar-day and business-day timing qualifiers", () => {
+    assert.equal(
+      detectIntakeUrgency("Complete the repair within 5 calendar days.", false),
+      "Within 5 calendar days"
+    );
+    assert.equal(
+      detectIntakeUrgency("Complete the repair within 3 business days.", false),
+      "Within 3 business days"
+    );
+  });
+
   test("extracts an urgent ammonia cold-store requirement without buyer re-entry", () => {
     const requirement =
       "An ammonia refrigeration compressor at our seafood cold store in Darwin NT has severe vibration and low oil-pressure alarms. We need a licensed industrial refrigeration contractor tonight, within 12 hours, for an emergency repair. Budget is AUD 28,000.";

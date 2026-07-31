@@ -285,3 +285,44 @@ accessibility, console, or responsive-layout defects.
   production builds passed.
 - **Result:** not clean because the report defect interrupted the journey. The
   clean-streak cycle restarts after verification.
+
+### Cycle C2R — Hobart mixed-response journey (complete, restart required)
+
+- Repeated the Hobart requirement from fresh intake at 375×812. The exact
+  three-business-day timing survived the report; the buyer selected a quality-led
+  pathway, shortlisted two labelled fixture suppliers and requested link-only
+  outreach with no external delivery.
+- PlantBridge submitted a can-help offer for AUD 44,500 with 5 August availability;
+  Regional Maintenance Partners explicitly declined. Comparison kept the decline
+  disabled with `Not provided`, and PlantBridge was selected.
+- Explicit local-demo payment evidence funded the commitment. Site Assessment,
+  Approved Work, Validation and Handover moved through 13/25/38/50/63/75/88/100%
+  engineering progress with buyer-authored updates. The registry ended with
+  PlantBridge `Delivered`, the decline `Responded`, the speed receipt complete and
+  26 ordered fixture-activity events. Buyer and supplier consoles were clean with
+  no horizontal overflow.
+- **Retrospective defect:** the final cross-industry review showed the Need Profile
+  still labelled this cold-logistics operation `Manufacturing`. The completed flow
+  therefore does not count toward the clean streak.
+
+### Cycle C3 — Ballarat wastewater gearbox (restart required)
+
+- **Scenario:** a Ballarat, VIC wastewater treatment plant needed a sludge
+  dewatering-conveyor gearbox repaired within five calendar days while bypass
+  pumping maintained the process; the approved range was `AUD 28,000-36,000`.
+- Equipment, mechanical category, location and budget structured correctly.
+- **Defects:** `Within 5 calendar days` was omitted as a missing response time;
+  wastewater and bypass-pumping continuity were absent from constraints; and the
+  buyer adapter hardcoded `Manufacturing` for both wastewater utilities and the
+  preceding cold-logistics need.
+- **Fixes:** shared urgency extraction now retains calendar-day and business-day
+  qualifiers; both server and browser fixture adapters capture wastewater treatment
+  and process-continuity constraints; and the buyer adapter distinguishes water
+  utilities, cold logistics and grain handling while preserving the established
+  manufacturing fallback used by the demo scenarios.
+- **Verification:** the served desktop draft and report retain `Within 5 calendar
+  days`, both wastewater constraints and `Water and wastewater utilities`, with no
+  overflow or console warning/error. Shared, API and browser regressions pass in two
+  consecutive 312-test gates with typecheck and production builds.
+- **Result:** not clean because defects interrupted intake. The clean streak restarts
+  from a fresh scenario.

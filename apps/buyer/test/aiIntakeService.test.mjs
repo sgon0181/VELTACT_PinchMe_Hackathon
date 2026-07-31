@@ -122,6 +122,47 @@ test("buyer fallback preserves grain-terminal contamination and repair scope", a
   }
 });
 
+test("buyer fallback retains wastewater timing and continuity constraints", async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "http://localhost:4001" },
+    setTimeout(callback) {
+      queueMicrotask(callback);
+      return 0;
+    }
+  };
+
+  try {
+    const { DemoAiIntakeService } = await import(
+      `../public/assets/aiIntakeService.js?wastewater=${Date.now()}`
+    );
+    const service = new DemoAiIntakeService();
+    const result = await service.structureRequirement({
+      rawRequirement:
+        "At our wastewater treatment plant in Ballarat VIC, the sludge dewatering conveyor gearbox is leaking oil and running hot. We need an industrial mechanical maintenance contractor within 5 calendar days while bypass pumping keeps the process stable. Approved budget range is AUD 28,000-36,000."
+    });
+
+    assert.equal(result.generatedProfile.urgency, "Within 5 calendar days");
+    assert.ok(
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Wastewater treatment environment"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Maintain wastewater process continuity"
+      )
+    );
+    assert.ok(!result.missingFields.includes("required response timing"));
+  } finally {
+    if (previousWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = previousWindow;
+    }
+  }
+});
+
 test("buyer fallback classifies a compressor motor under refrigeration", async () => {
   const previousWindow = globalThis.window;
   globalThis.window = {
