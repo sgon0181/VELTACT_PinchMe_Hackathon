@@ -12,6 +12,7 @@ import {
   createSolutionDecision,
   discoverNeedSuppliers,
   getSupplierRegistryForNeed,
+  markInvitationViewed,
   prepareSupplierLeadInvitationsForNeed,
   recordLocalDemoPayment,
   reloadMarketplaceStore,
@@ -41,6 +42,33 @@ afterEach(() => {
 });
 
 describe("supplier registry", { concurrency: false }, () => {
+  test("records a viewed no-show invitation as contacted", () => {
+    const need = createNeed({
+      buyerEmail: "utilities-buyer@example.com",
+      profile: roboticsNeed()
+    });
+    assert.ok(seedMarketplaceDemoFindState(need.id));
+    const prepared = prepareSupplierLeadInvitationsForNeed(need.id);
+    assert.equal(prepared.status, "prepared");
+    if (prepared.status !== "prepared") return;
+
+    const invitation = prepared.invitations[0];
+    assert.ok(invitation);
+    const openedAt = new Date("2026-07-31T02:00:00.000Z");
+    const viewed = markInvitationViewed(invitation.token, openedAt);
+    assert.equal(viewed?.status, "opened");
+
+    const entry = getSupplierRegistryForNeed(need.id)?.entries.find(
+      (candidate) => candidate.supplierName === invitation.supplierName
+    );
+    assert.equal(entry?.provenanceState, "contacted");
+    assert.equal(
+      entry?.engagementHistory[0]?.contactedAt,
+      openedAt.toISOString()
+    );
+    assert.equal(entry?.engagementHistory[0]?.respondedAt, undefined);
+  });
+
   test("deduplicates identity and upgrades provenance monotonically", () => {
     const discovered = upsertSupplierRegistryEntry({
       buyerEmail: "buyer@example.com",

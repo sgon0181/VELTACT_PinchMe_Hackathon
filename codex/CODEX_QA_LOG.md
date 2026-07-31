@@ -326,3 +326,27 @@ accessibility, console, or responsive-layout defects.
   consecutive 312-test gates with typecheck and production builds.
 - **Result:** not clean because defects interrupted intake. The clean streak restarts
   from a fresh scenario.
+
+### Cycle C4 — Ballarat no-show journey (complete, restart required)
+
+- Recreated the corrected Ballarat wastewater requirement on desktop, selected price
+  priority, sent exactly two private links and opened both. PlantBridge submitted a
+  can-help offer for AUD 31,800 with 4 August availability; the second supplier
+  viewed its invitation but did not respond.
+- The buyer showed `1 of 2 suppliers responded`, required the explicit `Review the
+  single response (1 of 2)` action, displayed the one-response warning and completed
+  selection, local-demo payment and all four milestones to 100%. The speed receipt,
+  truthfulness labels, served layouts and consoles were clean.
+- **Defect:** the final supplier bench correctly marked PlantBridge `Delivered`, but
+  left the viewed no-show supplier `Discovered` even though a first-view audit event
+  proved contact with the private invitation.
+- **Fix:** the first successful supplier invitation view (or direct claim) now
+  monotonically advances the private registry relationship to `Contacted` without
+  inventing a response. Repeated views remain idempotent, and later responses,
+  securing and delivery continue to outrank contact.
+- **Verification:** a fresh served supplier invitation produced one contacted and
+  two discovered registry entries, with `contactedAt` set and no `respondedAt`.
+  Focused registry coverage and two consecutive 313-test gates, typecheck and
+  production builds passed.
+- **Result:** not clean because the registry defect was found at the final check. The
+  two-cycle clean streak restarts after this fix.
