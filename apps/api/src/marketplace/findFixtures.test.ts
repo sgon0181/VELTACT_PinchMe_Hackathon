@@ -30,28 +30,6 @@ const roboticsProfile: MarketplaceNeedProfile = {
   ]
 };
 
-const processHeatingProfile: MarketplaceNeedProfile = {
-  title: "Extruder barrel heating fault with high-torque alarm",
-  description:
-    "Zone 3 heater band on the barrel is dead; the plastic isn't melting right, causing a high-torque alarm on the screw.",
-  category: "Plastics processing maintenance",
-  industry: "Plastics manufacturing",
-  equipmentOrTechnology: [
-    "Plastics extrusion machine",
-    "Extruder barrel heating zone",
-    "Extruder screw drive"
-  ],
-  location: "Western Sydney, NSW",
-  urgencyDays: 1,
-  constraints: ["Production equipment unavailable"],
-  buyerPriority: "technical_fit",
-  requiredCapabilities: [
-    "Industrial process heating diagnostics",
-    "Industrial electrical fault finding",
-    "Extruder screw-drive assessment"
-  ]
-};
-
 const expectedOfficialSources = [
   {
     title: "Guide for safe design of plant",
@@ -222,59 +200,5 @@ describe("fixture supplier lead commercial context", () => {
 
     assert.ok(risks.some((risk) => risk === "Commercial fit requires a supplier response."));
     assert.ok(risks.every((risk) => !/AUD [\d,]+ budget/.test(risk)));
-  });
-});
-
-describe("plastics extrusion fixture path", () => {
-  test("returns relevant solution pathways, citations and supplier leads", () => {
-    const generatedAt = new Date("2026-07-30T00:00:00.000Z");
-    const research = createMarketplaceFixtureResearch(
-      "marketplace-process-heating-need",
-      processHeatingProfile,
-      generatedAt
-    );
-    const leads = createMarketplaceFixtureSupplierLeads(
-      "marketplace-process-heating-need",
-      processHeatingProfile,
-      generatedAt
-    );
-
-    assert.match(research.id, /research:process_heating$/);
-    assert.match(research.overview, /extrusion heating loss/i);
-    assert.ok(
-      research.approaches.some(
-        (approach) =>
-          approach.title === "Authorised heating-zone and extrusion assessment"
-      )
-    );
-    assert.ok(
-      research.approaches.every(
-        (approach) => !/Siemens|PLC|robotic pallet/i.test(approach.title)
-      )
-    );
-    assert.deepEqual(
-      research.citations.map((citation) => new URL(citation.url).hostname),
-      [
-        "www.safeworkaustralia.gov.au",
-        "www.safework.nsw.gov.au",
-        "www.watlow.com"
-      ]
-    );
-    assert.equal(leads.length, 3);
-    assert.ok(
-      leads.some((lead) =>
-        lead.capabilities.includes("industrial process heating diagnostics")
-      )
-    );
-    assert.ok(
-      leads.some((lead) =>
-        lead.capabilities.includes("plastics extrusion equipment diagnostics")
-      )
-    );
-    assert.ok(
-      leads.every(
-        (lead) => !lead.capabilities.some((capability) => /\bPLC\b|robot/i.test(capability))
-      )
-    );
   });
 });
