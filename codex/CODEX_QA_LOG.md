@@ -140,3 +140,59 @@ accessibility, console, or responsive-layout defects.
 - **Fix:** oversized guidance now states the 8,000-character limit and the exact
   number of characters to remove, with a boundary regression test. The adversarial
   cycle restarts after the full gate.
+
+### Cycle A1 — Adversarial Port Lincoln grain terminal (restart required)
+
+- **Scenario:** a bulk grain export terminal in Port Lincoln, SA needed a combined
+  mechanical and electrical team within 24 hours for an overheating, tripping
+  shiploader conveyor motor and gearbox; the authorised callout and initial repair
+  tolerance was phrased as `$14,500`, with additional parts subject to approval and
+  grain-contamination controls.
+- Empty, repeated-letter and 8,001-character inputs again failed safely before any
+  provider call. The valid draft survived refresh and a double-clicked analysis
+  action created only one structured result.
+- **Defects:** the structured draft omitted explicit gearbox/motor repair and
+  electrical-maintenance scope, missed the grain-contamination constraint, called a
+  bulk-handling conveyor a packaging conveyor, produced a truncated raw-sentence
+  title, and treated `within 24 hours` inconsistently between displayed urgency and
+  speed/minimal-downtime state.
+- **Fixes:** shared extraction now preserves electromechanical repair scope, uses an
+  industrial conveyor outside packaging/bottling contexts, recognises a 24-hour
+  deadline as urgent and creates a concise grain-repair title. API and browser
+  fallback adapters both retain grain-handling contamination controls.
+- **Regression coverage:** shared extraction, API local-adapter and browser-fallback
+  tests assert the title, equipment, capabilities, priority and constraints while the
+  PLC and robotics regression suites remain unchanged. Two consecutive complete gates
+  passed 300 tests plus typecheck and production build.
+- **Result:** not clean because the journey exposed extraction defects; restart
+  required after remediation.
+
+### Cycle A2 — Adversarial Port Lincoln grain terminal (clean)
+
+- Repeated the empty, low-signal and oversized boundaries from a fresh session. The
+  UI stayed actionable and the direct oversized API request returned a friendly 400.
+  The valid raw and structured drafts survived refresh; double-clicked analysis and
+  need-creation actions produced one Need Profile.
+- Selected two of three labelled fixture candidates and double-clicked a link-only
+  Send action. Exactly two private invitations were created and the buyer truthfully
+  reported that no external delivery was requested.
+- Missing/malformed invitation reads, claims and responses returned 404, and the
+  malformed supplier page focused its terminal `Invitation not found` heading.
+  Supplier commercial fields survived refresh per token while contact identity and
+  consent did not persist. Both suppliers then submitted complete can-help offers.
+- A pre-selection response replay returned 201 with the original response ID and did
+  not create a duplicate. The same replay after buyer selection returned 409 because
+  supplier responses were closed.
+- Refreshed after analysis, pathway review, matching, outreach, responses, comparison,
+  selection, payment-link creation, commitment evidence and every delivery transition.
+  The synthetic local return left the engagement pending; explicit local-demo
+  evidence was clearly non-authoritative.
+- Funded, started and completed Site Assessment, Approved Work, Validation and
+  Handover independently. Overall progress tracked the milestone average at
+  13/25/38/50/63/75/88/100%, with payment never presented as engineering progress.
+- The selected supplier registry relationship reached `Delivered`, the other
+  respondent remained `Responded`, the full labelled-fixture activity sequence and
+  speed receipt remained ordered, and no surface rendered `undefined`, `NaN` or raw
+  ISO timestamps. Buyer, both supplier, malformed-token and local-return tabs recorded
+  zero console warnings/errors.
+- **Result:** clean. The required adversarial special cycle has passed.

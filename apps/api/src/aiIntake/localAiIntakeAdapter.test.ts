@@ -184,6 +184,57 @@ describe("structureRequirementLocally", () => {
     assert.doesNotMatch(result.generatedProfile.title, /\stripping t…$/);
   });
 
+  test("preserves grain-terminal contamination and electromechanical repair scope", () => {
+    const result = structureRequirementLocally({
+      rawRequirement:
+        "At our bulk grain export terminal in Port Lincoln SA, the main shiploader feed conveyor motor and gearbox are overheating and tripping. We need a mechanical and electrical industrial maintenance team within 24 hours to diagnose and complete an authorised repair without contaminating grain handling areas. Our callout and initial repair tolerance is $14,500, with any additional parts subject to approval."
+    });
+
+    assert.equal(
+      result.generatedProfile.title,
+      "Urgent grain conveyor motor and gearbox repair"
+    );
+    assert.equal(result.generatedProfile.location, "Port Lincoln, SA");
+    assert.equal(result.generatedProfile.urgency, "Required today");
+    assert.equal(result.generatedProfile.buyerPriority, "speed");
+    assert.equal(result.generatedProfile.budgetRange, "Up to AUD 14,500");
+    assert.ok(
+      result.generatedProfile.equipmentOrTechnology.includes(
+        "Industrial conveyor"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial mechanical maintenance"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial gearbox repair"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial motor repair"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial electrical maintenance"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Grain handling contamination controls"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Minimal downtime"
+      )
+    );
+  });
+
   test("structures an urgent ammonia cold-store repair without duplicate buyer work", () => {
     const result = structureRequirementLocally({
       rawRequirement:

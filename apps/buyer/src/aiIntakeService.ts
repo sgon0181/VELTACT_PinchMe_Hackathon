@@ -189,6 +189,12 @@ function detectConstraints(normalised: string, isUrgent: boolean, evidence: Inta
   } else if (/\bfood\b|\bseafood\b|\bdairy\b/.test(normalised)) {
     constraints.add("Food handling environment");
   }
+  if (
+    /\bgrain\b/.test(normalised) &&
+    /\bcontaminat(?:e|ed|es|ing|ion)\b/.test(normalised)
+  ) {
+    constraints.add("Grain handling contamination controls");
+  }
   if (/\bcold store\b|\bcold-storage\b|\bfreezer\b|-\d+\s*°?c\b/.test(normalised)) {
     constraints.add("Temperature-critical cold storage");
   }

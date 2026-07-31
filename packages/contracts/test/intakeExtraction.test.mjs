@@ -67,6 +67,30 @@ describe("shared deterministic intake extraction", () => {
     assert.equal(isIntakeUrgent(normalised), true);
   });
 
+  test("retains grain-terminal repair and electrical scope in a concise title", () => {
+    const requirement =
+      "At our bulk grain export terminal in Port Lincoln SA, the main shiploader feed conveyor motor and gearbox are overheating and tripping. We need a mechanical and electrical industrial maintenance team within 24 hours to diagnose and complete an authorised repair without contaminating grain handling areas. Our callout and initial repair tolerance is $14,500, with any additional parts subject to approval.";
+    const normalised = requirement.toLowerCase();
+    const equipment = detectIntakeEquipment(normalised);
+    const capabilities = detectIntakeCapabilities(
+      normalised,
+      equipment,
+      isIntakeRecoveryRequirement(normalised)
+    );
+
+    assert.equal(
+      intakeTitleFromRequirement(requirement, equipment, true),
+      "Urgent grain conveyor motor and gearbox repair"
+    );
+    assert.equal(isIntakeUrgent(normalised), true);
+    assert.ok(equipment.includes("Industrial conveyor"));
+    assert.ok(!equipment.includes("Packaging conveyor"));
+    assert.ok(capabilities.includes("Industrial gearbox repair"));
+    assert.ok(capabilities.includes("Industrial motor repair"));
+    assert.ok(capabilities.includes("Industrial mechanical maintenance"));
+    assert.ok(capabilities.includes("Industrial electrical maintenance"));
+  });
+
   test("supports compact Australian-dollar amounts and existing forms", () => {
     for (const value of ["20k", "$20k", "20K AUD", "AUD 20k", "around 20k"]) {
       const requirement =

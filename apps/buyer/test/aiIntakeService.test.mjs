@@ -63,6 +63,65 @@ test("buyer fallback keeps a planned Siemens PLC shutdown on its stated six-week
   }
 });
 
+test("buyer fallback preserves grain-terminal contamination and repair scope", async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "http://localhost:4001" },
+    setTimeout(callback) {
+      queueMicrotask(callback);
+      return 0;
+    }
+  };
+
+  try {
+    const { DemoAiIntakeService } = await import(
+      `../public/assets/aiIntakeService.js?grain-terminal=${Date.now()}`
+    );
+    const service = new DemoAiIntakeService();
+    const result = await service.structureRequirement({
+      rawRequirement:
+        "At our bulk grain export terminal in Port Lincoln SA, the main shiploader feed conveyor motor and gearbox are overheating and tripping. We need a mechanical and electrical industrial maintenance team within 24 hours to diagnose and complete an authorised repair without contaminating grain handling areas. Our callout and initial repair tolerance is $14,500, with any additional parts subject to approval."
+    });
+
+    assert.equal(
+      result.generatedProfile.title,
+      "Urgent grain conveyor motor and gearbox repair"
+    );
+    assert.equal(result.generatedProfile.buyerPriority, "speed");
+    assert.ok(
+      result.generatedProfile.equipmentOrTechnology.includes(
+        "Industrial conveyor"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial mechanical maintenance"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial electrical maintenance"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Grain handling contamination controls"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Minimal downtime"
+      )
+    );
+  } finally {
+    if (previousWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = previousWindow;
+    }
+  }
+});
+
 test("buyer fallback rejects binary-only evidence instead of reading its filename as facts", async () => {
   const previousWindow = globalThis.window;
   globalThis.window = {

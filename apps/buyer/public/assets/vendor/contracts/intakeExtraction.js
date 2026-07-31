@@ -1,5 +1,6 @@
 export function isIntakeUrgent(normalised) {
-    return /\b(?:today|tonight|urgent|emergency|immediate|stopped|down|line stop|fault)\b/.test(normalised);
+    return (/\b(?:today|tonight|urgent|emergency|immediate|stopped|down|line stop|fault)\b/.test(normalised) ||
+        /\bwithin\s+(?:[1-9]|1\d|2[0-4])\s*hours?\b/.test(normalised));
 }
 export function isIntakeRecoveryRequirement(normalised) {
     return (isIntakeUrgent(normalised) ||
@@ -38,8 +39,11 @@ export function detectIntakeEquipment(normalised) {
         equipment.add("Siemens PLC");
     if (normalised.includes("plc"))
         equipment.add("PLC");
-    if (normalised.includes("conveyor"))
-        equipment.add("Packaging conveyor");
+    if (normalised.includes("conveyor")) {
+        equipment.add(/packaging|bottling/.test(normalised)
+            ? "Packaging conveyor"
+            : "Industrial conveyor");
+    }
     if (normalised.includes("packaging line"))
         equipment.add("Packaging line");
     if (normalised.includes("bottling line"))
@@ -80,12 +84,21 @@ export function detectIntakeCapabilities(normalised, equipmentOrTechnology, requ
     }
     if (normalised.includes("gearbox")) {
         capabilities.add("Industrial gearbox diagnostics");
+        if (requiresRecovery && /\brepair\b/.test(normalised)) {
+            capabilities.add("Industrial gearbox repair");
+        }
     }
     if (/\bmotor\b/.test(normalised)) {
         capabilities.add("Industrial motor diagnostics");
+        if (requiresRecovery && /\brepair\b/.test(normalised)) {
+            capabilities.add("Industrial motor repair");
+        }
     }
-    if (/mechanical contractor|mechanical maintenance/.test(normalised)) {
+    if (/mechanical contractor|mechanical(?:\s+and\s+electrical(?:\s+industrial)?)?\s+maintenance/.test(normalised)) {
         capabilities.add("Industrial mechanical maintenance");
+    }
+    if (/\belectrical(?:\s+industrial)?\s+maintenance\b|\bmechanical\s+and\s+electrical\b/.test(normalised)) {
+        capabilities.add("Industrial electrical maintenance");
     }
     if (/overheat|thermal protection|tripping/.test(normalised)) {
         capabilities.add("Mechanical condition assessment");
@@ -215,6 +228,7 @@ export function parseIntakeBudgetAmount(value) {
     return Math.round(match[2] ? numeric * 1_000 : numeric);
 }
 export function intakeTitleFromRequirement(rawRequirement, equipmentOrTechnology, requiresRecovery) {
+    const normalised = rawRequirement.toLowerCase();
     if (equipmentOrTechnology.some((item) => item.includes("Plastics extrusion machine"))) {
         return requiresRecovery
             ? "Extruder barrel heating fault with high-torque alarm"
@@ -240,6 +254,15 @@ export function intakeTitleFromRequirement(rawRequirement, equipmentOrTechnology
                 ? "Urgent ammonia refrigeration compressor repair"
                 : "Urgent industrial refrigeration repair"
             : "Industrial refrigeration maintenance";
+    }
+    if (requiresRecovery &&
+        /\bgrain\b/.test(normalised) &&
+        equipmentOrTechnology.some((item) => /conveyor/i.test(item)) &&
+        equipmentOrTechnology.includes("Industrial gearbox") &&
+        equipmentOrTechnology.includes("Industrial motor")) {
+        return /\bwithin\s+(?:[1-9]|1\d|2[0-4])\s*hours?\b/.test(normalised)
+            ? "Urgent grain conveyor motor and gearbox repair"
+            : "Grain conveyor motor and gearbox repair";
     }
     const firstSentence = rawRequirement.split(/[.!?]/)[0]?.trim();
     return firstSentence
