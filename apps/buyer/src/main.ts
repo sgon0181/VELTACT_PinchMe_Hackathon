@@ -38,6 +38,7 @@ import {
   type OutreachOverrideAvailability
 } from "./apiBase.js";
 import { companyLogoFor } from "./companyLogos.js";
+import { dedupeIntakeMissingFields } from "./intakeMissingFields.js";
 import { RapidMatchService } from "./rapidMatchService.js";
 import type {
   BuyerRequirementInput,
@@ -3813,7 +3814,7 @@ function intakeMissingFields() {
       missing.push("PDF content interpretation (live AI required)");
     }
   }
-  return uniqueStrings(missing);
+  return dedupeIntakeMissingFields(missing);
 }
 
 function intakeFieldResolved(field: string) {

@@ -158,7 +158,14 @@ function delay(ms: number) {
 function detectConstraints(normalised: string, isUrgent: boolean, evidence: IntakeEvidence[]) {
   const constraints = new Set<string>();
   if (normalised.includes("factory") || normalised.includes("line")) constraints.add("Production environment");
-  if (normalised.includes("food") || normalised.includes("packaging")) constraints.add("Packaging/food manufacturing context");
+  if (normalised.includes("packaging")) {
+    constraints.add("Packaging manufacturing context");
+  } else if (/\bfood\b|\bseafood\b|\bdairy\b/.test(normalised)) {
+    constraints.add("Food handling environment");
+  }
+  if (/\bcold store\b|\bcold-storage\b|\bfreezer\b|-\d+\s*°?c\b/.test(normalised)) {
+    constraints.add("Temperature-critical cold storage");
+  }
   if (isUrgent) constraints.add("Minimal downtime");
   if (
     /adjacent production|avoid(?:s|ing)? disrupting|maintain(?:ing)? production|staged installation/.test(

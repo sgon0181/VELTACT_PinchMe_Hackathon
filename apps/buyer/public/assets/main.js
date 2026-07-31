@@ -2,6 +2,7 @@ import { aiIntakeResultSchema, detectIntakeLocation, intakeEvidenceSummarySchema
 import { BackendAiIntakeService, DemoAiIntakeService } from "./aiIntakeService.js";
 import { apiBaseUrl, demoControlsEnabled, localDemoPaymentEnabled, outreachOverrideAvailability } from "./apiBase.js";
 import { companyLogoFor } from "./companyLogos.js";
+import { dedupeIntakeMissingFields } from "./intakeMissingFields.js";
 import { RapidMatchService } from "./rapidMatchService.js";
 const service = new RapidMatchService();
 const aiIntakeService = new BackendAiIntakeService();
@@ -2992,7 +2993,7 @@ function intakeMissingFields() {
             missing.push("PDF content interpretation (live AI required)");
         }
     }
-    return uniqueStrings(missing);
+    return dedupeIntakeMissingFields(missing);
 }
 function intakeFieldResolved(field) {
     const normalized = field.toLowerCase();

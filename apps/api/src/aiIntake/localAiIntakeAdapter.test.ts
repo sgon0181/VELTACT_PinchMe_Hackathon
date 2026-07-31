@@ -183,4 +183,42 @@ describe("structureRequirementLocally", () => {
     assert.ok(result.generatedProfile.title.endsWith("…"));
     assert.doesNotMatch(result.generatedProfile.title, /\stripping t…$/);
   });
+
+  test("structures an urgent ammonia cold-store repair without duplicate buyer work", () => {
+    const result = structureRequirementLocally({
+      rawRequirement:
+        "An ammonia refrigeration compressor at our seafood cold store in Darwin NT has developed severe vibration and repeated low oil-pressure alarms. The freezer must stay below -18°C. We need a licensed industrial refrigeration contractor on site tonight, within 12 hours, to assess and complete an emergency repair. We can approve up to AUD 28,000 including callout and parts."
+    });
+
+    assert.equal(
+      result.generatedProfile.title,
+      "Urgent ammonia refrigeration compressor repair"
+    );
+    assert.equal(
+      result.generatedProfile.category,
+      "Industrial refrigeration maintenance"
+    );
+    assert.deepEqual(
+      new Set(result.generatedProfile.equipmentOrTechnology),
+      new Set([
+        "Ammonia refrigeration system",
+        "Industrial refrigeration compressor"
+      ])
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Licensed refrigeration contractor"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Temperature-critical cold storage"
+      )
+    );
+    assert.ok(
+      !result.missingFields.some((field) =>
+        /equipment|capabilit/i.test(field)
+      )
+    );
+  });
 });

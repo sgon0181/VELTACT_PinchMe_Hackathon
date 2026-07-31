@@ -46,6 +46,27 @@ describe("shared deterministic intake extraction", () => {
     assert.doesNotMatch(title, /\stripping t…$/);
   });
 
+  test("extracts an urgent ammonia cold-store requirement without buyer re-entry", () => {
+    const requirement =
+      "An ammonia refrigeration compressor at our seafood cold store in Darwin NT has severe vibration and low oil-pressure alarms. We need a licensed industrial refrigeration contractor tonight, within 12 hours, for an emergency repair. Budget is AUD 28,000.";
+    const normalised = requirement.toLowerCase();
+    const equipment = detectIntakeEquipment(normalised);
+    const capabilities = detectIntakeCapabilities(
+      normalised,
+      equipment,
+      isIntakeRecoveryRequirement(normalised)
+    );
+
+    assert.ok(equipment.includes("Ammonia refrigeration system"));
+    assert.ok(equipment.includes("Industrial refrigeration compressor"));
+    assert.ok(capabilities.includes("Industrial refrigeration diagnostics"));
+    assert.ok(capabilities.includes("Ammonia refrigeration service"));
+    assert.ok(capabilities.includes("Refrigeration compressor maintenance"));
+    assert.ok(capabilities.includes("Licensed refrigeration contractor"));
+    assert.ok(capabilities.includes("Same-day onsite support"));
+    assert.equal(isIntakeUrgent(normalised), true);
+  });
+
   test("supports compact Australian-dollar amounts and existing forms", () => {
     for (const value of ["20k", "$20k", "20K AUD", "AUD 20k", "around 20k"]) {
       const requirement =
