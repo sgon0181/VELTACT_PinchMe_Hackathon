@@ -152,12 +152,15 @@ html[data-workspace-theme="light"] {
     linear-gradient(115deg, #12263c 0%, #1d2c44 55%, #4b2733 135%);
   --v5-primary-hover: #0b1b2e;
   --v5-primary-text: #f2f7fc;
+  --v5-diamond-border-off: #22364d;
+  --v5-diamond-border-on: #a81f2a;
+  --v5-diamond-fill-on: linear-gradient(140deg, #dd4a55 0%, #a81f2a 100%);
 }
 
 html[data-workspace-theme="dark"] {
   color-scheme: dark;
-  --v5-canvas: #050d18;
-  --v5-surface: #0a1728;
+  --v5-canvas: #02070f;
+  --v5-surface: #071120;
   --v5-surface-raised: #0e1e33;
   --v5-surface-muted: rgba(220, 232, 245, 0.05);
   --v5-text: #e8f0f9;
@@ -230,15 +233,12 @@ html[data-workspace-theme="dark"] {
       rgba(216, 56, 63, 0.14) 0%,
       transparent 62%
     );
-  --v5-primary-background:
-    radial-gradient(
-      140px circle at var(--mx, 82%) var(--my, 30%),
-      rgba(216, 56, 63, 0.35) 0%,
-      transparent 72%
-    ),
-    linear-gradient(115deg, #eaf2fa 0%, #dde9f4 55%, #eed9dd 135%);
+  --v5-primary-background: #e8f0f9;
   --v5-primary-hover: #ffffff;
-  --v5-primary-text: #0b1b2e;
+  --v5-primary-text: #071120;
+  --v5-diamond-border-off: #d8383f;
+  --v5-diamond-border-on: #d8383f;
+  --v5-diamond-fill-on: #d8383f;
 }
 
 html[data-workspace-theme] body {
@@ -332,8 +332,8 @@ html[data-workspace-theme] :where(
 .workspace-theme-toggle {
   position: fixed;
   z-index: 1000;
-  right: max(8px, env(safe-area-inset-right));
-  bottom: max(8px, env(safe-area-inset-bottom));
+  right: max(10px, env(safe-area-inset-right));
+  top: 9px;
   display: grid;
   width: 70px;
   height: 44px;
@@ -447,5 +447,24 @@ html[data-workspace-theme] :where(
 @media print {
   .workspace-theme-toggle {
     display: none !important;
+  }
+}
+
+/*
+ * The theme toggle docks over the sticky header band (it lives outside each
+ * page's render root, so it cannot be inline in the header markup). Every
+ * V5 header reserves right-hand space for it.
+ */
+.product-header,
+.brand-header,
+.claim-header,
+.account-header,
+.topbar {
+  padding-right: 96px;
+}
+
+@media print {
+  .workspace-theme-toggle {
+    display: none;
   }
 }

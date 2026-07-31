@@ -430,12 +430,18 @@ function renderJourney(phase, workflowPhase) {
         ]
             .filter(Boolean)
             .join(" ");
+        const workflowTag = index === workflowIndex
+            ? `<span class="journey-tag is-now">Now</span>`
+            : index < workflowIndex
+                ? `<span class="journey-tag is-done">Done ✓</span>`
+                : `<span class="journey-tag is-next">Next</span>`;
         const content = `
               <span class="journey-number">${index + 1}</span>
               <span>
                 <strong>${label}</strong>
                 <small>${description}</small>
               </span>
+              ${workflowTag}
           `;
         return reachable
             ? `<button class="${classes}" type="button" data-journey-phase="${key}" aria-label="View ${label} stage">${content}</button>`

@@ -65,7 +65,7 @@ describe("Workspace V5 shared theme", () => {
     );
     assert.match(
       themeStyles,
-      /html\[data-workspace-theme="dark"\][\s\S]*?--v5-canvas:\s*#050d18;[\s\S]*?--v5-surface:\s*#0a1728;[\s\S]*?--v5-text:\s*#e8f0f9;[\s\S]*?--v5-red:\s*#d8383f;[\s\S]*?--v5-blue:\s*#9cc4e8;/
+      /html\[data-workspace-theme="dark"\][\s\S]*?--v5-canvas:\s*#02070f;[\s\S]*?--v5-surface:\s*#071120;[\s\S]*?--v5-text:\s*#e8f0f9;[\s\S]*?--v5-red:\s*#d8383f;[\s\S]*?--v5-blue:\s*#9cc4e8;/
     );
     assert.match(themeStyles, /--v5-header-height:\s*62px;/);
     assert.match(
@@ -174,7 +174,7 @@ describe("Workspace V5 shared theme", () => {
     assert.doesNotMatch(pages.get("supplier.html"), /alloy\.css/);
   });
 
-  test("keeps decorative diamonds out and uses conventional selection controls", () => {
+  test("keeps decorative brand ornaments out and uses canon diamond selection marks", () => {
     const decorativeOrnament =
       /product-wordmark-notch|brand-notch|wordmark-mark|success-mark/;
     const productSurfaces = new Map([
@@ -202,26 +202,36 @@ describe("Workspace V5 shared theme", () => {
       );
     }
 
-    assert.doesNotMatch(
-      buyerStyles,
-      /--v5-diamond-|rotate\(\s*45deg\s*\)/,
-      "buyer controls must not use diamond variables or rotation"
+    // The authoritative v5 files render every selectable card with a rotated
+    // square "diamond" mark (checkBg/checkBd in the canon), painted on the
+    // native inputs so semantics and keyboard behaviour are unchanged.
+    assert.match(
+      themeStyles,
+      /--v5-diamond-border-off:[\s\S]*?--v5-diamond-border-on:[\s\S]*?--v5-diamond-fill-on:/,
+      "theme must define the canon diamond selection tokens"
     );
     assert.match(
       buyerStyles,
-      /body\[data-theme="buyer"\] \.priority-radio\s*\{[^}]*border-radius:\s*50%/,
-      "priority buttons must use a circular radio indicator"
+      /\.solution-choice > input[\s\S]{0,700}?transform:\s*rotate\(45deg\)/,
+      "pathway selection must use the canon diamond mark"
     );
     assert.match(
       buyerStyles,
-      /body\[data-theme="buyer"\] \.solution-choice > input,[\s\S]*accent-color:\s*var\(--blue\)/,
-      "native radio and checkbox controls must retain a conventional accented appearance"
+      /\.response-select input:checked[\s\S]{0,200}?var\(--v5-diamond-fill-on/,
+      "checked responses must fill with the canon diamond gradient"
     );
-    assert.doesNotMatch(
+    assert.match(
       buyerStyles,
-      /body\[data-theme="buyer"\][^{]*(?:solution-choice|candidate-select|outreach-mode|response-select)[^{]*\{[^}]*appearance:\s*none/,
-      "selection inputs must retain their native radio and checkbox shapes"
+      /body\[data-theme="buyer"\] \.priority-radio\s*\{[^}]*transform:\s*rotate\(45deg\)/,
+      "priority buttons must use the canon diamond indicator"
     );
+    assert.match(
+      buyerStyles,
+      /\.solution-choice > input:focus-visible[\s\S]{0,200}?outline/,
+      "diamond inputs must keep a visible keyboard focus ring"
+    );
+    // Native inputs stay in the markup for semantics; only their paint is
+    // replaced by the diamond recipe above.
     assert.match(buyerSource, /class="priority-radio"/);
     assert.match(
       buyerSource,

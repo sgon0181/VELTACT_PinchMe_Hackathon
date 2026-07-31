@@ -577,47 +577,38 @@ body[data-theme="landing"] .site-header::before {
   background: linear-gradient(90deg, transparent, rgba(169, 181, 191, 0.5) 18%, rgba(214, 40, 63, 0.9) 50%, rgba(169, 181, 191, 0.5) 82%, transparent);
   pointer-events: none;
 }
+/* Canon V5 dark-theme CTAs: light pill, white on hover (workspace parity). */
 body[data-theme="landing"] .button-primary,
 body[data-theme="landing"] .header-cta {
   position: relative;
-  overflow: hidden;
-  border-radius: 4px;
-  border: 1px solid rgba(220, 230, 238, 0.35);
-  background: linear-gradient(180deg, #3a8ad0 0%, #2468a2 48%, #123a5a 100%);
-  color: #f3f6f8;
-  text-transform: uppercase;
+  border: 0;
+  border-radius: 99px;
+  background: #e8f0f9;
+  color: #071120;
+  font-family: var(--font-body);
+  font-weight: 600;
   letter-spacing: 0;
-  font-family: var(--font-display);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    inset 0 -6px 10px rgba(0, 0, 0, 0.42),
-    0 4px 0 #0b2438,
-    0 5px 1px rgba(0, 0, 0, 0.5),
-    0 12px 22px rgba(5, 11, 19, 0.6);
-  transition: filter 90ms linear, transform 90ms linear;
-}
-body[data-theme="landing"] .button-primary::after,
-body[data-theme="landing"] .header-cta::after {
-  content: "";
-  position: absolute;
-  top: 0; bottom: 0;
-  width: 34%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.26), transparent);
-  animation: alloy-sweep 4.2s ease-in-out infinite;
-  pointer-events: none;
+  text-transform: none;
+  box-shadow: 0 12px 28px rgba(4, 10, 17, 0.46);
+  transition:
+    background-color 0.22s ease,
+    transform 0.22s ease,
+    box-shadow 0.22s ease;
 }
 body[data-theme="landing"] .button-primary:hover,
-body[data-theme="landing"] .header-cta:hover { filter: brightness(1.1); transform: translateY(-1px); }
+body[data-theme="landing"] .header-cta:hover {
+  background: #ffffff;
+  filter: none;
+  transform: translateY(-1px);
+}
 body[data-theme="landing"] .button-secondary {
-  border: 1px solid var(--line-strong, rgba(169, 181, 191, 0.32));
-  border-radius: 4px;
-  background: linear-gradient(180deg, #2a3b4c, #16222e);
-  color: #dce6ee;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    inset 0 -5px 9px rgba(0, 0, 0, 0.35),
-    0 3px 0 #0c141c,
-    0 4px 1px rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(232, 240, 249, 0.22);
+  border-radius: 99px;
+  background: rgba(7, 17, 32, 0.55);
+  color: #e8f0f9;
+  font-family: var(--font-body);
+  text-transform: none;
+  box-shadow: none;
 }
 body[data-theme="landing"] .buyer-lane {
   background: linear-gradient(180deg, #16283c, #0b1725);

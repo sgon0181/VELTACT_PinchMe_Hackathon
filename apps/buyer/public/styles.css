@@ -3571,8 +3571,8 @@ body[data-theme="buyer"] button.journey-step.is-reachable:focus-visible {
   outline-offset: 3px;
 }
 
-body[data-theme="buyer"] .journey-step.is-current,
-body[data-theme="buyer"] .journey-step.is-workflow-current {
+body[data-theme="buyer"] .journey-step.is-workflow-current,
+body[data-theme="buyer"] button.journey-step.is-workflow-current {
   border-color: var(--v5-step-current-border, #0e2138);
   background:
     radial-gradient(120% 180% at 0% 0%, rgba(120, 170, 215, 0.28) 0%, transparent 55%),
@@ -3581,10 +3581,101 @@ body[data-theme="buyer"] .journey-step.is-workflow-current {
   color: var(--v5-step-current-text, #f2f7fc);
 }
 
-body[data-theme="buyer"] .journey-step.is-complete:not(.is-current):not(.is-workflow-current) {
+/* Viewing an earlier stage: outline treatment, never a second "Now" fill. */
+body[data-theme="buyer"] .journey-step.is-current:not(.is-workflow-current),
+body[data-theme="buyer"] button.journey-step.is-current:not(.is-workflow-current) {
+  border-color: color-mix(in srgb, var(--blue) 55%, transparent);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 55%, transparent);
+  color: var(--ink);
+}
+
+body[data-theme="buyer"] .journey-step.is-complete:not(.is-current):not(.is-workflow-current),
+body[data-theme="buyer"] button.journey-step.is-complete:not(.is-current):not(.is-workflow-current) {
   border-color: var(--line);
   background: var(--surface);
   color: var(--ink);
+}
+
+body[data-theme="buyer"] .journey-tag {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 0.78125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+body[data-theme="buyer"] .journey-step.is-workflow-current .journey-tag.is-now {
+  color: #e97c84;
+}
+
+body[data-theme="buyer"] .journey-tag.is-done {
+  color: var(--green);
+}
+
+/*
+ * Canon dark stepper is a minimal dot rail (v5 Dark), not the light card
+ * grid: transparent, chromeless, dot + label + muted sub.
+ */
+html[data-workspace-theme="dark"] body[data-theme="buyer"] .journey {
+  border-bottom: 1px solid rgba(232, 240, 249, 0.07);
+  background: transparent;
+}
+
+html[data-workspace-theme="dark"] body[data-theme="buyer"] .journey-step,
+html[data-workspace-theme="dark"] body[data-theme="buyer"] button.journey-step {
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: #6b8199;
+}
+
+html[data-workspace-theme="dark"] body[data-theme="buyer"] .journey-step.is-workflow-current,
+html[data-workspace-theme="dark"] body[data-theme="buyer"] button.journey-step.is-workflow-current {
+  color: #e8f0f9;
+}
+
+html[data-workspace-theme="dark"] body[data-theme="buyer"] .journey-step.is-complete:not(.is-workflow-current),
+html[data-workspace-theme="dark"] body[data-theme="buyer"] button.journey-step.is-complete:not(.is-workflow-current) {
+  background: transparent;
+  color: #9db2c8;
+}
+
+html[data-workspace-theme="dark"] body[data-theme="buyer"] .journey-step.is-current:not(.is-workflow-current),
+html[data-workspace-theme="dark"] body[data-theme="buyer"] button.journey-step.is-current:not(.is-workflow-current) {
+  border: 0;
+  background: transparent;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--blue) 70%, transparent);
+  color: #e8f0f9;
+}
+
+html[data-workspace-theme="dark"] body[data-theme="buyer"] button.journey-step.is-reachable:hover {
+  border: 0;
+  background: rgba(232, 240, 249, 0.05);
+  box-shadow: none;
+  color: #e8f0f9;
+  transform: none;
+}
+
+html[data-workspace-theme="dark"] body[data-theme="buyer"] .journey-number {
+  width: 7px;
+  height: 7px;
+  flex-basis: 7px;
+  background: rgba(232, 240, 249, 0.18);
+}
+
+html[data-workspace-theme="dark"] body[data-theme="buyer"] .journey-step.is-workflow-current .journey-number {
+  background: #d8383f;
+}
+
+html[data-workspace-theme="dark"] body[data-theme="buyer"] .journey-step.is-complete:not(.is-workflow-current) .journey-number {
+  background: #79c99a;
+}
+
+html[data-workspace-theme="dark"] body[data-theme="buyer"] .journey-step:is(.is-current, .is-workflow-current) small {
+  color: #6b8199;
 }
 
 body[data-theme="buyer"] .journey-number {
@@ -4090,29 +4181,68 @@ body[data-theme="buyer"] .priority-option.is-selected small {
 }
 
 body[data-theme="buyer"] .priority-radio {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
-  margin: 0;
-  border: 2px solid var(--line-strong);
-  border-radius: 50%;
-  background: var(--surface);
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  margin: 0 3px;
+  border: 2px solid var(--v5-diamond-border-off, #22364d);
+  border-radius: 1px;
+  background: transparent;
+  transform: rotate(45deg);
+  transition:
+    border-color 0.22s ease,
+    background-color 0.22s ease;
 }
 
 body[data-theme="buyer"] .priority-option.is-selected .priority-radio {
-  border: 5px solid var(--blue);
-  background: var(--surface);
+  border-color: var(--v5-diamond-border-on, #a81f2a);
+  background: var(--v5-diamond-fill-on, #a81f2a);
 }
 
+/*
+ * Canon V5 selection mark: a 12px diamond (rotated square). The native
+ * input is kept for semantics and keyboard support; only its paint is
+ * replaced. Checked state fills with the red gradient per the canon.
+ */
 body[data-theme="buyer"] .solution-choice > input,
 body[data-theme="buyer"] .candidate-select input,
 body[data-theme="buyer"] .outreach-mode input,
 body[data-theme="buyer"] .response-select input {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
-  margin: 2px 0 0;
-  accent-color: var(--blue);
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  margin: 5px 4px 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 2px solid var(--v5-diamond-border-off, #22364d);
+  border-radius: 1px;
+  background: transparent;
+  transform: rotate(45deg);
+  cursor: pointer;
+  transition:
+    border-color 0.22s ease,
+    background-color 0.22s ease;
+}
+
+body[data-theme="buyer"] .solution-choice > input:checked,
+body[data-theme="buyer"] .candidate-select input:checked,
+body[data-theme="buyer"] .outreach-mode input:checked,
+body[data-theme="buyer"] .response-select input:checked {
+  border-color: var(--v5-diamond-border-on, #a81f2a);
+  background: var(--v5-diamond-fill-on, #a81f2a);
+}
+
+body[data-theme="buyer"] .solution-choice > input:focus-visible,
+body[data-theme="buyer"] .candidate-select input:focus-visible,
+body[data-theme="buyer"] .outreach-mode input:focus-visible,
+body[data-theme="buyer"] .response-select input:focus-visible {
+  outline: 1px solid var(--red);
+  outline-offset: 4px;
+}
+
+body[data-theme="buyer"] .solution-choice > input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 body[data-theme="buyer"] .primary-action-row {
@@ -5374,5 +5504,81 @@ body[data-theme="buyer"] .company-identity.is-compact .company-logo-shell {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ===== V5 canon refinements (audit pass) ===== */
+
+/* Programmatic focus targets (view headings) never show a mouse-visible ring. */
+body[data-theme="buyer"] [tabindex="-1"]:focus {
+  outline: none;
+}
+
+/* Canon view entry: vRise. */
+@keyframes v5-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+body[data-theme="buyer"] .view-stack {
+  animation: v5-rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Canon live-status pulse: vGlow. */
+@keyframes v5-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+body[data-theme="buyer"] .status-chip::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+  vertical-align: 0.5px;
+}
+
+body[data-theme="buyer"] .status-chip.is-sent::before,
+body[data-theme="buyer"] .status-chip.is-viewed::before,
+body[data-theme="buyer"] .status-chip.is-pending::before,
+body[data-theme="buyer"] .status-chip.is-awaiting_payment::before {
+  animation: v5-glow 2.2s ease-in-out infinite;
+}
+
+/* Canon footer: hairline top, two muted lines justified apart. */
+body[data-theme="buyer"] .workspace-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px 24px;
+  margin-top: 34px;
+  border-top: 1px solid var(--line);
+  padding: 22px 0 8px;
+  color: var(--faint);
+  font-size: 0.8125rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-theme="buyer"] .view-stack {
+    animation: none;
+  }
+
+  body[data-theme="buyer"] .status-chip::before {
+    animation: none;
   }
 }
