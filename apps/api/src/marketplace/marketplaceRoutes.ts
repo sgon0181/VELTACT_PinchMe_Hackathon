@@ -18,11 +18,13 @@ import {
   discoverNeedSuppliers,
   getEngagement,
   getEngagementForNeed,
+  getEngagementSpeedReceipt,
   getDeployment,
   getNeed,
   getOrCreateNeedReport,
   getProviderWarningsForNeed,
   getResearchResultForNeed,
+  getSupplierRegistryForNeed,
   getResponseForInvitation,
   getSolutionDecisionForNeed,
   getSupplierClaim,
@@ -32,7 +34,6 @@ import {
   listSupplierLeadsForNeed,
   markInvitationViewed,
   prepareSupplierLeadInvitationsForNeed,
-  recordAuthoritativePinchPayment,
   recordLocalDemoPayment,
   researchNeed,
   resetMarketplaceStore,
@@ -41,6 +42,7 @@ import {
   submitSupplierResponse
 } from "./store.js";
 import {
+  emitAgentActivityUpdated,
   emitDeploymentUpdated,
   emitEngagementSecured,
   emitOutreachDeliveryUpdated,
@@ -57,7 +59,6 @@ import {
 } from "../payments/commitmentPaymentService.js";
 import { marketplaceCommitmentPaymentService } from "../payments/marketplaceCommitment.js";
 import { isLocalDemoHostedPaymentLink } from "../payments/localDemoPaymentProvider.js";
-import { getPaymentProvider } from "../payments/providerRegistry.js";
 import {
   getSupplierDemoResponses,
   type SupplierDemoResponse
@@ -152,6 +153,10 @@ const demoResetSchema = z.object({
 
 const createEngagementSchema = z.object({
   supplierResponseId: z.string().trim().min(1)
+});
+
+const supplierRegistryQuerySchema = z.object({
+  needProfileId: z.string().trim().min(1)
 });
 
 marketplaceRouter.post("/needs", (request, response) => {
@@ -274,7 +279,9 @@ marketplaceRouter.post(
     if (!requireBuyerAccess(request, response, need.id)) return;
 
     try {
-      const result = await researchNeed(need.id);
+      const result = await researchNeed(need.id, (event) => {
+        emitAgentActivityUpdated(need.id, event);
+      });
       if (!result) {
         response.status(404).json({
           status: "error",
@@ -462,7 +469,9 @@ marketplaceRouter.post(
     if (!requireBuyerAccess(request, response, need.id)) return;
 
     try {
-      const result = await discoverNeedSuppliers(need.id);
+      const result = await discoverNeedSuppliers(need.id, (event) => {
+        emitAgentActivityUpdated(need.id, event);
+      });
       if (result.status === "research_required") {
         response.status(409).json({
           status: "error",
@@ -552,6 +561,30 @@ marketplaceRouter.get("/need-profiles/:needProfileId", (request, response) => {
     deployment: workspace.deployment,
     providerWarnings: getProviderWarningsForNeed(need.id)
   });
+});
+
+marketplaceRouter.get("/registry", (request, response) => {
+  const parsed = supplierRegistryQuerySchema.safeParse(request.query);
+  if (!parsed.success) {
+    response.status(400).json({
+      status: "error",
+      message: "needProfileId is required",
+      issues: parsed.error.flatten().fieldErrors
+    });
+    return;
+  }
+  if (!requireBuyerAccess(request, response, parsed.data.needProfileId)) {
+    return;
+  }
+  const registry = getSupplierRegistryForNeed(parsed.data.needProfileId);
+  if (!registry) {
+    response.status(404).json({
+      status: "error",
+      message: "Need profile not found"
+    });
+    return;
+  }
+  response.json(registry);
 });
 
 marketplaceRouter.get("/need-profiles/:needProfileId/responses", (request, response) => {
@@ -711,6 +744,27 @@ marketplaceRouter.post("/need-profiles/:needProfileId/engagements", (request, re
   response.status(201).json({ engagement: serialiseEngagement(result.engagement) });
 });
 
+marketplaceRouter.get("/engagements/:engagementId/receipt", (request, response) => {
+  const engagement = getEngagement(request.params.engagementId);
+  if (!engagement) {
+    response.status(404).json({
+      status: "error",
+      message: "Engagement not found"
+    });
+    return;
+  }
+  if (!requireBuyerAccess(request, response, engagement.needId)) return;
+  const receipt = getEngagementSpeedReceipt(engagement.id);
+  if (!receipt) {
+    response.status(404).json({
+      status: "error",
+      message: "Engagement receipt not found"
+    });
+    return;
+  }
+  response.json({ receipt });
+});
+
 marketplaceRouter.get("/engagements/:engagementId", async (request, response) => {
   let engagement = getEngagement(request.params.engagementId);
   if (!engagement) {
@@ -722,32 +776,26 @@ marketplaceRouter.get("/engagements/:engagementId", async (request, response) =>
   }
   if (!requireBuyerAccess(request, response, engagement.needId)) return;
 
-  if (engagement.paymentStatus === "awaiting_payment" && engagement.paymentLinkId) {
+  const pendingMilestone = getDeployment(engagement.id)?.milestones.find(
+    (milestone) =>
+      milestone.paymentStatus === "awaiting_payment" &&
+      Boolean(milestone.paymentLinkId)
+  );
+  if (pendingMilestone) {
     try {
-      const approvedPayment = await getPaymentProvider().getApprovedPaymentForLink(
-        engagement.paymentLinkId
-      );
-      if (approvedPayment) {
-        const result = recordAuthoritativePinchPayment({
-          eventId: `pinch-api:${approvedPayment.paymentId}`,
-          eventType: "payment-api-reconciliation",
+      const result =
+        await marketplaceCommitmentPaymentService.reconcileApprovedPayment({
           engagementId: engagement.id,
-          paymentId: approvedPayment.paymentId,
-          payload: {
-            paymentLinkId: engagement.paymentLinkId,
-            paymentId: approvedPayment.paymentId,
-            status: approvedPayment.status
-          }
+          milestoneId: pendingMilestone.id,
+          buyerAccessToken: request.header("x-veltact-buyer-token")
         });
-
-        if (result.engagement) {
-          engagement = result.engagement;
-          if (!result.duplicate) {
-            emitPaymentStatusUpdated(result.engagement);
-            emitEngagementSecured(result.engagement);
-            emitCurrentDeployment(result.engagement.id, result.engagement.needId);
-          }
+      engagement = getEngagement(request.params.engagementId) ?? engagement;
+      if (result.reconciled && result.milestoneFunded && !result.duplicate) {
+        if (result.supplierSecured) {
+          emitPaymentStatusUpdated(engagement);
+          emitEngagementSecured(engagement);
         }
+        emitCurrentDeployment(engagement.id, engagement.needId);
       }
     } catch {
       // Keep the visible state pending if Pinch cannot be reached during a refresh.
@@ -782,34 +830,105 @@ marketplaceRouter.post("/engagements/:engagementId/payment-link", async (request
       engagement: engagement ? serialiseEngagement(engagement) : undefined,
       hostedCheckoutUrl: result.paymentLink.hostedCheckoutUrl,
       reused: result.reused,
+      ...result.fee,
       commitmentMilestone: deployment?.milestones[0]
     });
   } catch (error) {
-    if (error instanceof CommitmentPaymentError) {
-      response.status(error.statusCode).json({
-        status: "error",
-        message: error.message
-      });
-      return;
-    }
-    if (error instanceof PinchApiError) {
-      response.status(error.statusCode).json({
-        status: "error",
-        message: error.message,
-        upstreamStatus: error.upstreamStatus,
-        upstreamCode: error.upstreamCode
-      });
-      return;
-    }
-
-    response.status(500).json({
-      status: "error",
-      message: "Unexpected payment integration error"
-    });
+    sendPaymentIntegrationError(response, error);
   }
 });
 
+marketplaceRouter.post(
+  "/engagements/:engagementId/milestones/:milestoneId/payment-link",
+  async (request, response) => {
+    try {
+      const returnUrl = new URL(env.PINCH_RETURN_URL);
+      returnUrl.pathname = `/api/pinch/return/${request.params.engagementId}`;
+      returnUrl.search = "";
+      returnUrl.searchParams.set("milestone_id", request.params.milestoneId);
+      returnUrl.hash = "";
+      const result =
+        await marketplaceCommitmentPaymentService.createOrReuseHostedPaymentLink(
+          {
+            engagementId: request.params.engagementId,
+            milestoneId: request.params.milestoneId,
+            buyerAccessToken: request.header("x-veltact-buyer-token"),
+            returnUrl: returnUrl.toString()
+          }
+        );
+      const deployment =
+        await marketplaceDeploymentIntegration.service.getDeployment(
+          request.params.engagementId,
+          request.header("x-veltact-buyer-token")
+        );
+      const milestone = deployment.milestones.find(
+        (candidate) => candidate.id === request.params.milestoneId
+      );
+
+      response.status(result.reused ? 200 : 201).json({
+        hostedCheckoutUrl: result.paymentLink.hostedCheckoutUrl,
+        reused: result.reused,
+        ...result.fee,
+        milestone,
+        deployment
+      });
+    } catch (error) {
+      sendPaymentIntegrationError(response, error);
+    }
+  }
+);
+
+marketplaceRouter.post(
+  "/engagements/:engagementId/milestones/:milestoneId/payment-link/cancel",
+  async (request, response) => {
+    try {
+      await marketplaceCommitmentPaymentService.cancelUnpaidHostedPaymentLink({
+        engagementId: request.params.engagementId,
+        milestoneId: request.params.milestoneId,
+        buyerAccessToken: request.header("x-veltact-buyer-token")
+      });
+      const deployment =
+        await marketplaceDeploymentIntegration.service.getDeployment(
+          request.params.engagementId,
+          request.header("x-veltact-buyer-token")
+        );
+      const engagement = getEngagement(request.params.engagementId);
+      if (engagement) {
+        emitCurrentDeployment(engagement.id, engagement.needId);
+      }
+      response.json({
+        cancelled: true,
+        milestone: deployment.milestones.find(
+          (candidate) => candidate.id === request.params.milestoneId
+        ),
+        deployment
+      });
+    } catch (error) {
+      sendPaymentIntegrationError(response, error);
+    }
+  }
+);
+
 marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, response) => {
+  recordLocalDemoMilestonePayment(request, response);
+});
+
+marketplaceRouter.post(
+  "/engagements/:engagementId/milestones/:milestoneId/demo-payment",
+  (request, response) => {
+    recordLocalDemoMilestonePayment(
+      request,
+      response,
+      request.params.milestoneId
+    );
+  }
+);
+
+function recordLocalDemoMilestonePayment(
+  request: Request,
+  response: Response,
+  requestedMilestoneId?: string
+) {
   if (
     env.NODE_ENV === "production" ||
     env.PAYMENT_PROVIDER !== "local_demo"
@@ -821,7 +940,8 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
     return;
   }
 
-  const engagement = getEngagement(request.params.engagementId);
+  const engagementId = request.params.engagementId as string;
+  const engagement = getEngagement(engagementId);
   if (!engagement) {
     response.status(404).json({
       status: "error",
@@ -831,7 +951,30 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
   }
   if (!requireBuyerAccess(request, response, engagement.needId)) return;
 
-  if (engagement.paymentStatus !== "awaiting_payment" || !engagement.paymentLinkId) {
+  const deployment = getDeployment(engagement.id);
+  const milestone = requestedMilestoneId
+    ? deployment?.milestones.find(
+        (candidate) => candidate.id === requestedMilestoneId
+      )
+    : deployment?.milestones[0];
+  if (!milestone) {
+    response.status(404).json({
+      status: "error",
+      message: "Deployment milestone not found"
+    });
+    return;
+  }
+  const payerId =
+    milestone.pinchPayerId ??
+    (milestone.sequence === 1 ? engagement.pinchPayerId : undefined);
+  const paymentLinkId =
+    milestone.paymentLinkId ??
+    (milestone.sequence === 1 ? engagement.paymentLinkId : undefined);
+  const hostedCheckoutUrl =
+    milestone.hostedCheckoutUrl ??
+    (milestone.sequence === 1 ? engagement.hostedCheckoutUrl : undefined);
+
+  if (milestone.paymentStatus !== "awaiting_payment" || !paymentLinkId) {
     response.status(409).json({
       status: "error",
       message: "Create a payment link before completing the demo payment"
@@ -839,12 +982,12 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
     return;
   }
   if (
-    !engagement.pinchPayerId ||
-    !engagement.hostedCheckoutUrl ||
+    !payerId ||
+    !hostedCheckoutUrl ||
     !isLocalDemoHostedPaymentLink({
-      payerId: engagement.pinchPayerId,
-      paymentLinkId: engagement.paymentLinkId,
-      hostedCheckoutUrl: engagement.hostedCheckoutUrl
+      payerId,
+      paymentLinkId,
+      hostedCheckoutUrl
     })
   ) {
     response.status(409).json({
@@ -854,15 +997,19 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
     return;
   }
 
-  const eventId = `demo-payment:${engagement.id}`;
-  const paymentId = `demo_${engagement.paymentLinkId}`;
+  const eventId = requestedMilestoneId
+    ? `demo-payment:${engagement.id}:${milestone.id}`
+    : `demo-payment:${engagement.id}`;
+  const paymentId = `demo_${paymentLinkId}`;
   const result = recordLocalDemoPayment({
     eventId,
     eventType: "local-demo-payment",
     engagementId: engagement.id,
+    milestoneId: milestone.id,
     paymentId,
     payload: {
-      paymentLinkId: engagement.paymentLinkId,
+      paymentLinkId,
+      milestoneId: milestone.id,
       status: "approved",
       source: "local_demo"
     }
@@ -877,19 +1024,26 @@ marketplaceRouter.post("/engagements/:engagementId/demo-payment", (request, resp
   }
 
   if (!result.duplicate) {
-    emitPaymentStatusUpdated(result.engagement);
-    emitEngagementSecured(result.engagement);
+    if (milestone.sequence === 1) {
+      emitPaymentStatusUpdated(result.engagement);
+      emitEngagementSecured(result.engagement);
+    }
     emitCurrentDeployment(result.engagement.id, result.engagement.needId);
   }
   response.json({
     engagement: serialiseEngagement(result.engagement),
+    milestone: result.deployment?.milestones.find(
+      (candidate) => candidate.id === milestone.id
+    ),
+    deployment: result.deployment,
     paymentEvidence: {
       ...createLocalDemoPaymentEvidence(env.NODE_ENV),
       eventId,
+      milestoneId: milestone.id,
       paymentId
     }
   });
-});
+}
 
 marketplaceRouter.post("/supplier-invitations/:token/claim", (request, response) => {
   const parsed = supplierClaimSchema.safeParse(request.body ?? {});
@@ -1237,6 +1391,10 @@ function serialiseBuyerWorkspace(
     intakeEvidence: [],
     researchResult: getResearchResultForNeed(need.id),
     solutionDecision: getSolutionDecisionForNeed(need.id),
+    agentActivityEvents:
+      need.agentActivityEvents ??
+      getResearchResultForNeed(need.id)?.activityEvents ??
+      [],
     discoveredSuppliers,
     suppliers: need.matches.map((match) => ({
       id: match.supplier.id,
@@ -1271,7 +1429,10 @@ function serialiseBuyerWorkspace(
         .map(serialiseOutreachDelivery) ?? [],
     responses: responses.map(serialiseSupplierResponse),
     engagement: engagement ? serialiseEngagement(engagement) : undefined,
-    deployment: engagement ? getDeployment(engagement.id) : undefined
+    deployment: engagement ? getDeployment(engagement.id) : undefined,
+    speedReceipt: engagement
+      ? getEngagementSpeedReceipt(engagement.id)
+      : undefined
   });
 }
 
@@ -1404,7 +1565,11 @@ function serialiseNeedProfile(need: NonNullable<ReturnType<typeof getNeed>>) {
     category: need.profile.category,
     location: need.profile.location,
     priority: toContractPriority(need.profile.buyerPriority, need.profile.urgencyDays),
-    requiredBy: need.profile.urgencyDays === undefined ? undefined : requiredByLabel(need.profile.urgencyDays),
+    requiredBy:
+      need.profile.requiredBy ??
+      (need.profile.urgencyDays === undefined
+        ? undefined
+        : requiredByLabel(need.profile.urgencyDays)),
     budget:
       need.profile.budgetAud === undefined
         ? undefined
@@ -1419,7 +1584,7 @@ function serialiseNeedProfile(need: NonNullable<ReturnType<typeof getNeed>>) {
     niceToHaves: ["Comparable supplier response", "Clear availability and commercial conditions"],
     constraints: [
       need.profile.industry,
-      requiredByLabel(need.profile.urgencyDays),
+      need.profile.requiredBy ?? requiredByLabel(need.profile.urgencyDays),
       ...(need.profile.constraints ?? [])
     ].filter(
       (item): item is string => Boolean(item)
@@ -1491,6 +1656,33 @@ function serialiseEngagement(engagement: NonNullable<ReturnType<typeof getEngage
     ...engagement,
     needProfileId: engagement.needId
   };
+}
+
+function sendPaymentIntegrationError(
+  response: Response,
+  error: unknown
+) {
+  if (error instanceof CommitmentPaymentError) {
+    response.status(error.statusCode).json({
+      status: "error",
+      message: error.message
+    });
+    return;
+  }
+  if (error instanceof PinchApiError) {
+    response.status(error.statusCode).json({
+      status: "error",
+      message: error.message,
+      upstreamStatus: error.upstreamStatus,
+      upstreamCode: error.upstreamCode
+    });
+    return;
+  }
+
+  response.status(500).json({
+    status: "error",
+    message: "Unexpected payment integration error"
+  });
 }
 
 function emitCurrentDeployment(

@@ -1,6 +1,7 @@
 import type {
   Engagement as ContractEngagement,
   MarketplaceAuditEvent,
+  AgentActivityEvent,
   MarketplaceNeedProfile,
   NeedProfileStatus,
   SolutionDecision,
@@ -36,6 +37,7 @@ export type NeedRecord = {
     research?: string;
     discovery?: string;
   };
+  agentActivityEvents?: AgentActivityEvent[];
   status: Extract<
     NeedProfileStatus,
     "responses_open" | "selected" | "payment_pending" | "secured"
@@ -108,6 +110,7 @@ export type PinchWebhookEvidence = {
   eventId: string;
   eventType: string;
   engagementId: string;
+  milestoneId?: string;
   paymentId?: string;
   receivedAt: string;
   payload: unknown;
@@ -120,6 +123,7 @@ export type LocalDemoPaymentEvidence = {
   eventId: string;
   eventType: string;
   engagementId: string;
+  milestoneId?: string;
   paymentId: string;
   receivedAt: string;
   payload: unknown;

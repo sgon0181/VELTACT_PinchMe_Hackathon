@@ -1,9 +1,16 @@
 import { demoControlsEnabled } from "./assets/apiBase.js";
 import { companyLogoFor } from "./assets/companyLogos.js";
+import { formatSupplierAvailability } from "./assets/vendor/contracts/dateFormatting.js";
 import {
   supplierClaimComplete,
   supplierDocumentUrl
 } from "./supplierFlow.js";
+import {
+  clearSupplierResponseDraft,
+  readSupplierResponseDraft,
+  supplierResponseDraftFields,
+  writeSupplierResponseDraft
+} from "./supplierDraft.js";
 
 const isFrontendDevServer =
   ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
@@ -30,14 +37,20 @@ const quoteDownload = document.querySelector("#download-quote");
 let claimComplete = false;
 let demoResponses = [];
 let demoResponsesForRequirement;
+let demoPresetIndexForInvitationToken;
 let demoRequirementText = "";
 
+// Without novalidate the browser blocks the submit event on invalid forms,
+// so the in-page validation status in submitResponse would never run.
+form.noValidate = true;
 form.addEventListener("submit", (event) => submitResponse(event, token));
 form.addEventListener("change", (event) => {
   if (event.target instanceof HTMLInputElement && event.target.name === "canHelp") {
     updateDecisionFields();
   }
+  persistResponseDraftFromEvent(event);
 });
+form.addEventListener("input", persistResponseDraftFromEvent);
 void configureDemoControls();
 
 if (!token) {
@@ -121,6 +134,9 @@ async function loadOpportunity(invitationToken) {
         : "",
       claimComplete ? "success" : undefined
     );
+    restoreResponseDraft();
+    updateDecisionFields();
+    focusHeading("#response-form-title");
   } catch {
     showTerminalState(
       "error",
@@ -215,6 +231,8 @@ async function configureDemoControls() {
   try {
     const demoModule = await import("./supplierDemoResponses.js");
     demoResponsesForRequirement = demoModule.demoResponsesForRequirement;
+    demoPresetIndexForInvitationToken =
+      demoModule.demoPresetIndexForInvitationToken;
   } catch {
     return;
   }
@@ -234,6 +252,13 @@ function populateDemoResponses() {
       return option;
     })
   );
+  if (demoResponses.length && demoPresetIndexForInvitationToken) {
+    const selectedIndex = demoPresetIndexForInvitationToken(
+      token || "",
+      demoResponses.length
+    );
+    demoSelect.value = demoResponses[selectedIndex].id;
+  }
 }
 
 function renderIdentity(profile, claim, invitation) {
@@ -323,6 +348,10 @@ function fillDemoResponse() {
 
   const canHelp = form.querySelector('input[name="canHelp"][value="true"]');
   if (canHelp instanceof HTMLInputElement) canHelp.checked = true;
+  setFormValueIfEmpty("companyName", selected.company.companyName);
+  setFormValueIfEmpty("contactName", selected.company.contactName);
+  setFormValueIfEmpty("contactEmail", selected.company.contactEmail);
+  setFormValueIfEmpty("contactPhone", selected.company.contactPhone);
   setFormValue("earliestAvailability", selected.earliestAvailability);
   setFormValue("indicativePriceAud", String(selected.indicativePriceAud));
   setFormValue("relevantExperience", selected.relevantExperience);
@@ -330,12 +359,38 @@ function fillDemoResponse() {
   setFormValue("assumptions", selected.assumptions.join("\n"));
   setFormValue("conditions", selected.conditions.join("\n"));
   updateDecisionFields();
+  persistResponseDraft();
   setFormStatus(`${selected.label} loaded. Review before submitting.`, "success");
 }
 
 async function submitResponse(event, invitationToken) {
   event.preventDefault();
-  if (!invitationToken || !form.reportValidity()) return;
+  if (!invitationToken) return;
+  if (!form.reportValidity()) {
+    const invalidField = form.querySelector(":invalid");
+    const invalidName = invalidField?.getAttribute("name");
+    if (invalidName === "sourceDisclosureAccepted") {
+      setFormStatus(
+        "Confirm the supplier identity statement before submitting.",
+        "error"
+      );
+    } else if (
+      ["companyName", "contactName", "contactEmail", "contactPhone"].includes(
+        invalidName
+      )
+    ) {
+      setFormStatus(
+        "Complete the required company and contact fields before submitting.",
+        "error"
+      );
+    } else {
+      setFormStatus(
+        "Complete the required opportunity response fields before submitting.",
+        "error"
+      );
+    }
+    return;
+  }
 
   submitButton.disabled = true;
   setFormStatus(
@@ -528,7 +583,11 @@ function showSubmittedReceipt(supplierResponse, alreadySubmitted) {
   text("#receipt-decision", canHelp ? "Can help" : "Cannot help");
   text(
     "#receipt-availability",
-    canHelp ? availability || "Not supplied" : "Not applicable"
+    canHelp
+      ? availability
+        ? formatSupplierAvailability(availability)
+        : "Not supplied"
+      : "Not applicable"
   );
   text(
     "#receipt-price",
@@ -545,7 +604,9 @@ function showSubmittedReceipt(supplierResponse, alreadySubmitted) {
   );
   receipt.hidden = false;
   quoteDownload.hidden = false;
+  clearResponseDraft();
   setFormStatus("");
+  focusHeading("#receipt-title");
 }
 
 function handleLoadFailure(status, payload) {
@@ -584,6 +645,7 @@ function showTerminalState(kind, title, copy, keepSummary = false) {
   text("#page-state-copy", copy);
   panel.hidden = false;
   setFormStatus("");
+  focusHeading("#page-state-title");
 }
 
 function flowError(status, message) {
@@ -655,6 +717,81 @@ function setFormStatus(message, tone) {
 function setFormValue(name, value) {
   const field = form.elements.namedItem(name);
   if (field && "value" in field) field.value = value;
+}
+
+function setFormValueIfEmpty(name, value) {
+  const field = form.elements.namedItem(name);
+  if (field && "value" in field && !String(field.value).trim()) {
+    field.value = value;
+  }
+}
+
+function responseDraftValues() {
+  const values = new FormData(form);
+  return {
+    canHelp: String(values.get("canHelp") || ""),
+    earliestAvailability: String(values.get("earliestAvailability") || ""),
+    indicativePriceAud: String(values.get("indicativePriceAud") || ""),
+    relevantExperience: String(values.get("relevantExperience") || ""),
+    proposedApproach: String(values.get("proposedApproach") || ""),
+    assumptions: String(values.get("assumptions") || ""),
+    conditions: String(values.get("conditions") || ""),
+    declineReason: String(values.get("declineReason") || "")
+  };
+}
+
+function persistResponseDraft() {
+  writeSupplierResponseDraft(safeSessionStorage(), token, responseDraftValues());
+}
+
+function persistResponseDraftFromEvent(event) {
+  const field = event.target;
+  if (
+    !(
+      field instanceof HTMLInputElement ||
+      field instanceof HTMLTextAreaElement
+    ) ||
+    !supplierResponseDraftFields.includes(field.name)
+  ) {
+    return;
+  }
+  persistResponseDraft();
+}
+
+function restoreResponseDraft() {
+  const draft = readSupplierResponseDraft(safeSessionStorage(), token);
+  if (!draft) return;
+  for (const [name, value] of Object.entries(draft)) {
+    if (name === "canHelp") {
+      const decision = form.querySelector(
+        `input[name="canHelp"][value="${value === "false" ? "false" : "true"}"]`
+      );
+      if (decision instanceof HTMLInputElement) decision.checked = true;
+      continue;
+    }
+    setFormValue(name, value);
+  }
+  setFormStatus(
+    "Your unsent response draft was restored in this tab. Review it before submitting.",
+    "success"
+  );
+}
+
+function clearResponseDraft() {
+  clearSupplierResponseDraft(safeSessionStorage(), token);
+}
+
+function safeSessionStorage() {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function focusHeading(selector) {
+  const heading = document.querySelector(selector);
+  if (heading instanceof HTMLElement) heading.focus();
 }
 
 function formatMoney(amount) {

@@ -3,6 +3,7 @@ import {
   evidenceSourceTypeSchema,
   solutionResearchResultSchema,
   supplierLeadSchema,
+  type AgentActivityEvent,
   type MarketplaceNeedProfile,
   type ResearchCitation,
   type SolutionApproach,
@@ -15,11 +16,22 @@ import {
   createMarketplaceFixtureResearch,
   createMarketplaceFixtureSupplierLeads
 } from "./findFixtures.js";
-import { rankDiscoveredSupplierLeads } from "./candidateDiscovery.js";
+import {
+  rankDiscoveredSupplierLeads,
+  type SupplierRecommendationHistory
+} from "./candidateDiscovery.js";
+
+const httpUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  }, "Only public HTTP(S) URLs are allowed");
 
 const liveCitationSchema = z.object({
   title: z.string().trim().min(1),
-  url: z.string().url(),
+  url: httpUrlSchema,
   sourceType: evidenceSourceTypeSchema,
   evidenceNote: z.string().trim().min(1)
 });
@@ -50,8 +62,8 @@ const liveDiscoveryPayloadSchema = z.object({
     .array(
       z.object({
         companyName: z.string().trim().min(1),
-        website: z.string().url(),
-        logoUrl: z.string().url().nullable(),
+        website: httpUrlSchema,
+        logoUrl: httpUrlSchema.nullable(),
         contactName: z.string().trim().min(1).nullable(),
         contactEmail: z.string().trim().email().nullable(),
         contactPhone: z.string().trim().min(1).nullable(),
@@ -65,7 +77,7 @@ const liveDiscoveryPayloadSchema = z.object({
       })
     )
     .min(1)
-    .max(10)
+    .max(8)
 });
 
 export type MarketplaceProviderExecution<T> = {
@@ -73,26 +85,60 @@ export type MarketplaceProviderExecution<T> = {
   warning?: string;
 };
 
+export type ProviderActivityUpdate = Pick<
+  AgentActivityEvent,
+  | "operation"
+  | "stage"
+  | "message"
+  | "detail"
+  | "sourceMode"
+  | "sourceUrl"
+>;
+export type ProviderActivityReporter = (
+  update: ProviderActivityUpdate
+) => void;
+
 export async function runSolutionResearch(
   needProfileId: string,
-  profile: MarketplaceNeedProfile
+  profile: MarketplaceNeedProfile,
+  onActivity?: ProviderActivityReporter
 ): Promise<MarketplaceProviderExecution<SolutionResearchResult>> {
   if (shouldUseFixture()) {
+    const value = createMarketplaceFixtureResearch(needProfileId, profile);
+    reportResearchActivity(value, onActivity);
     return {
-      value: createMarketplaceFixtureResearch(needProfileId, profile)
+      value
     };
   }
 
+  onActivity?.({
+    operation: "research",
+    stage: "query_formulation",
+    message: "Formulated industrial solution research queries.",
+    detail: `${profile.category} in ${profile.location}`,
+    sourceMode: "live"
+  });
   try {
+    const value = await researchWithOpenAi(needProfileId, profile);
+    reportResearchActivity(value, onActivity, true);
     return {
-      value: await researchWithOpenAi(needProfileId, profile)
+      value
     };
   } catch (error) {
     if (env.VELTACT_RESEARCH_PROVIDER === "openai") {
       throw error;
     }
+    onActivity?.({
+      operation: "research",
+      stage: "fallback",
+      message: "Live research was unavailable; switched to labelled fixtures.",
+      detail: errorMessage(error),
+      sourceMode: "fixture"
+    });
+    const value = createMarketplaceFixtureResearch(needProfileId, profile);
+    reportResearchActivity(value, onActivity, false, true);
     return {
-      value: createMarketplaceFixtureResearch(needProfileId, profile),
+      value,
       warning: `Live research was unavailable; deterministic fixture evidence was used. ${errorMessage(error)}`
     };
   }
@@ -101,14 +147,21 @@ export async function runSolutionResearch(
 export async function runSupplierDiscovery(
   needProfileId: string,
   profile: MarketplaceNeedProfile,
-  selectedApproach: SolutionApproach
+  selectedApproach: SolutionApproach,
+  registryCandidates: SupplierLead[] = [],
+  onActivity?: ProviderActivityReporter,
+  recommendationHistoryBySupplierId: ReadonlyMap<
+    string,
+    SupplierRecommendationHistory
+  > = new Map()
 ): Promise<MarketplaceProviderExecution<SupplierLead[]>> {
   const rankCandidates = (candidates: SupplierLead[]) =>
     rankDiscoveredSupplierLeads({
       profile,
       selectedApproach,
       candidates,
-      publicBaseUrl: env.PUBLIC_BASE_URL
+      publicBaseUrl: env.PUBLIC_BASE_URL,
+      recommendationHistoryBySupplierId
     });
   const requireCompleteShortlist = (
     provider: string,
@@ -123,35 +176,91 @@ export async function runSupplierDiscovery(
     return rankedCandidates;
   };
 
-  if (shouldUseFixture()) {
+  const discoveryProvider = selectedDiscoveryProvider();
+  if (discoveryProvider === "fixture") {
+    const fixtures = createMarketplaceFixtureSupplierLeads(
+      needProfileId,
+      profile
+    );
+    const value = rankCandidates([...registryCandidates, ...fixtures]);
+    reportDiscoveryActivity({
+      rawCandidates: [...registryCandidates, ...fixtures],
+      acceptedCandidates: value,
+      sourceMode: "fixture",
+      onActivity
+    });
     return {
-      value: rankCandidates(
-        createMarketplaceFixtureSupplierLeads(needProfileId, profile)
-      )
+      value
     };
   }
 
+  onActivity?.({
+    operation: "discovery",
+    stage: "query_formulation",
+    message: "Formulated supplier discovery queries for the selected pathway.",
+    detail: selectedApproach.requiredCapabilities.join(", "),
+    sourceMode: "live"
+  });
+  const discoverySignal = AbortSignal.timeout(20_000);
   try {
-    return {
-      value: requireCompleteShortlist(
-        "OpenAI supplier discovery",
-        await discoverWithOpenAi(
-          needProfileId,
-          profile,
-          selectedApproach
-        )
-      )
-    };
+    const discovered =
+      discoveryProvider === "perplexity"
+        ? await discoverWithPerplexity(
+            needProfileId,
+            profile,
+            selectedApproach,
+            discoverySignal
+          )
+        : await discoverWithOpenAi(
+            needProfileId,
+            profile,
+            selectedApproach,
+            discoverySignal
+          );
+    const rawCandidates = [...registryCandidates, ...discovered];
+    const value = requireCompleteShortlist(
+      `${discoveryProvider} supplier discovery`,
+      rawCandidates
+    );
+    reportDiscoveryActivity({
+      rawCandidates,
+      acceptedCandidates: value,
+      sourceMode: "live",
+      onActivity,
+      skipQuery: true
+    });
+    return { value };
   } catch (error) {
-    if (env.FIRECRAWL_API_KEY) {
+    if (
+      env.VELTACT_DISCOVERY_PROVIDER === "auto" &&
+      env.FIRECRAWL_API_KEY
+    ) {
       try {
         const firecrawlLeads = await discoverWithFirecrawl(
           needProfileId,
           profile,
-          selectedApproach.requiredCapabilities
+          selectedApproach.requiredCapabilities,
+          discoverySignal
         );
-        const rankedFirecrawlLeads = rankCandidates(firecrawlLeads);
+        const rankedFirecrawlLeads = rankCandidates([
+          ...registryCandidates,
+          ...firecrawlLeads
+        ]);
         if (rankedFirecrawlLeads.length === 3) {
+          onActivity?.({
+            operation: "discovery",
+            stage: "fallback",
+            message: "OpenAI discovery was unavailable; used Firecrawl search evidence.",
+            detail: errorMessage(error),
+            sourceMode: "live"
+          });
+          reportDiscoveryActivity({
+            rawCandidates: [...registryCandidates, ...firecrawlLeads],
+            acceptedCandidates: rankedFirecrawlLeads,
+            sourceMode: "live",
+            onActivity,
+            skipQuery: true
+          });
           return {
             value: rankedFirecrawlLeads,
             warning:
@@ -162,16 +271,160 @@ export async function runSupplierDiscovery(
         // Deterministic fixtures remain the final fallback in auto mode.
       }
     }
-    if (env.VELTACT_RESEARCH_PROVIDER === "openai") {
+    if (env.VELTACT_DISCOVERY_PROVIDER !== "auto") {
       throw error;
     }
+    onActivity?.({
+      operation: "discovery",
+      stage: "fallback",
+      message: "Live discovery was unavailable; switched to labelled fixtures.",
+      detail: errorMessage(error),
+      sourceMode: "fixture"
+    });
+    const fixtures = createMarketplaceFixtureSupplierLeads(
+      needProfileId,
+      profile
+    );
+    const rawCandidates = [...registryCandidates, ...fixtures];
+    const value = rankCandidates(rawCandidates);
+    reportDiscoveryActivity({
+      rawCandidates,
+      acceptedCandidates: value,
+      sourceMode: "fixture",
+      onActivity,
+      skipQuery: true
+    });
     return {
-      value: rankCandidates(
-        createMarketplaceFixtureSupplierLeads(needProfileId, profile)
-      ),
+      value,
       warning: `Live supplier discovery was unavailable; deterministic fixture candidates were used. ${errorMessage(error)}`
     };
   }
+}
+
+function reportResearchActivity(
+  result: SolutionResearchResult,
+  onActivity: ProviderActivityReporter | undefined,
+  skipQuery = false,
+  fallback = false
+) {
+  if (!onActivity) return;
+  if (!skipQuery) {
+    onActivity({
+      operation: "research",
+      stage: "query_formulation",
+      message: fallback
+        ? "Prepared deterministic fallback research for this requirement."
+        : "Prepared industrial solution research for this requirement.",
+      sourceMode: result.sourceMode
+    });
+  }
+  for (const citation of result.citations.slice(0, 2)) {
+    onActivity({
+      operation: "research",
+      stage: "source_read",
+      message: `Read ${citation.title}.`,
+      detail: citation.evidenceNote,
+      sourceMode: result.sourceMode,
+      sourceUrl: citation.url
+    });
+  }
+  for (const approach of result.approaches.slice(0, 3)) {
+    onActivity({
+      operation: "research",
+      stage: "candidate_considered",
+      message: `Evaluated pathway: ${approach.title}.`,
+      detail: approach.rationale,
+      sourceMode: result.sourceMode
+    });
+  }
+  onActivity({
+    operation: "research",
+    stage: "completed",
+    message: `Prepared ${result.approaches.length} buyer-reviewable solution pathways.`,
+    sourceMode: result.sourceMode
+  });
+}
+
+function reportDiscoveryActivity(input: {
+  rawCandidates: SupplierLead[];
+  acceptedCandidates: SupplierLead[];
+  sourceMode: "live" | "fixture";
+  onActivity?: ProviderActivityReporter;
+  skipQuery?: boolean;
+}) {
+  if (!input.onActivity) return;
+  if (!input.skipQuery) {
+    input.onActivity({
+      operation: "discovery",
+      stage: "query_formulation",
+      message: "Prepared supplier queries from the approved solution pathway.",
+      sourceMode: input.sourceMode
+    });
+  }
+  const evidence = input.rawCandidates
+    .flatMap((candidate) => candidate.evidence)
+    .filter(
+      (citation, index, values) =>
+        values.findIndex((item) => item.url === citation.url) === index
+    )
+    .slice(0, 2);
+  for (const citation of evidence) {
+    input.onActivity({
+      operation: "discovery",
+      stage: "source_read",
+      message: `Read supplier source: ${citation.title}.`,
+      detail: citation.evidenceNote,
+      sourceMode: input.sourceMode,
+      sourceUrl: citation.url
+    });
+  }
+  for (const candidate of input.rawCandidates.slice(0, 8)) {
+    input.onActivity({
+      operation: "discovery",
+      stage: "candidate_considered",
+      message: `Considered ${candidate.companyName}.`,
+      detail:
+        candidate.matchReasons[0] ??
+        "Candidate fit required further review.",
+      sourceMode: input.sourceMode,
+      sourceUrl: candidate.website
+    });
+  }
+  const acceptedIds = new Set(
+    input.acceptedCandidates.map((candidate) => candidate.id)
+  );
+  for (const candidate of input.acceptedCandidates) {
+    input.onActivity({
+      operation: "discovery",
+      stage: "candidate_accepted",
+      message: `Accepted ${candidate.companyName} for buyer review.`,
+      detail:
+        candidate.matchReasons[0] ??
+        "Candidate met the shortlist threshold.",
+      sourceMode: input.sourceMode,
+      sourceUrl: candidate.website
+    });
+  }
+  for (const candidate of input.rawCandidates.filter(
+    (item) => !acceptedIds.has(item.id)
+  )) {
+    input.onActivity({
+      operation: "discovery",
+      stage: "candidate_rejected",
+      message: `Held ${candidate.companyName} outside the shortlist.`,
+      detail:
+        candidate.risks[0] ??
+        "Other candidates showed stronger selected-pathway fit.",
+      sourceMode: input.sourceMode,
+      sourceUrl: candidate.website
+    });
+  }
+  input.onActivity({
+    operation: "discovery",
+    stage: "completed",
+    message: `Prepared ${input.acceptedCandidates.length} explainable supplier matches.`,
+    sourceMode: input.sourceMode
+  });
 }
 
 async function researchWithOpenAi(
@@ -233,21 +486,85 @@ async function researchWithOpenAi(
 async function discoverWithOpenAi(
   needProfileId: string,
   profile: MarketplaceNeedProfile,
-  selectedApproach: SolutionApproach
+  selectedApproach: SolutionApproach,
+  signal: AbortSignal
 ): Promise<SupplierLead[]> {
   const payload = liveDiscoveryPayloadSchema.parse(
     await requestOpenAiJson({
       name: "rapidmatch_supplier_discovery",
       schema: discoveryJsonSchema,
       system:
-        "You are Veltact's Australian industrial supplier discovery assistant. Find at least 3 and up to 10 relevant real supplier businesses using public web evidence for the single buyer-selected solution pathway. Prefer official supplier websites. Provide an official logo URL only when that exact image URL is supported by the cited supplier website; otherwise return null. Do not infer certifications, availability, consent, verification, enrolment or contact details. Return contact fields only when explicitly published on a cited source; otherwise return null. Return public discovery evidence only; the buyer must review every candidate before outreach. Return only the requested JSON.",
-      user: JSON.stringify({ profile, selectedApproach })
+        "You are Veltact's Australian industrial supplier discovery assistant. Find at least 3 and up to 8 relevant real supplier businesses using public web evidence for the single buyer-selected solution pathway. Prefer official supplier websites. Provide an official logo URL only when that exact image URL is supported by the cited supplier website; otherwise return null. Do not infer certifications, availability, consent, verification, enrolment or contact details. Return contact fields only when explicitly published on a cited source; otherwise return null. Return public discovery evidence only; the buyer must review every candidate before outreach. Return only the requested JSON.",
+      user: JSON.stringify({ profile, selectedApproach }),
+      signal
     })
   );
-  const now = new Date().toISOString();
+  return mapLiveSuppliers(
+    needProfileId,
+    payload,
+    "openai_web_search"
+  );
+}
 
+async function discoverWithPerplexity(
+  needProfileId: string,
+  profile: MarketplaceNeedProfile,
+  selectedApproach: SolutionApproach,
+  signal: AbortSignal
+): Promise<SupplierLead[]> {
+  if (!env.PERPLEXITY_API_KEY) {
+    throw new Error("PERPLEXITY_API_KEY is not configured");
+  }
+  const response = await fetch("https://api.perplexity.ai/v1/sonar", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.PERPLEXITY_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "sonar",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Find 3 to 8 relevant real Australian industrial suppliers for the buyer-selected pathway using public evidence. Prefer official supplier websites. Never infer consent, verification, enrolment, certifications, current availability or unpublished contact details. Return only the requested JSON."
+        },
+        {
+          role: "user",
+          content: JSON.stringify({ profile, selectedApproach })
+        }
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          schema: discoveryJsonSchema
+        }
+      }
+    }),
+    signal
+  });
+  const responsePayload = (await response.json()) as unknown;
+  if (!response.ok) {
+    throw new Error(
+      `Perplexity returned HTTP ${response.status}: ${providerError(responsePayload)}`
+    );
+  }
+  const outputText = extractPerplexityOutputText(responsePayload);
+  if (!outputText) {
+    throw new Error("Perplexity response did not contain structured output");
+  }
+  const payload = liveDiscoveryPayloadSchema.parse(JSON.parse(outputText));
+  return mapLiveSuppliers(needProfileId, payload, "perplexity");
+}
+
+function mapLiveSuppliers(
+  needProfileId: string,
+  payload: z.infer<typeof liveDiscoveryPayloadSchema>,
+  provider: "openai_web_search" | "perplexity"
+) {
+  const now = new Date().toISOString();
   return supplierLeadSchema.array().parse(
-    payload.suppliers.map((supplier) => ({
+    payload.suppliers.slice(0, 8).map((supplier) => ({
       id: randomUUID(),
       needProfileId,
       companyName: supplier.companyName,
@@ -263,10 +580,10 @@ async function discoverWithOpenAi(
       matchReasons: supplier.matchReasons,
       risks: [
         ...supplier.risks,
-        "Public-web discovery is not verification, supplier consent, enrolment or proof of current availability."
+        "Public evidence produced this candidate; it is not a verified or enrolled supplier."
       ],
       evidence: supplier.citations.map((citation) =>
-        normaliseCitation(citation, "openai_web_search", now)
+        normaliseCitation(citation, provider, now)
       ),
       sourceMode: "live",
       lifecycleStatus: "discovered",
@@ -279,7 +596,8 @@ async function discoverWithOpenAi(
 async function discoverWithFirecrawl(
   needProfileId: string,
   profile: MarketplaceNeedProfile,
-  requiredCapabilities: string[]
+  requiredCapabilities: string[],
+  signal: AbortSignal
 ): Promise<SupplierLead[]> {
   const query = [
     ...requiredCapabilities,
@@ -293,7 +611,7 @@ async function discoverWithFirecrawl(
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ query, limit: 8 }),
-    signal: AbortSignal.timeout(20_000)
+    signal
   });
   if (!response.ok) {
     throw new Error(`Firecrawl returned HTTP ${response.status}`);
@@ -347,6 +665,7 @@ async function requestOpenAiJson(input: {
   schema: Record<string, unknown>;
   system: string;
   user: string;
+  signal?: AbortSignal;
 }) {
   if (!env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is not configured");
@@ -373,7 +692,7 @@ async function requestOpenAiJson(input: {
         }
       }
     }),
-    signal: AbortSignal.timeout(30_000)
+    signal: input.signal ?? AbortSignal.timeout(30_000)
   });
   const responsePayload = (await response.json()) as unknown;
   if (!response.ok) {
@@ -390,7 +709,7 @@ async function requestOpenAiJson(input: {
 
 function normaliseCitation(
   citation: z.infer<typeof liveCitationSchema>,
-  provider: "openai_web_search" | "firecrawl",
+  provider: "openai_web_search" | "perplexity" | "firecrawl",
   accessedAt: string
 ): ResearchCitation {
   return {
@@ -411,6 +730,21 @@ function shouldUseFixture() {
   );
 }
 
+function selectedDiscoveryProvider():
+  | "openai"
+  | "perplexity"
+  | "fixture" {
+  if (env.VELTACT_DISCOVERY_PROVIDER !== "auto") {
+    return env.VELTACT_DISCOVERY_PROVIDER;
+  }
+  if (env.VELTACT_RESEARCH_PROVIDER === "fixture") {
+    return "fixture";
+  }
+  if (env.OPENAI_API_KEY) return "openai";
+  if (env.PERPLEXITY_API_KEY) return "perplexity";
+  return "fixture";
+}
+
 function extractOpenAiOutputText(payload: unknown): string | undefined {
   if (typeof payload !== "object" || payload === null) return undefined;
   const record = payload as Record<string, unknown>;
@@ -429,10 +763,24 @@ function extractOpenAiOutputText(payload: unknown): string | undefined {
   return undefined;
 }
 
+function extractPerplexityOutputText(payload: unknown): string | undefined {
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const choices = (payload as Record<string, unknown>).choices;
+  if (!Array.isArray(choices)) return undefined;
+  for (const choice of choices) {
+    if (typeof choice !== "object" || choice === null) continue;
+    const message = (choice as Record<string, unknown>).message;
+    if (typeof message !== "object" || message === null) continue;
+    const content = (message as Record<string, unknown>).content;
+    if (typeof content === "string") return content;
+  }
+  return undefined;
+}
+
 function extractFirecrawlResults(payload: unknown) {
   const resultSchema = z.object({
     title: z.string().trim().min(1),
-    url: z.string().url(),
+    url: httpUrlSchema,
     description: z.string().trim().optional()
   });
   if (typeof payload !== "object" || payload === null) return [];
@@ -546,7 +894,7 @@ const discoveryJsonSchema = {
     suppliers: {
       type: "array",
       minItems: 3,
-      maxItems: 10,
+      maxItems: 8,
       items: {
         type: "object",
         additionalProperties: false,

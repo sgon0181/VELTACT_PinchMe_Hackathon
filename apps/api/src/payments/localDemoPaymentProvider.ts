@@ -36,6 +36,10 @@ export class LocalDemoPaymentProvider implements PaymentProvider {
     // It must never be presented as an authoritative provider payment.
     return undefined;
   }
+
+  async cancelHostedPaymentLink(_paymentLinkId: string) {
+    // Local links are synthetic and have no provider-side resource to delete.
+  }
 }
 
 export function isLocalDemoPaymentLinkId(paymentLinkId: string) {

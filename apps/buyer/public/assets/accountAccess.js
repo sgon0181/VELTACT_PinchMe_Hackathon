@@ -8,11 +8,16 @@ const status = document.querySelector("#account-status");
 const submitButton = form?.querySelector('button[type="submit"]');
 const signOutButton = document.querySelector("#sign-out-button");
 const passwordVisibility = document.querySelector("#show-passwords");
+let accountFormInteracted = false;
 void restoreSession();
 form?.addEventListener("submit", (event) => {
     event.preventDefault();
+    accountFormInteracted = true;
     void submitAccountForm();
 });
+form?.addEventListener("focusin", markAccountFormInteracted);
+form?.addEventListener("input", markAccountFormInteracted);
+form?.addEventListener("pointerdown", markAccountFormInteracted);
 signOutButton?.addEventListener("click", () => {
     void signOut();
 });
@@ -52,8 +57,8 @@ async function submitAccountForm() {
         if (!response.account) {
             throw new Error("Account session was not returned.");
         }
-        showSession(response.account.email);
         form.reset();
+        showSession(response.account.email);
         showStatus(page === "create"
             ? "Account created and signed in."
             : "Signed in successfully.", "success");
@@ -68,7 +73,9 @@ async function submitAccountForm() {
 async function restoreSession() {
     try {
         const response = await accountRequest("/accounts/session");
-        if (response.account) {
+        if (response.account &&
+            !accountFormInteracted &&
+            !accountFormHasFocus()) {
             showSession(response.account.email);
         }
     }
@@ -84,8 +91,7 @@ async function signOut() {
     signOutButton.disabled = true;
     try {
         await accountRequest("/accounts/session", { method: "DELETE" });
-        sessionPanel?.setAttribute("hidden", "");
-        formPanel?.removeAttribute("hidden");
+        showAccountForm();
         showStatus("Signed out.", "success");
     }
     catch (error) {
@@ -101,6 +107,22 @@ function showSession(email) {
     }
     formPanel?.setAttribute("hidden", "");
     sessionPanel?.removeAttribute("hidden");
+    focusPanelHeading(sessionPanel, "#account-session-title");
+}
+function showAccountForm() {
+    sessionPanel?.setAttribute("hidden", "");
+    formPanel?.removeAttribute("hidden");
+    focusPanelHeading(formPanel, "#account-form-title");
+}
+function markAccountFormInteracted() {
+    accountFormInteracted = true;
+}
+function accountFormHasFocus() {
+    return Boolean(form && form.contains(document.activeElement));
+}
+function focusPanelHeading(panel, selector) {
+    const heading = panel?.querySelector(selector);
+    heading?.focus();
 }
 function setBusy(busy) {
     if (!submitButton || !form)

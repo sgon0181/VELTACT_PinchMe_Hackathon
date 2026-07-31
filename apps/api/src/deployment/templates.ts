@@ -16,6 +16,12 @@ const MILESTONE_TITLES: Record<DeploymentScenario, readonly string[]> = {
     "Design",
     "Installation",
     "Commissioning"
+  ],
+  industrial_response: [
+    "Site Assessment",
+    "Approved Work",
+    "Validation",
+    "Handover"
   ]
 };
 
@@ -38,7 +44,7 @@ export function createDeploymentSummary(
     engagementId: engagement.engagementId,
     sequence: index + 1,
     title,
-    ...(index === 0 ? { amount: engagement.commitmentAmount } : {}),
+    amount: engagement.commitmentAmount,
     status: index === 0 ? commitmentStatus : "not_started",
     paymentStatus: index === 0 ? engagement.paymentStatus : "not_started",
     progressPercentage: 0,
@@ -55,6 +61,27 @@ export function createDeploymentSummary(
     latestUpdate: commitmentUpdate,
     updatedAt
   });
+}
+
+export function ensureMilestoneFundingSchedule(
+  deployment: DeploymentSummary,
+  commitmentAmount: DeploymentEngagementContext["commitmentAmount"]
+): { deployment: DeploymentSummary; changed: boolean } {
+  const missingAmount = deployment.milestones.some(
+    (milestone) => !milestone.amount
+  );
+  if (!missingAmount) {
+    return { deployment, changed: false };
+  }
+
+  const next = structuredClone(deployment);
+  for (const milestone of next.milestones) {
+    milestone.amount ??= structuredClone(commitmentAmount);
+  }
+  return {
+    deployment: deriveDeploymentSummary(next),
+    changed: true
+  };
 }
 
 export function syncCommitmentPayment(
@@ -109,11 +136,11 @@ export function deriveDeploymentSummary(
   const milestones = [...deployment.milestones].sort(
     (left, right) => left.sequence - right.sequence
   );
-  const completedCount = milestones.filter(
-    (milestone) => milestone.status === "completed"
-  ).length;
   const progressPercentage = Math.round(
-    (completedCount / milestones.length) * 100
+    milestones.reduce(
+      (total, milestone) => total + milestone.progressPercentage,
+      0
+    ) / milestones.length
   );
   const currentIndex = milestones.findIndex(
     (milestone) => milestone.status !== "completed"
@@ -198,7 +225,9 @@ function deploymentTitle(engagement: DeploymentEngagementContext) {
   const work =
     engagement.scenario === "robotic_integration"
       ? "Robotic integration"
-      : "PLC recovery";
+      : engagement.scenario === "plc_recovery"
+        ? "PLC recovery"
+        : "Industrial response";
   return `${work} deployment with ${engagement.supplierName}`;
 }
 

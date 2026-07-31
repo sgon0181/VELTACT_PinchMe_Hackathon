@@ -43,9 +43,13 @@
         </section>
 
         <section class="account-access" aria-live="polite">
-          <div id="account-form-panel" class="account-form-panel">
+          <div
+            id="account-form-panel"
+            class="account-form-panel"
+            aria-labelledby="account-form-title"
+          >
             <span class="account-label">Account registration</span>
-            <h2>Create account</h2>
+            <h2 id="account-form-title" tabindex="-1">Create account</h2>
             <p class="account-intro">
               This creates a staging login without restricting access to Trial Demo.
             </p>
@@ -96,9 +100,14 @@
             </p>
           </div>
 
-          <div id="account-session" class="account-session" hidden>
+          <div
+            id="account-session"
+            class="account-session"
+            aria-labelledby="account-session-title"
+            hidden
+          >
             <span class="account-label">Account ready</span>
-            <h2>Account created</h2>
+            <h2 id="account-session-title" tabindex="-1">Account created</h2>
             <p>
               You are signed in as
               <strong id="session-email" class="session-email"></strong>.
@@ -112,6 +121,6 @@
         </section>
       </main>
     </div>
-    <script type="module" src="./assets/accountAccess.js?v=account-1"></script>
+    <script type="module" src="./assets/accountAccess.js?v=account-2"></script>
   </body>
 </html>

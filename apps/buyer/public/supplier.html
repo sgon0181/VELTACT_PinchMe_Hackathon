@@ -30,7 +30,7 @@
 
       <section id="page-state" class="state-panel" role="status" hidden>
         <p id="page-state-label" class="eyebrow">Invitation status</p>
-        <h1 id="page-state-title">Checking invitation</h1>
+        <h1 id="page-state-title" tabindex="-1">Checking invitation</h1>
         <p id="page-state-copy" class="state-copy"></p>
       </section>
 
@@ -96,7 +96,7 @@
       <form id="response-form" class="response-form" hidden>
         <div class="form-heading">
           <p class="eyebrow">Confirm and respond</p>
-          <h2>One concise supplier response</h2>
+          <h2 id="response-form-title" tabindex="-1">One concise supplier response</h2>
           <p>
             Confirm who is responding, then provide comparable availability,
             pricing and delivery details. Veltact will not create an account.
@@ -264,7 +264,7 @@
       <section id="submitted-receipt" class="receipt" hidden>
         <div class="receipt-check" aria-hidden="true">✓</div>
         <p class="eyebrow">Response received</p>
-        <h2 id="receipt-title">The buyer comparison is updated</h2>
+        <h2 id="receipt-title" tabindex="-1">The buyer comparison is updated</h2>
         <p class="receipt-copy">
           Veltact has accepted your response and notified the buyer workspace.
           No engagement exists unless the buyer selects your company.
@@ -301,6 +301,6 @@
         </div>
       </section>
     </main>
-    <script src="./supplier.js?v=staging-a3-1" type="module"></script>
+    <script src="./supplier.js?v=staging-a3-2" type="module"></script>
   </body>
 </html>

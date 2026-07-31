@@ -162,47 +162,156 @@ describe("structureRequirementLocally", () => {
     assert.ok(!result.missingFields.includes("required response timing"));
   });
 
-  test("structures an extrusion heater-band fault without inventing response timing", () => {
+  test("extracts a Newcastle gearbox requirement with compact budget and 48-hour timing", () => {
     const result = structureRequirementLocally({
       rawRequirement:
-        "Zone 3 heater band on the barrel is dead; the plastic isn't melting right, causing a high-torque alarm on the screw."
+        "Conveyor motor gearbox on our bottling line in Newcastle NSW is overheating and tripping thermal protection every 2-3 hours. Production down to 40% capacity. Need an industrial mechanical contractor to diagnose and repair within 48 hours. Budget around 20k AUD."
+    });
+
+    assert.equal(result.generatedProfile.location, "Newcastle, NSW");
+    assert.equal(result.generatedProfile.budgetRange, "Up to AUD 20,000");
+    assert.equal(result.generatedProfile.urgency, "Within 2 days");
+    assert.equal(
+      result.generatedProfile.category,
+      "Industrial mechanical maintenance"
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial gearbox diagnostics"
+      )
+    );
+    assert.ok(result.generatedProfile.title.endsWith("…"));
+    assert.doesNotMatch(result.generatedProfile.title, /\stripping t…$/);
+  });
+
+  test("retains wastewater timing and process-continuity constraints", () => {
+    const result = structureRequirementLocally({
+      rawRequirement:
+        "At our wastewater treatment plant in Ballarat VIC, the sludge dewatering conveyor gearbox is leaking oil and running hot. We need an industrial mechanical maintenance contractor within 5 calendar days while bypass pumping keeps the process stable. Approved budget range is AUD 28,000-36,000."
+    });
+
+    assert.equal(result.generatedProfile.urgency, "Within 5 calendar days");
+    assert.ok(
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Wastewater treatment environment"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Maintain wastewater process continuity"
+      )
+    );
+    assert.ok(!result.missingFields.includes("required response timing"));
+  });
+
+  test("preserves grain-terminal contamination and electromechanical repair scope", () => {
+    const result = structureRequirementLocally({
+      rawRequirement:
+        "At our bulk grain export terminal in Port Lincoln SA, the main shiploader feed conveyor motor and gearbox are overheating and tripping. We need a mechanical and electrical industrial maintenance team within 24 hours to diagnose and complete an authorised repair without contaminating grain handling areas. Our callout and initial repair tolerance is $14,500, with any additional parts subject to approval."
     });
 
     assert.equal(
       result.generatedProfile.title,
-      "Extruder barrel heating fault with high-torque alarm"
+      "Urgent grain conveyor motor and gearbox repair"
+    );
+    assert.equal(result.generatedProfile.location, "Port Lincoln, SA");
+    assert.equal(result.generatedProfile.urgency, "Required today");
+    assert.equal(result.generatedProfile.buyerPriority, "speed");
+    assert.equal(result.generatedProfile.budgetRange, "Up to AUD 14,500");
+    assert.ok(
+      result.generatedProfile.equipmentOrTechnology.includes(
+        "Industrial conveyor"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial mechanical maintenance"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial gearbox repair"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial motor repair"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.requiredCapabilities.includes(
+        "Industrial electrical maintenance"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Grain handling contamination controls"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Minimal downtime"
+      )
+    );
+  });
+
+  test("structures an urgent ammonia cold-store repair without duplicate buyer work", () => {
+    const result = structureRequirementLocally({
+      rawRequirement:
+        "An ammonia refrigeration compressor at our seafood cold store in Darwin NT has developed severe vibration and repeated low oil-pressure alarms. The freezer must stay below -18°C. We need a licensed industrial refrigeration contractor on site tonight, within 12 hours, to assess and complete an emergency repair. We can approve up to AUD 28,000 including callout and parts."
+    });
+
+    assert.equal(
+      result.generatedProfile.title,
+      "Urgent ammonia refrigeration compressor repair"
     );
     assert.equal(
       result.generatedProfile.category,
-      "Plastics processing maintenance"
+      "Industrial refrigeration maintenance"
     );
     assert.deepEqual(
       new Set(result.generatedProfile.equipmentOrTechnology),
       new Set([
-        "Plastics extrusion machine",
-        "Extruder barrel heating zone",
-        "Extruder screw drive"
+        "Ammonia refrigeration system",
+        "Industrial refrigeration compressor"
       ])
     );
     assert.ok(
       result.generatedProfile.requiredCapabilities.includes(
-        "Industrial process heating diagnostics"
+        "Licensed refrigeration contractor"
       )
     );
     assert.ok(
-      result.generatedProfile.requiredCapabilities.includes(
-        "Industrial electrical fault finding"
+      result.generatedProfile.certificationsOrConstraints.includes(
+        "Temperature-critical cold storage"
       )
     );
     assert.ok(
-      result.generatedProfile.requiredCapabilities.includes(
-        "Extruder screw-drive assessment"
+      !result.missingFields.some((field) =>
+        /equipment|capabilit/i.test(field)
       )
     );
-    assert.equal(result.generatedProfile.urgency, undefined);
-    assert.equal(result.generatedProfile.buyerPriority, undefined);
-    assert.ok(result.missingFields.includes("required response timing"));
-    assert.ok(!result.missingFields.includes("equipment or technology"));
-    assert.ok(!result.missingFields.includes("required supplier capability"));
+  });
+
+  test("keeps refrigeration as the dominant category when a compressor motor is named", () => {
+    const result = structureRequirementLocally({
+      rawRequirement:
+        "At our ammonia cold store in Launceston TAS, the refrigeration compressor drive motor has high bearing vibration and intermittent overload trips. We need a licensed industrial refrigeration contractor within 3 business days to inspect and complete an authorised repair while the cold rooms remain temperature controlled. Our budget is roughly 60k AUD including callout and approved parts."
+    });
+
+    assert.ok(
+      result.generatedProfile.equipmentOrTechnology.includes(
+        "Industrial motor"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.equipmentOrTechnology.includes(
+        "Ammonia refrigeration system"
+      )
+    );
+    assert.equal(
+      result.generatedProfile.category,
+      "Industrial refrigeration maintenance"
+    );
   });
 });

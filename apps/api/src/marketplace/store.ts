@@ -24,18 +24,30 @@ import {
   createMarketplaceFixtureSupplierLeads,
   inferMarketplaceDemoScenario
 } from "./findFixtures.js";
-import { rankDiscoveredSupplierLeads } from "./candidateDiscovery.js";
+import {
+  rankDiscoveredSupplierLeads,
+  type SupplierRecommendationHistory
+} from "./candidateDiscovery.js";
 import {
   createNeedReportRecord,
   readNeedReportPdf
 } from "./needReport.js";
+import { assembleEngagementSpeedReceipt } from "./speedReceipt.js";
 import {
+  agentActivityEventSchema,
   supplierCommitmentNotificationSchema,
+  supplierRegistryEntrySchema,
   type DeploymentSummary,
+  type AgentActivityEvent,
+  type AgentActivityOperation,
   type SupplierCommitmentNotification,
-  type OutreachChannel
+  type OutreachChannel,
+  type SupplierRegistryEntry,
+  type SupplierRegistryProvenanceState,
+  type SupplierRegistryResponse,
+  type SupplierRegistrySource
 } from "@veltact/contracts";
-import { syncCommitmentPayment } from "../deployment/templates.js";
+import { deriveDeploymentSummary } from "../deployment/templates.js";
 import type {
   Engagement,
   LocalDemoPaymentEvidence,
@@ -113,6 +125,10 @@ const deployments = new Map<string, DeploymentSummary>(
     deployment.engagementId,
     deployment
   ]) ?? []
+);
+const supplierRegistryEntries = new Map<string, SupplierRegistryEntry>(
+  initialSnapshot?.supplierRegistryEntries.map((entry) => [entry.id, entry]) ??
+    []
 );
 const processedPinchEventIds = new Set<string>(
   initialSnapshot?.processedPinchEventIds ?? []
@@ -270,6 +286,19 @@ export function createNeed(
   };
   needs.set(id, need);
   issuedBuyerAccessTokens.set(id, buyerAccessToken);
+  for (const match of matches) {
+    upsertSupplierRegistryEntry({
+      buyerEmail: need.buyerEmail,
+      needProfileId: need.id,
+      supplierName: match.supplier.companyName,
+      contactEmail: match.supplier.contactEmail,
+      location: match.supplier.serviceRegions[0] ?? need.profile.location,
+      capabilities: match.supplier.capabilities,
+      provenanceState: "discovered",
+      source: "catalog",
+      occurredAt: createdAt
+    });
+  }
   commitMarketplaceMutation({
     eventType: "need.created",
     actorType: "buyer",
@@ -315,6 +344,133 @@ export function listPinchWebhookEvidence() {
 
 export function listLocalDemoPaymentEvidence() {
   return [...localDemoPaymentEvidence.values()];
+}
+
+export type SupplierRegistryUpsertInput = {
+  buyerEmail: string;
+  needProfileId: string;
+  supplierName: string;
+  website?: string;
+  contactEmail?: string;
+  location: string;
+  capabilities: string[];
+  provenanceState: SupplierRegistryProvenanceState;
+  source: SupplierRegistrySource;
+  evidence?: Array<{
+    url: string;
+    title: string;
+    retrievedAt: string;
+  }>;
+  engagementId?: string;
+  responsePrice?: {
+    amount: number;
+    currency: string;
+  };
+  occurredAt?: string;
+};
+
+export function upsertSupplierRegistryEntry(
+  input: SupplierRegistryUpsertInput
+): SupplierRegistryEntry {
+  const occurredAt = input.occurredAt ?? new Date().toISOString();
+  const accountScopeKey = supplierRegistryAccountScope(input.buyerEmail);
+  const normalizedDomain = normalizedSupplierDomain(
+    input.website,
+    input.contactEmail
+  );
+  const identityKey =
+    normalizedDomain ??
+    `${normalizedSupplierText(input.supplierName)}:${normalizedSupplierText(input.location)}`;
+  const id = `registry_${createHash("sha256")
+    .update(`${accountScopeKey}:${identityKey}`)
+    .digest("hex")
+    .slice(0, 24)}`;
+  const existing = supplierRegistryEntries.get(id);
+  const existingHistory = existing?.engagementHistory.find(
+    (history) => history.needProfileId === input.needProfileId
+  );
+  const engagementHistory = existingHistory
+    ? existing?.engagementHistory.map((history) =>
+        history.needProfileId === input.needProfileId
+          ? registryHistoryAtState(history, input, occurredAt)
+          : history
+      ) ?? []
+    : [
+        ...(existing?.engagementHistory ?? []),
+        registryHistoryAtState(
+          {
+            needProfileId: input.needProfileId,
+            secured: false,
+            delivered: false,
+            discoveredAt: occurredAt,
+            lastActivityAt: occurredAt
+          },
+          input,
+          occurredAt
+        )
+      ];
+  const provenanceState =
+    existing &&
+    registryStateRank(existing.provenanceState) >
+      registryStateRank(input.provenanceState)
+      ? existing.provenanceState
+      : input.provenanceState;
+  const evidence = mergeRegistryEvidence(
+    existing?.evidence ?? [],
+    input.evidence ?? []
+  );
+  const entry = supplierRegistryEntrySchema.parse({
+    schemaVersion: 1,
+    id,
+    accountScopeKey,
+    supplierName: input.supplierName,
+    normalizedDomain,
+    location: input.location,
+    capabilities: [
+      ...new Set([
+        ...(existing?.capabilities ?? []),
+        ...input.capabilities
+      ].map((capability) => capability.trim()).filter(Boolean))
+    ],
+    provenanceState,
+    source: preferredRegistrySource(existing?.source, input.source),
+    evidence,
+    engagementHistory,
+    createdAt: existing?.createdAt ?? occurredAt,
+    updatedAt: occurredAt
+  });
+  supplierRegistryEntries.set(entry.id, entry);
+  return structuredClone(entry);
+}
+
+export function getSupplierRegistryForNeed(
+  needId: string
+): SupplierRegistryResponse | undefined {
+  const need = needs.get(needId);
+  if (!need) {
+    return undefined;
+  }
+  const accountScopeKey = supplierRegistryAccountScope(need.buyerEmail);
+  const entries = [...supplierRegistryEntries.values()]
+    .filter((entry) => entry.accountScopeKey === accountScopeKey)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .map((entry) => structuredClone(entry));
+  const summary = {
+    total: entries.length,
+    discovered: 0,
+    contacted: 0,
+    responded: 0,
+    secured: 0,
+    delivered: 0
+  };
+  for (const entry of entries) {
+    summary[entry.provenanceState] += 1;
+  }
+  return {
+    schemaVersion: 1,
+    entries,
+    summary
+  };
 }
 
 export function getNeed(id: string): NeedRecord | undefined {
@@ -493,7 +649,10 @@ export function getProviderWarningsForNeed(needId: string): string[] {
   );
 }
 
-export async function researchNeed(needId: string): Promise<
+export async function researchNeed(
+  needId: string,
+  onActivity?: (event: AgentActivityEvent) => void
+): Promise<
   | {
       researchResult: SolutionResearchResult;
       providerWarning?: string;
@@ -513,11 +672,22 @@ export async function researchNeed(needId: string): Promise<
     };
   }
 
-  const execution = await runSolutionResearch(needId, need.profile);
+  beginAgentActivity(need, "research");
+  const execution = await runSolutionResearch(
+    needId,
+    need.profile,
+    createAgentActivityReporter(need, onActivity)
+  );
   if (needs.get(needId) !== need) {
     return undefined;
   }
-  const saved = researchResults.get(needId) ?? execution.value;
+  const saved =
+    researchResults.get(needId) ?? {
+      ...execution.value,
+      activityEvents: (need.agentActivityEvents ?? []).filter(
+        (event) => event.operation === "research"
+      )
+    };
   researchResults.set(needId, saved);
   need.providerWarnings = {
     ...need.providerWarnings,
@@ -636,7 +806,8 @@ export function createSolutionDecision(
 }
 
 export async function discoverNeedSuppliers(
-  needId: string
+  needId: string,
+  onActivity?: (event: AgentActivityEvent) => void
 ): Promise<SupplierDiscoveryResult> {
   const need = needs.get(needId);
   if (!need) {
@@ -673,16 +844,29 @@ export async function discoverNeedSuppliers(
     };
   }
 
+  beginAgentActivity(need, "discovery");
+  const registryCandidates = registryCandidatesForNeed(
+    need,
+    selectedApproach
+  );
   const execution = await runSupplierDiscovery(
     needId,
     need.profile,
-    selectedApproach
+    selectedApproach,
+    registryCandidates.map(({ lead }) => lead),
+    createAgentActivityReporter(need, onActivity),
+    new Map(
+      registryCandidates.map(({ lead, history }) => [lead.id, history])
+    )
   );
   if (needs.get(needId) !== need) {
     return { status: "not_found" };
   }
   for (const lead of execution.value) {
     supplierLeads.set(lead.id, lead);
+    recordRegistryStageForSupplier(need, lead.id, "discovered", {
+      occurredAt: lead.createdAt
+    });
   }
   need.providerWarnings = {
     ...need.providerWarnings,
@@ -771,11 +955,15 @@ export function seedMarketplaceDemoFindState(
     solutionDecision
   });
 
+  seedFixtureAgentActivity(need, researchResult, discoveredLeads);
   researchResults.set(needId, researchResult);
   solutionDecisions.set(needId, solutionDecision);
   needReports.set(needId, report);
   for (const lead of discoveredLeads) {
     supplierLeads.set(lead.id, lead);
+    recordRegistryStageForSupplier(need, lead.id, "discovered", {
+      occurredAt: lead.createdAt
+    });
   }
   need.providerWarnings = undefined;
   need.updatedAt = currentTime.toISOString();
@@ -1049,6 +1237,15 @@ export function markInvitationViewed(
     invitation.status = "opened";
     invitation.openedAt = openedAt;
     invitation.updatedAt = openedAt;
+    const need = needs.get(invitation.needId);
+    if (need) {
+      recordRegistryStageForSupplier(
+        need,
+        invitation.supplierId,
+        "contacted",
+        { occurredAt: openedAt }
+      );
+    }
     commitMarketplaceMutation({
       eventType: "invitation.opened",
       actorType: "supplier",
@@ -1136,6 +1333,12 @@ export function claimSupplierInvitation(
     invitation.status = "opened";
     invitation.openedAt = invitation.openedAt ?? claimedAt;
     invitation.updatedAt = claimedAt;
+    recordRegistryStageForSupplier(
+      need,
+      invitation.supplierId,
+      "contacted",
+      { occurredAt: invitation.openedAt }
+    );
   }
 
   const lead = supplierLeads.get(invitation.supplierId);
@@ -1227,6 +1430,10 @@ export function submitSupplierResponse(
     invitation.respondedAt = updatedAt;
     invitation.updatedAt = updatedAt;
     updateMatchResponseStatus(invitation, input.canHelp, updatedAt);
+    recordRegistryStageForSupplier(need, invitation.supplierId, "responded", {
+      occurredAt: updatedAt,
+      responsePrice: existingResponse.indicativePrice
+    });
     commitMarketplaceMutation({
       eventType: "response.updated",
       actorType: "supplier",
@@ -1270,6 +1477,10 @@ export function submitSupplierResponse(
   invitation.updatedAt = submittedAt;
   responses.set(response.id, response);
   updateMatchResponseStatus(invitation, input.canHelp, submittedAt);
+  recordRegistryStageForSupplier(need, invitation.supplierId, "responded", {
+    occurredAt: submittedAt,
+    responsePrice: response.indicativePrice
+  });
   commitMarketplaceMutation({
     eventType: "response.submitted",
     actorType: "supplier",
@@ -1414,6 +1625,12 @@ async function sendOutreachDelivery(
     if (invitation.status === "pending") {
       invitation.status = "sent";
     }
+    recordRegistryStageForSupplier(
+      need,
+      invitation.supplierId,
+      "contacted",
+      { occurredAt: sentAt }
+    );
   }
   updatedNeedTimestamp(need);
   updates.push({ ...delivery });
@@ -1545,6 +1762,24 @@ export function getEngagementForNeed(needId: string): Engagement | undefined {
   );
 }
 
+export function getEngagementSpeedReceipt(
+  engagementId: string,
+  generatedAt = new Date().toISOString()
+) {
+  const engagement = engagements.get(engagementId);
+  const need = engagement ? needs.get(engagement.needId) : undefined;
+  if (!engagement || !need) return undefined;
+  return assembleEngagementSpeedReceipt({
+    need,
+    researchResult: researchResults.get(need.id),
+    responses: listResponsesForNeed(need.id) ?? [],
+    engagement,
+    deployment: deployments.get(engagement.id),
+    auditEvents,
+    generatedAt
+  });
+}
+
 export function getSupplierCommitmentNotification(
   engagementId: string
 ): SupplierCommitmentNotification | undefined {
@@ -1584,6 +1819,21 @@ export function saveDeployment(
 ): DeploymentSummary {
   const saved = structuredClone(deployment);
   deployments.set(saved.engagementId, saved);
+  if (saved.status === "completed") {
+    const engagement = engagements.get(saved.engagementId);
+    const need = engagement ? needs.get(engagement.needId) : undefined;
+    if (engagement && need) {
+      recordRegistryStageForSupplier(
+        need,
+        engagement.supplierId,
+        "delivered",
+        {
+          occurredAt: saved.updatedAt,
+          engagementId: engagement.id
+        }
+      );
+    }
+  }
   commitMarketplaceMutation({
     eventType: "deployment.updated",
     actorType: "buyer",
@@ -1603,59 +1853,223 @@ export function attachPaymentLinkToEngagement(input: {
   paymentLinkId: string;
   hostedCheckoutUrl: string;
 }): Engagement | undefined {
+  const deployment = deployments.get(input.engagementId);
+  const commitment = deployment?.milestones[0];
+  if (!commitment) return undefined;
+  attachPaymentLinkToMilestone({
+    ...input,
+    milestoneId: commitment.id,
+    provider: input.paymentLinkId.startsWith("local_demo_link_")
+      ? "local_demo"
+      : "pinch",
+    serviceFeeMinor: 0,
+    serviceFeeDisclosed: true
+  });
+  return engagements.get(input.engagementId);
+}
+
+export function attachPaymentLinkToMilestone(input: {
+  engagementId: string;
+  milestoneId: string;
+  provider: "pinch" | "local_demo";
+  payerId: string;
+  paymentLinkId: string;
+  hostedCheckoutUrl: string;
+  serviceFeeMinor: number;
+  serviceFeeDisclosed: true;
+}): DeploymentSummary | undefined {
   const engagement = engagements.get(input.engagementId);
-  if (!engagement) {
+  const deployment = deployments.get(input.engagementId);
+  const milestone = deployment?.milestones.find(
+    (candidate) => candidate.id === input.milestoneId
+  );
+  if (!engagement || !deployment || !milestone) {
     return undefined;
   }
 
   const need = needs.get(engagement.needId);
   const now = new Date().toISOString();
-  engagement.pinchPayerId = input.payerId;
-  engagement.paymentLinkId = input.paymentLinkId;
-  engagement.hostedCheckoutUrl = input.hostedCheckoutUrl;
-  engagement.status = "payment_pending";
-  engagement.paymentStatus = "awaiting_payment";
-  engagement.updatedAt = now;
+  milestone.pinchPayerId = input.payerId;
+  milestone.paymentLinkId = input.paymentLinkId;
+  milestone.hostedCheckoutUrl = input.hostedCheckoutUrl;
+  milestone.paymentStatus = "awaiting_payment";
+  milestone.status = "awaiting_payment";
+  milestone.serviceFeeMinor = input.serviceFeeMinor;
+  milestone.serviceFeeDisclosed = input.serviceFeeDisclosed;
+  milestone.latestUpdate = `Awaiting payment confirmation for ${milestone.title}.`;
+  milestone.updatedAt = now;
+  deployment.latestUpdate = milestone.latestUpdate;
+  deployment.updatedAt = now;
+  deployments.set(
+    deployment.engagementId,
+    deriveDeploymentSummary(deployment)
+  );
 
-  if (need) {
-    need.status = "payment_pending";
-    need.updatedAt = now;
+  if (milestone.sequence === 1) {
+    engagement.pinchPayerId = input.payerId;
+    engagement.paymentLinkId = input.paymentLinkId;
+    engagement.hostedCheckoutUrl = input.hostedCheckoutUrl;
+    engagement.status = "payment_pending";
+    engagement.paymentStatus = "awaiting_payment";
+    engagement.updatedAt = now;
+
+    if (need) {
+      need.status = "payment_pending";
+      need.updatedAt = now;
+    }
   }
 
   commitMarketplaceMutation({
-    eventType: "payment_link.created",
+    eventType:
+      milestone.sequence === 1
+        ? "payment_link.created"
+        : "milestone.payment_link_created",
     actorType: "buyer",
     entityType: "payment",
-    entityId: engagement.id,
+    entityId: milestone.id,
     metadata: {
-      paymentStatus: engagement.paymentStatus
+      engagementId: engagement.id,
+      milestoneId: milestone.id,
+      paymentStatus: milestone.paymentStatus,
+      provider: input.provider,
+      serviceFeeMinor: input.serviceFeeMinor,
+      serviceFeeDisclosed: input.serviceFeeDisclosed
     }
   });
-  return engagement;
+  return structuredClone(deployments.get(deployment.engagementId));
+}
+
+export function cancelPaymentLinkForMilestone(input: {
+  engagementId: string;
+  milestoneId: string;
+}): DeploymentSummary | undefined {
+  const engagement = engagements.get(input.engagementId);
+  const deployment = deployments.get(input.engagementId);
+  const milestone = deployment?.milestones.find(
+    (candidate) => candidate.id === input.milestoneId
+  );
+  if (
+    !engagement ||
+    !deployment ||
+    !milestone ||
+    !["link_created", "awaiting_payment", "pending"].includes(
+      milestone.paymentStatus
+    )
+  ) {
+    return undefined;
+  }
+
+  const now = new Date().toISOString();
+  milestone.paymentStatus = "cancelled";
+  milestone.status = "not_started";
+  milestone.paymentLinkId = undefined;
+  milestone.hostedCheckoutUrl = undefined;
+  milestone.pinchPayerId = undefined;
+  milestone.serviceFeeMinor = undefined;
+  milestone.serviceFeeDisclosed = undefined;
+  milestone.latestUpdate = `${milestone.title} payment link was cancelled before payment.`;
+  milestone.updatedAt = now;
+  deployment.latestUpdate = milestone.latestUpdate;
+  deployment.updatedAt = now;
+  deployments.set(
+    deployment.engagementId,
+    deriveDeploymentSummary(deployment)
+  );
+
+  if (milestone.sequence === 1) {
+    engagement.paymentStatus = "cancelled";
+    engagement.status = "supplier_selected";
+    engagement.paymentLinkId = undefined;
+    engagement.hostedCheckoutUrl = undefined;
+    engagement.pinchPayerId = undefined;
+    engagement.updatedAt = now;
+    const need = needs.get(engagement.needId);
+    if (need) {
+      need.status = "selected";
+      need.updatedAt = now;
+    }
+  }
+
+  commitMarketplaceMutation({
+    eventType: "milestone.payment_link_cancelled",
+    actorType: "buyer",
+    entityType: "payment",
+    entityId: milestone.id,
+    metadata: {
+      engagementId: engagement.id,
+      milestoneId: milestone.id,
+      paymentStatus: milestone.paymentStatus
+    }
+  });
+  return structuredClone(deployments.get(deployment.engagementId));
 }
 
 export function recordAuthoritativePinchPayment(input: {
   eventId: string;
   eventType: string;
   engagementId: string;
+  milestoneId?: string;
   paymentId?: string;
   payload: unknown;
-}): { engagement?: Engagement; duplicate: boolean } {
+}): {
+  engagement?: Engagement;
+  deployment?: DeploymentSummary;
+  duplicate: boolean;
+  milestoneFunded: boolean;
+} {
+  const existingEngagement = engagements.get(input.engagementId);
+  const existingDeployment = deployments.get(input.engagementId);
+  const existingMilestone = input.milestoneId
+    ? existingDeployment?.milestones.find(
+        (milestone) => milestone.id === input.milestoneId
+      )
+    : existingDeployment?.milestones[0];
   if (processedPinchEventIds.has(input.eventId)) {
     return {
-      engagement: engagements.get(input.engagementId),
-      duplicate: true
+      engagement: existingEngagement,
+      deployment: existingDeployment
+        ? structuredClone(existingDeployment)
+        : undefined,
+      duplicate: true,
+      milestoneFunded:
+        existingMilestone?.paymentStatus === "paid" ||
+        (!existingMilestone && existingEngagement?.paymentStatus === "paid")
+    };
+  }
+
+  const existingPaymentEvidence = input.paymentId
+    ? [...pinchWebhookEvidence.values()].find(
+        (evidence) => evidence.paymentId === input.paymentId
+      )
+    : undefined;
+  if (existingPaymentEvidence) {
+    processedPinchEventIds.add(input.eventId);
+    commitMarketplaceMutation({
+      eventType: "payment.duplicate",
+      actorType: "payment_provider",
+      entityType: "payment",
+      entityId: input.engagementId,
+      metadata: {
+        eventType: input.eventType,
+        duplicateOfEventId: existingPaymentEvidence.eventId,
+        paymentId: existingPaymentEvidence.paymentId ?? null
+      }
+    });
+    return {
+      engagement: existingEngagement,
+      deployment: existingDeployment
+        ? structuredClone(existingDeployment)
+        : undefined,
+      duplicate: true,
+      milestoneFunded:
+        existingMilestone?.paymentStatus === "paid" ||
+        (!existingMilestone && existingEngagement?.paymentStatus === "paid")
     };
   }
 
   processedPinchEventIds.add(input.eventId);
   const receivedAt = new Date().toISOString();
-  pinchWebhookEvidence.set(input.eventId, {
-    ...input,
-    receivedAt
-  });
-
-  const engagement = engagements.get(input.engagementId);
+  const engagement = existingEngagement;
   if (!engagement) {
     commitMarketplaceMutation({
       eventType: "payment.unmatched",
@@ -1664,77 +2078,139 @@ export function recordAuthoritativePinchPayment(input: {
       entityId: input.engagementId,
       metadata: { eventType: input.eventType }
     });
-    return { duplicate: false };
+    return { duplicate: false, milestoneFunded: false };
+  }
+  if (input.milestoneId && !existingMilestone) {
+    commitMarketplaceMutation({
+      eventType: "payment.unmatched_milestone",
+      actorType: "payment_provider",
+      entityType: "payment",
+      entityId: input.milestoneId,
+      metadata: {
+        engagementId: input.engagementId,
+        eventType: input.eventType
+      }
+    });
+    return {
+      engagement,
+      deployment: existingDeployment
+        ? structuredClone(existingDeployment)
+        : undefined,
+      duplicate: false,
+      milestoneFunded: false
+    };
   }
 
+  pinchWebhookEvidence.set(input.eventId, {
+    ...input,
+    receivedAt
+  });
   const need = needs.get(engagement.needId);
-  engagement.status = "supplier_secured";
-  engagement.paymentStatus = "paid";
-  engagement.pinchPaymentId = input.paymentId ?? engagement.pinchPaymentId;
-  engagement.localDemoPaymentId = undefined;
-  engagement.paymentEvidenceProvider = "pinch";
-  engagement.paymentEvidenceSource =
+  const evidenceSource =
     input.eventType === "payment-api-reconciliation"
       ? "pinch_reconciliation"
       : "pinch_webhook";
-  engagement.paymentEvidenceAuthoritative = true;
-  engagement.securedAt = receivedAt;
-  engagement.updatedAt = receivedAt;
-
-  const deployment = deployments.get(engagement.id);
-  if (deployment) {
-    const synced = syncCommitmentPayment(
-      deployment,
-      engagement.paymentStatus,
-      receivedAt
+  if (existingMilestone && existingDeployment) {
+    existingMilestone.paymentStatus = "paid";
+    existingMilestone.status = "funded";
+    existingMilestone.pinchPaymentId =
+      input.paymentId ?? existingMilestone.pinchPaymentId;
+    existingMilestone.localDemoPaymentId = undefined;
+    existingMilestone.paymentEvidenceProvider = "pinch";
+    existingMilestone.paymentEvidenceSource = evidenceSource;
+    existingMilestone.paymentEvidenceAuthoritative = true;
+    existingMilestone.paymentEvidenceEventId = input.eventId;
+    existingMilestone.fundedAt = receivedAt;
+    existingMilestone.latestUpdate =
+      `${existingMilestone.title} funded after verified Pinch evidence.`;
+    existingMilestone.updatedAt = receivedAt;
+    existingDeployment.latestUpdate = existingMilestone.latestUpdate;
+    existingDeployment.updatedAt = receivedAt;
+    deployments.set(
+      engagement.id,
+      deriveDeploymentSummary(existingDeployment)
     );
-    if (synced.changed) {
-      deployments.set(engagement.id, synced.deployment);
-    }
   }
 
-  if (need) {
-    need.status = "secured";
-    need.updatedAt = receivedAt;
+  const commitmentPayment =
+    !existingMilestone || existingMilestone.sequence === 1;
+  if (commitmentPayment) {
+    engagement.status = "supplier_secured";
+    engagement.paymentStatus = "paid";
+    engagement.pinchPaymentId = input.paymentId ?? engagement.pinchPaymentId;
+    engagement.localDemoPaymentId = undefined;
+    engagement.paymentEvidenceProvider = "pinch";
+    engagement.paymentEvidenceSource = evidenceSource;
+    engagement.paymentEvidenceAuthoritative = true;
+    engagement.securedAt = receivedAt;
+    engagement.updatedAt = receivedAt;
+
+    if (need) {
+      need.status = "secured";
+      need.updatedAt = receivedAt;
+      recordRegistryStageForSupplier(need, engagement.supplierId, "secured", {
+        occurredAt: receivedAt,
+        engagementId: engagement.id
+      });
+    }
   }
 
   commitMarketplaceMutation({
-    eventType: "payment.secured",
+    eventType: commitmentPayment ? "payment.secured" : "milestone.funded",
     actorType: "payment_provider",
     entityType: "payment",
-    entityId: engagement.id,
+    entityId: existingMilestone?.id ?? engagement.id,
     metadata: {
       eventType: input.eventType,
-      paymentStatus: engagement.paymentStatus
+      engagementId: engagement.id,
+      milestoneId: existingMilestone?.id ?? null,
+      paymentStatus: existingMilestone?.paymentStatus ?? engagement.paymentStatus,
+      authoritative: true
     }
   });
-  return { engagement, duplicate: false };
+  return {
+    engagement,
+    deployment: structuredClone(deployments.get(engagement.id)),
+    duplicate: false,
+    milestoneFunded: true
+  };
 }
 
 export function recordLocalDemoPayment(input: {
   eventId: string;
   eventType: string;
   engagementId: string;
+  milestoneId?: string;
   paymentId: string;
   payload: unknown;
-}): { engagement?: Engagement; duplicate: boolean } {
+}): {
+  engagement?: Engagement;
+  deployment?: DeploymentSummary;
+  duplicate: boolean;
+  milestoneFunded: boolean;
+} {
+  const existingEngagement = engagements.get(input.engagementId);
+  const existingDeployment = deployments.get(input.engagementId);
+  const existingMilestone = input.milestoneId
+    ? existingDeployment?.milestones.find(
+        (milestone) => milestone.id === input.milestoneId
+      )
+    : existingDeployment?.milestones[0];
   if (localDemoPaymentEvidence.has(input.eventId)) {
     return {
-      engagement: engagements.get(input.engagementId),
-      duplicate: true
+      engagement: existingEngagement,
+      deployment: existingDeployment
+        ? structuredClone(existingDeployment)
+        : undefined,
+      duplicate: true,
+      milestoneFunded:
+        existingMilestone?.paymentStatus === "paid" ||
+        (!existingMilestone && existingEngagement?.paymentStatus === "paid")
     };
   }
 
   const receivedAt = new Date().toISOString();
-  localDemoPaymentEvidence.set(input.eventId, {
-    provider: "local_demo",
-    source: "local_demo",
-    authoritative: false,
-    ...input,
-    receivedAt
-  });
-
-  const engagement = engagements.get(input.engagementId);
+  const engagement = existingEngagement;
   if (!engagement) {
     commitMarketplaceMutation({
       eventType: "payment.local_demo_unmatched",
@@ -1749,52 +2225,106 @@ export function recordLocalDemoPayment(input: {
         eventType: input.eventType
       }
     });
-    return { duplicate: false };
+    return { duplicate: false, milestoneFunded: false };
+  }
+  if (input.milestoneId && !existingMilestone) {
+    commitMarketplaceMutation({
+      eventType: "payment.local_demo_unmatched_milestone",
+      actorType: "system",
+      actorId: "local_demo",
+      entityType: "payment",
+      entityId: input.milestoneId,
+      metadata: {
+        engagementId: input.engagementId,
+        authoritative: false
+      }
+    });
+    return {
+      engagement,
+      deployment: existingDeployment
+        ? structuredClone(existingDeployment)
+        : undefined,
+      duplicate: false,
+      milestoneFunded: false
+    };
   }
 
+  localDemoPaymentEvidence.set(input.eventId, {
+    provider: "local_demo",
+    source: "local_demo",
+    authoritative: false,
+    ...input,
+    receivedAt
+  });
   const need = needs.get(engagement.needId);
-  engagement.status = "supplier_secured";
-  engagement.paymentStatus = "paid";
-  engagement.pinchPaymentId = undefined;
-  engagement.localDemoPaymentId = input.paymentId;
-  engagement.paymentEvidenceProvider = "local_demo";
-  engagement.paymentEvidenceSource = "local_demo";
-  engagement.paymentEvidenceAuthoritative = false;
-  engagement.securedAt = receivedAt;
-  engagement.updatedAt = receivedAt;
-
-  const deployment = deployments.get(engagement.id);
-  if (deployment) {
-    const synced = syncCommitmentPayment(
-      deployment,
-      engagement.paymentStatus,
-      receivedAt
+  if (existingMilestone && existingDeployment) {
+    existingMilestone.paymentStatus = "paid";
+    existingMilestone.status = "funded";
+    existingMilestone.pinchPaymentId = undefined;
+    existingMilestone.localDemoPaymentId = input.paymentId;
+    existingMilestone.paymentEvidenceProvider = "local_demo";
+    existingMilestone.paymentEvidenceSource = "local_demo";
+    existingMilestone.paymentEvidenceAuthoritative = false;
+    existingMilestone.paymentEvidenceEventId = input.eventId;
+    existingMilestone.fundedAt = receivedAt;
+    existingMilestone.latestUpdate =
+      `${existingMilestone.title} funded with non-authoritative local demo evidence.`;
+    existingMilestone.updatedAt = receivedAt;
+    existingDeployment.latestUpdate = existingMilestone.latestUpdate;
+    existingDeployment.updatedAt = receivedAt;
+    deployments.set(
+      engagement.id,
+      deriveDeploymentSummary(existingDeployment)
     );
-    if (synced.changed) {
-      deployments.set(engagement.id, synced.deployment);
+  }
+
+  const commitmentPayment =
+    !existingMilestone || existingMilestone.sequence === 1;
+  if (commitmentPayment) {
+    engagement.status = "supplier_secured";
+    engagement.paymentStatus = "paid";
+    engagement.pinchPaymentId = undefined;
+    engagement.localDemoPaymentId = input.paymentId;
+    engagement.paymentEvidenceProvider = "local_demo";
+    engagement.paymentEvidenceSource = "local_demo";
+    engagement.paymentEvidenceAuthoritative = false;
+    engagement.securedAt = receivedAt;
+    engagement.updatedAt = receivedAt;
+
+    if (need) {
+      need.status = "secured";
+      need.updatedAt = receivedAt;
+      recordRegistryStageForSupplier(need, engagement.supplierId, "secured", {
+        occurredAt: receivedAt,
+        engagementId: engagement.id
+      });
     }
   }
 
-  if (need) {
-    need.status = "secured";
-    need.updatedAt = receivedAt;
-  }
-
   commitMarketplaceMutation({
-    eventType: "payment.local_demo_secured",
+    eventType: commitmentPayment
+      ? "payment.local_demo_secured"
+      : "milestone.local_demo_funded",
     actorType: "system",
     actorId: "local_demo",
     entityType: "payment",
-    entityId: engagement.id,
+    entityId: existingMilestone?.id ?? engagement.id,
     metadata: {
       provider: "local_demo",
       source: "local_demo",
       authoritative: false,
       eventType: input.eventType,
-      paymentStatus: engagement.paymentStatus
+      engagementId: engagement.id,
+      milestoneId: existingMilestone?.id ?? null,
+      paymentStatus: existingMilestone?.paymentStatus ?? engagement.paymentStatus
     }
   });
-  return { engagement, duplicate: false };
+  return {
+    engagement,
+    deployment: structuredClone(deployments.get(engagement.id)),
+    duplicate: false,
+    milestoneFunded: true
+  };
 }
 
 export function resetMarketplaceStore(options: { preserveAudit?: boolean } = {}) {
@@ -1810,6 +2340,7 @@ export function resetMarketplaceStore(options: { preserveAudit?: boolean } = {})
   engagements.clear();
   commitmentNotifications.clear();
   deployments.clear();
+  supplierRegistryEntries.clear();
   processedPinchEventIds.clear();
   pinchWebhookEvidence.clear();
   localDemoPaymentEvidence.clear();
@@ -1907,6 +2438,10 @@ export function reloadMarketplaceStore(
       deployment
     ])
   );
+  replaceMap(
+    supplierRegistryEntries,
+    snapshot.supplierRegistryEntries.map((entry) => [entry.id, entry])
+  );
   processedPinchEventIds.clear();
   for (const eventId of snapshot.processedPinchEventIds) {
     processedPinchEventIds.add(eventId);
@@ -1928,6 +2463,377 @@ export function reloadMarketplaceStore(
   auditEvents.splice(0, auditEvents.length, ...snapshot.auditEvents);
   issuedBuyerAccessTokens.clear();
   return true;
+}
+
+function recordRegistryStageForSupplier(
+  need: NeedRecord,
+  supplierId: string,
+  provenanceState: SupplierRegistryProvenanceState,
+  details: {
+    occurredAt: string;
+    engagementId?: string;
+    responsePrice?: {
+      amount: number;
+      currency: string;
+    };
+  }
+) {
+  const lead = supplierLeads.get(supplierId);
+  if (lead) {
+    return upsertSupplierRegistryEntry({
+      buyerEmail: need.buyerEmail,
+      needProfileId: need.id,
+      supplierName: lead.companyName,
+      website: lead.website,
+      contactEmail: lead.contactEmail,
+      location: lead.location,
+      capabilities: lead.capabilities,
+      provenanceState,
+      source: lead.sourceMode === "live" ? "live_discovery" : "fixture",
+      evidence: lead.evidence.map((citation) => ({
+        url: citation.url,
+        title: citation.title,
+        retrievedAt: citation.accessedAt
+      })),
+      ...details
+    });
+  }
+
+  const supplier = need.matches.find(
+    (match) => match.supplier.id === supplierId
+  )?.supplier;
+  if (!supplier) {
+    return undefined;
+  }
+  return upsertSupplierRegistryEntry({
+    buyerEmail: need.buyerEmail,
+    needProfileId: need.id,
+    supplierName: supplier.companyName,
+    contactEmail: supplier.contactEmail,
+    location: supplier.serviceRegions[0] ?? need.profile.location,
+    capabilities: supplier.capabilities,
+    provenanceState,
+    source: "catalog",
+    ...details
+  });
+}
+
+function beginAgentActivity(
+  need: NeedRecord,
+  operation: AgentActivityOperation
+) {
+  need.agentActivityEvents = (need.agentActivityEvents ?? []).filter(
+    (event) => event.operation !== operation
+  );
+}
+
+function createAgentActivityReporter(
+  need: NeedRecord,
+  onActivity?: (event: AgentActivityEvent) => void
+) {
+  return (
+    update: Omit<
+      AgentActivityEvent,
+      "id" | "needProfileId" | "sequence" | "occurredAt"
+    >
+  ) => {
+    const events = need.agentActivityEvents ?? [];
+    const event = agentActivityEventSchema.parse({
+      ...update,
+      id: randomUUID(),
+      needProfileId: need.id,
+      sequence:
+        events.reduce(
+          (highest, item) => Math.max(highest, item.sequence),
+          -1
+        ) + 1,
+      occurredAt: new Date().toISOString()
+    });
+    need.agentActivityEvents = [...events, event];
+    onActivity?.(structuredClone(event));
+  };
+}
+
+function seedFixtureAgentActivity(
+  need: NeedRecord,
+  researchResult: SolutionResearchResult,
+  discoveredLeads: SupplierLead[]
+) {
+  need.agentActivityEvents = [];
+  const report = createAgentActivityReporter(need);
+  report({
+    operation: "research",
+    stage: "query_formulation",
+    message: "Prepared deterministic industrial solution research.",
+    sourceMode: "fixture"
+  });
+  const researchCitation = researchResult.citations[0];
+  if (researchCitation) {
+    report({
+      operation: "research",
+      stage: "source_read",
+      message: `Read ${researchCitation.title}.`,
+      detail: researchCitation.evidenceNote,
+      sourceMode: "fixture",
+      sourceUrl: researchCitation.url
+    });
+  }
+  report({
+    operation: "research",
+    stage: "candidate_considered",
+    message: `Evaluated ${researchResult.approaches.length} solution pathways.`,
+    sourceMode: "fixture"
+  });
+  report({
+    operation: "research",
+    stage: "completed",
+    message: "Prepared buyer-reviewable solution pathways.",
+    sourceMode: "fixture"
+  });
+  researchResult.activityEvents = (need.agentActivityEvents ?? []).filter(
+    (event) => event.operation === "research"
+  );
+
+  report({
+    operation: "discovery",
+    stage: "query_formulation",
+    message: "Prepared supplier queries from the selected pathway.",
+    sourceMode: "fixture"
+  });
+  const supplierCitation = discoveredLeads[0]?.evidence[0];
+  if (supplierCitation) {
+    report({
+      operation: "discovery",
+      stage: "source_read",
+      message: `Read supplier source: ${supplierCitation.title}.`,
+      detail: supplierCitation.evidenceNote,
+      sourceMode: "fixture",
+      sourceUrl: supplierCitation.url
+    });
+  }
+  for (const lead of discoveredLeads) {
+    report({
+      operation: "discovery",
+      stage: "candidate_accepted",
+      message: `Accepted ${lead.companyName} for buyer review.`,
+      detail: lead.matchReasons[0],
+      sourceMode: "fixture",
+      sourceUrl: lead.website
+    });
+  }
+  report({
+    operation: "discovery",
+    stage: "completed",
+    message: `Prepared ${discoveredLeads.length} explainable supplier matches.`,
+    sourceMode: "fixture"
+  });
+}
+
+function registryCandidatesForNeed(
+  need: NeedRecord,
+  selectedApproach: {
+    requiredCapabilities: string[];
+  }
+): Array<{
+  lead: SupplierLead;
+  history: SupplierRecommendationHistory;
+}> {
+  const registry = getSupplierRegistryForNeed(need.id);
+  if (!registry) return [];
+  const now = new Date().toISOString();
+  return registry.entries
+    .filter(
+      (entry) =>
+        entry.normalizedDomain &&
+        entry.engagementHistory.some(
+          (history) => history.needProfileId !== need.id
+        ) &&
+        selectedApproach.requiredCapabilities.some((required) =>
+          entry.capabilities.some((capability) =>
+            registryCapabilitiesOverlap(required, capability)
+          )
+        )
+    )
+    .slice(0, 8)
+    .map((entry) => {
+      const previousHistory = entry.engagementHistory.filter(
+        (history) => history.needProfileId !== need.id
+      );
+      const respondedCount = previousHistory.filter(
+        (history) => history.respondedAt
+      ).length;
+      const securedCount = previousHistory.filter(
+        (history) => history.secured
+      ).length;
+      const deliveredCount = previousHistory.filter(
+        (history) => history.delivered
+      ).length;
+      const website = `https://${entry.normalizedDomain}`;
+      const priorSignal =
+        deliveredCount > 0
+          ? `delivered ${deliveredCount} previous requirement${deliveredCount === 1 ? "" : "s"}`
+          : securedCount > 0
+            ? `was secured for ${securedCount} previous requirement${securedCount === 1 ? "" : "s"}`
+            : `responded to ${respondedCount || previousHistory.length} previous requirement${respondedCount === 1 ? "" : "s"}`;
+      return {
+        lead: {
+          id: `${need.id}:registry:${entry.id}`,
+          needProfileId: need.id,
+          companyName: entry.supplierName,
+          website,
+          location: entry.location,
+          serviceRegions: [entry.location],
+          capabilities: entry.capabilities,
+          matchScore: 0,
+          matchReasons: [`In your supplier bench: ${priorSignal}.`],
+          risks: [
+            "Prior Veltact history does not confirm current capability, availability or commercial terms."
+          ],
+          evidence:
+            entry.evidence.length > 0
+              ? entry.evidence.map((evidence) => ({
+                  id: randomUUID(),
+                  title: evidence.title,
+                  url: evidence.url,
+                  sourceType: "supplier_website" as const,
+                  provider: "manual" as const,
+                  evidenceNote:
+                    "Public source retained with the private supplier registry entry.",
+                  accessedAt: evidence.retrievedAt
+                }))
+              : [
+                  {
+                    id: randomUUID(),
+                    title: `${entry.supplierName} supplier registry record`,
+                    url: website,
+                    sourceType: "other" as const,
+                    provider: "manual" as const,
+                    evidenceNote:
+                      "Private Veltact relationship history; current supplier details require reconfirmation.",
+                    accessedAt: entry.updatedAt
+                  }
+                ],
+          sourceMode:
+            entry.source === "live_discovery"
+              ? ("live" as const)
+              : ("fixture" as const),
+          lifecycleStatus: "discovered" as const,
+          createdAt: now,
+          updatedAt: now
+        },
+        history: {
+          respondedEngagements: respondedCount,
+          securedEngagements: securedCount,
+          deliveredEngagements: deliveredCount
+        }
+      };
+    });
+}
+
+function registryCapabilitiesOverlap(left: string, right: string) {
+  const normalise = (value: string) =>
+    new Set(
+      value
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((token) => token.length > 2)
+    );
+  const leftTokens = normalise(left);
+  const rightTokens = normalise(right);
+  return [...leftTokens].some((token) => rightTokens.has(token));
+}
+
+function supplierRegistryAccountScope(buyerEmail: string) {
+  return `buyer_${createHash("sha256")
+    .update(buyerEmail.trim().toLowerCase())
+    .digest("hex")
+    .slice(0, 24)}`;
+}
+
+function normalizedSupplierDomain(website?: string, contactEmail?: string) {
+  if (website) {
+    try {
+      return new URL(website).hostname.toLowerCase().replace(/^www\./, "");
+    } catch {
+      // Supplier Lead contracts validate URLs; retain the email fallback for old data.
+    }
+  }
+  const emailDomain = contactEmail?.split("@")[1]?.trim().toLowerCase();
+  return emailDomain?.replace(/^www\./, "") || undefined;
+}
+
+function normalizedSupplierText(value: string) {
+  return value
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function registryStateRank(state: SupplierRegistryProvenanceState) {
+  return [
+    "discovered",
+    "contacted",
+    "responded",
+    "secured",
+    "delivered"
+  ].indexOf(state);
+}
+
+function registryHistoryAtState(
+  existing: SupplierRegistryEntry["engagementHistory"][number],
+  input: SupplierRegistryUpsertInput,
+  occurredAt: string
+): SupplierRegistryEntry["engagementHistory"][number] {
+  const rank = registryStateRank(input.provenanceState);
+  return {
+    ...existing,
+    engagementId: input.engagementId ?? existing.engagementId,
+    responsePrice: input.responsePrice ?? existing.responsePrice,
+    secured: existing.secured || rank >= registryStateRank("secured"),
+    delivered: existing.delivered || rank >= registryStateRank("delivered"),
+    contactedAt:
+      existing.contactedAt ??
+      (rank >= registryStateRank("contacted") ? occurredAt : undefined),
+    respondedAt:
+      existing.respondedAt ??
+      (rank >= registryStateRank("responded") ? occurredAt : undefined),
+    securedAt:
+      existing.securedAt ??
+      (rank >= registryStateRank("secured") ? occurredAt : undefined),
+    deliveredAt:
+      existing.deliveredAt ??
+      (rank >= registryStateRank("delivered") ? occurredAt : undefined),
+    lastActivityAt:
+      occurredAt > existing.lastActivityAt
+        ? occurredAt
+        : existing.lastActivityAt
+  };
+}
+
+function mergeRegistryEvidence(
+  existing: SupplierRegistryEntry["evidence"],
+  incoming: SupplierRegistryEntry["evidence"]
+) {
+  const byUrl = new Map(existing.map((evidence) => [evidence.url, evidence]));
+  for (const evidence of incoming) {
+    byUrl.set(evidence.url, evidence);
+  }
+  return [...byUrl.values()];
+}
+
+function preferredRegistrySource(
+  existing: SupplierRegistrySource | undefined,
+  incoming: SupplierRegistrySource
+): SupplierRegistrySource {
+  const ranking: Record<SupplierRegistrySource, number> = {
+    fixture: 0,
+    catalog: 1,
+    live_discovery: 2
+  };
+  return existing && ranking[existing] > ranking[incoming]
+    ? existing
+    : incoming;
 }
 
 function secureAccessToken() {
@@ -1954,7 +2860,7 @@ function commitMarketplaceMutation(
 
 function persistMarketplaceState() {
   saveMarketplaceSnapshot(env.MARKETPLACE_DATA_FILE, {
-    version: 2,
+    version: 3,
     needs: [...needs.values()],
     researchResults: [...researchResults.values()],
     solutionDecisions: [...solutionDecisions.values()],
@@ -1967,6 +2873,7 @@ function persistMarketplaceState() {
     engagements: [...engagements.values()],
     commitmentNotifications: [...commitmentNotifications.values()],
     deployments: [...deployments.values()],
+    supplierRegistryEntries: [...supplierRegistryEntries.values()],
     processedPinchEventIds: [...processedPinchEventIds],
     pinchWebhookEvidence: [...pinchWebhookEvidence.values()],
     localDemoPaymentEvidence: [...localDemoPaymentEvidence.values()],

@@ -1,9 +1,17 @@
 import {
+  AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH,
+  AI_INTAKE_RAW_REQUIREMENT_MIN_LENGTH,
   aiIntakeResultSchema,
+  detectIntakeLocation,
+  formatSupplierAvailability,
   intakeEvidenceSummarySchema,
+  parseIntakeBudgetAmount,
   solutionDecisionSchema,
   solutionResearchResultSchema,
+  truncateIntakeTitle,
+  type AgentActivityEvent,
   type AiIntakeResult,
+  type EngagementSpeedReceipt,
   type IntakeEvidenceSummary,
   type NeedProfile,
   type OutreachChannel,
@@ -14,6 +22,7 @@ import {
   type SupplierLead,
   type SupplierMatch,
   type SupplierOutreachDelivery,
+  type SupplierRegistryResponse,
   type SupplierResponse
 } from "@veltact/contracts";
 import {
@@ -31,8 +40,19 @@ import {
   outreachOverrideAvailability,
   type OutreachOverrideAvailability
 } from "./apiBase.js";
+import { copyText } from "./clipboard.js";
 import { companyLogoFor } from "./companyLogos.js";
+import {
+  PRE_NEED_INTAKE_DRAFT_KEY,
+  intakeRawRequirementGuidance,
+  parseBuyerRequirementInput,
+  parsePreNeedIntakeDraft,
+  serializePreNeedIntakeDraft,
+  validateIntakeRawRequirement
+} from "./intakeDraftPersistence.js";
+import { dedupeIntakeMissingFields } from "./intakeMissingFields.js";
 import { RapidMatchService } from "./rapidMatchService.js";
+import { buyerWorkspacePresentationSignature } from "./workspacePresentation.js";
 import type {
   BuyerRequirementInput,
   BuyerWorkspace,
@@ -47,7 +67,9 @@ type BuyerView =
   | "compare"
   | "selected"
   | "payment"
-  | "deployment";
+  | "deployment"
+  | "registry";
+type JourneyPhase = "find" | "connect" | "deploy";
 type IntakeMode = "ai" | "manual";
 type LoadState = "idle" | "loading" | "error" | "success";
 type OutreachChoice = OutreachChannel | "link";
@@ -57,6 +79,8 @@ type SupplierCandidate = Pick<
   "supplierId" | "score" | "reasons" | "risks"
 >;
 type SupplierReference = Supplier | SupplierLead;
+type BuyerDeployment = NonNullable<BuyerWorkspace["deployment"]>;
+type BuyerDeploymentMilestone = BuyerDeployment["milestones"][number];
 
 type PersistedContext = {
   view?: BuyerView;
@@ -89,6 +113,7 @@ type RealtimePayload = {
     destination?: string;
     deliveryStatus?: "not_sent" | "queued" | "sent" | "failed";
   };
+  agentActivityEvent?: AgentActivityEvent;
 };
 
 type RealtimeSocket = {
@@ -97,6 +122,17 @@ type RealtimeSocket = {
     payload: { needProfileId: string; buyerAccessToken?: string }
   ): void;
   on(eventName: string, handler: (payload: RealtimePayload) => void): void;
+};
+
+type RenderInteractionState = {
+  view: BuyerView;
+  focusedPath?: number[];
+  focusedSignature?: string;
+  selectionStart?: number | null;
+  selectionEnd?: number | null;
+  openDetailsPaths: number[][];
+  scrollX: number;
+  scrollY: number;
 };
 
 type SocketIoFactory = (
@@ -118,6 +154,7 @@ const rapidMatchSocketEvent = {
   supplierResponseSubmitted: "rapidmatch:response.submitted",
   paymentStatusUpdated: "rapidmatch:payment.status_updated",
   engagementSecured: "rapidmatch:engagement.secured",
+  agentActivityUpdated: "rapidmatch:agent.activity_updated",
   deploymentUpdated: "rapidmatch:deployment.updated"
 } as const;
 const LAST_NEED_KEY = "veltact:rapidmatch:last-need-id";
@@ -125,6 +162,7 @@ const NEW_REQUIREMENT_KEY = "veltact:rapidmatch:new-requirement";
 const CONTEXT_PREFIX = "veltact:rapidmatch:buyer-context:";
 const TOKEN_PREFIX = "veltact:rapidmatch:buyer-token:";
 const AI_INTAKE_TIMEOUT_MS = 12_000;
+const BUYER_VIEW_HISTORY_KEY = "veltactBuyerView";
 const buyerViews = new Set<BuyerView>([
   "intake",
   "plan",
@@ -133,7 +171,8 @@ const buyerViews = new Set<BuyerView>([
   "compare",
   "selected",
   "payment",
-  "deployment"
+  "deployment",
+  "registry"
 ]);
 const priorities = new Set<PrioritySignal>([
   "speed",
@@ -162,6 +201,8 @@ let selectedOutreachChoices = new Set<OutreachChoice>();
 let outreachPanelOpen = false;
 let selectedResponseId = "";
 let workspace: BuyerWorkspace | undefined;
+let supplierRegistry: SupplierRegistryResponse | undefined;
+let registryReturnView: BuyerView = "intake";
 let aiIntakeResult: AiIntakeResult | undefined;
 let intakeSourceMode: IntakeSourceMode = "fixture";
 let intakeEvidence: IntakeEvidence[] = [];
@@ -183,6 +224,12 @@ let joinedNeedProfileId = "";
 let realtimeClientLoading: Promise<void> | undefined;
 let intakeRevision = 0;
 let activeIntakeRequestId = 0;
+let historyReady = false;
+let historyView: BuyerView | undefined;
+let handlingPopState = false;
+let lastFocusedView: BuyerView | undefined;
+let renderedView: BuyerView | undefined;
+let pendingRenderInteractionState: RenderInteractionState | undefined;
 
 const emptyInput: BuyerRequirementInput = {
   companyName: "",
@@ -258,6 +305,7 @@ const roboticsDemoInput: BuyerRequirementInput = {
 };
 
 render();
+window.addEventListener("popstate", handleBuyerPopState);
 void bootstrap();
 
 async function bootstrap() {
@@ -266,6 +314,7 @@ async function bootstrap() {
   const outreachOverrideGate = outreachOverrideAvailability();
   const identity = readWorkspaceIdentity();
   if (!identity.needProfileId) {
+    restorePreNeedIntakeDraft();
     [
       demoControlsAvailable,
       localDemoPaymentAvailable,
@@ -276,6 +325,7 @@ async function bootstrap() {
       outreachOverrideGate
     ]);
     booting = false;
+    initialiseBuyerHistory();
     render();
     return;
   }
@@ -365,12 +415,28 @@ async function bootstrap() {
       outreachOverrideGate
     ]);
     booting = false;
+    initialiseBuyerHistory();
     render();
   }
 }
 
 function render() {
   if (!app) return;
+  if (!booting && workspace) {
+    view = resolveLegalBuyerView(workspace, view);
+  }
+  if (renderedView !== undefined && renderedView !== view) {
+    pendingRenderInteractionState = undefined;
+  } else {
+    const interactionState = captureRenderInteractionState(app);
+    if (
+      interactionState.focusedPath ||
+      interactionState.openDetailsPaths.length
+    ) {
+      pendingRenderInteractionState = interactionState;
+    }
+  }
+  syncBuyerHistory();
   const phase = currentPhase();
   if (phase === "deploy") {
     document.body.dataset.phase = "deploy";
@@ -383,9 +449,16 @@ function render() {
         <span class="product-wordmark-notch" aria-hidden="true"></span>
         <span>Veltact</span>
       </a>
-      <div class="product-context">
-        <strong>RapidMatch</strong>
-        <span>Buyer workspace</span>
+      <div class="product-header-meta">
+        <div class="product-context">
+          <strong>RapidMatch</strong>
+          <span>Buyer workspace</span>
+        </div>
+        ${
+          workspace
+            ? `<button class="button button-quiet button-small" type="button" data-open-registry>Your suppliers</button>`
+            : ""
+        }
       </div>
     </header>
 
@@ -398,16 +471,87 @@ function render() {
       ${workspace ? renderWorkspaceStatus() : ""}
     </section>
 
-    ${renderJourney(phase)}
+    ${renderJourney(
+      phase,
+      workspace ? workflowJourneyPhase(workspace) : "find"
+    )}
     ${renderBanner()}
 
     <section class="workspace" aria-busy="${loadState === "loading"}">
+      ${renderAgentActivityTimeline()}
       ${booting ? renderLoadingSkeleton() : renderCurrentView()}
     </section>
   `;
   bindEvents();
   configurePolling();
   configureRealtime();
+  if (pendingRenderInteractionState?.view === view) {
+    restoreRenderInteractionState(app, pendingRenderInteractionState);
+  }
+  renderedView = view;
+  focusPrimaryHeadingAfterViewChange();
+}
+
+function renderAgentActivityTimeline() {
+  if (!workspace) return "";
+  const shouldShow =
+    loadState === "loading" ||
+    view === "plan" ||
+    view === "candidates";
+  if (!shouldShow) return "";
+  const events = [...workspace.agentActivityEvents].sort(
+    (left, right) => left.sequence - right.sequence
+  );
+  const latest = events.at(-1);
+  const sourceMode =
+    latest?.sourceMode ??
+    workspace.researchResult?.sourceMode ??
+    "fixture";
+  return `
+    <details class="agent-timeline" ${loadState === "loading" ? "open" : ""}>
+      <summary>
+        <span>
+          <span class="agent-pulse" aria-hidden="true"></span>
+          <strong>${loadState === "loading" ? "Veltact agent working" : "How these results were found"}</strong>
+        </span>
+        ${sourceBadge(sourceMode, "Live sources", "Labelled fixture")}
+      </summary>
+      <div class="agent-latest" aria-live="polite">
+        ${escapeHtml(latest?.message ?? "Preparing the first research query.")}
+      </div>
+      ${
+        events.length
+          ? `<ol class="agent-event-list">
+              ${events
+                .map(
+                  (event) => `
+                    <li>
+                      <span class="agent-event-index">${event.sequence + 1}</span>
+                      <details>
+                        <summary>
+                          <span>${escapeHtml(event.message)}</span>
+                          <time datetime="${escapeHtml(event.occurredAt)}">${escapeHtml(formatTime(event.occurredAt))}</time>
+                        </summary>
+                        ${
+                          event.detail
+                            ? `<p>${escapeHtml(event.detail)}</p>`
+                            : ""
+                        }
+                        ${
+                          event.sourceUrl
+                            ? `<a href="${safeHttpUrl(event.sourceUrl)}" target="_blank" rel="noreferrer">Open source</a>`
+                            : ""
+                        }
+                      </details>
+                    </li>
+                  `
+                )
+                .join("")}
+            </ol>`
+          : `<p class="quiet-note">Activity will appear here as sources and candidates are reviewed.</p>`
+      }
+    </details>
+  `;
 }
 
 function scrollBuyerWorkspaceToTop() {
@@ -418,30 +562,55 @@ function scrollBuyerWorkspaceToTop() {
   });
 }
 
-function renderJourney(phase: "find" | "connect" | "deploy") {
+function renderJourney(phase: JourneyPhase, workflowPhase: JourneyPhase) {
   const phases = [
     ["find", "Find", "Structure and choose a path"],
     ["connect", "Connect", "Match, invite and compare"],
     ["deploy", "Deploy", "Commit and track delivery"]
   ] as const;
   const activeIndex = phases.findIndex(([key]) => key === phase);
+  const workflowIndex = phases.findIndex(([key]) => key === workflowPhase);
   return `
     <nav class="journey" aria-label="RapidMatch journey">
       ${phases
-        .map(
-          ([key, label, description], index) => `
-            <div class="journey-step ${index < activeIndex ? "is-complete" : ""} ${index === activeIndex ? "is-current" : ""}">
+        .map(([key, label, description], index) => {
+          const reachable =
+            Boolean(workspace) &&
+            index <= workflowIndex &&
+            index !== activeIndex;
+          const classes = [
+            "journey-step",
+            index < workflowIndex ? "is-complete" : "",
+            index === activeIndex ? "is-current" : "",
+            index === workflowIndex ? "is-workflow-current" : "",
+            reachable ? "is-reachable" : ""
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const content = `
               <span class="journey-number">${index + 1}</span>
               <span>
                 <strong>${label}</strong>
                 <small>${description}</small>
               </span>
-            </div>
-          `
-        )
+          `;
+          return reachable
+            ? `<button class="${classes}" type="button" data-journey-phase="${key}" aria-label="View ${label} stage">${content}</button>`
+            : `<div class="${classes}" ${index === activeIndex ? 'aria-current="step"' : ""}>${content}</div>`;
+        })
         .join("")}
     </nav>
   `;
+}
+
+function focusPrimaryHeadingAfterViewChange() {
+  if (booting || lastFocusedView === view) return;
+  const heading = app?.querySelector<HTMLElement>(".workspace h1, .workspace h2");
+  if (!heading) return;
+  heading.tabIndex = -1;
+  heading.focus({ preventScroll: true });
+  lastFocusedView = view;
+  scrollBuyerWorkspaceToTop();
 }
 
 function renderBanner() {
@@ -484,7 +653,83 @@ function renderCurrentView() {
   if (view === "compare") return renderComparison(workspace);
   if (view === "selected") return renderSelected(workspace);
   if (view === "payment") return renderPayment(workspace);
+  if (view === "registry") return renderSupplierRegistry();
   return renderDeployment(workspace);
+}
+
+function renderSupplierRegistry() {
+  const entries = supplierRegistry?.entries ?? [];
+  const summary = supplierRegistry?.summary;
+  return `
+    <section class="panel registry-panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Private supplier bench</p>
+          <h2>Your suppliers</h2>
+          <p>Your supplier bench builds itself as you use Veltact.</p>
+        </div>
+        <button class="button button-secondary" type="button" data-close-registry>Back to requirement</button>
+      </div>
+      ${
+        summary
+          ? `<dl class="registry-summary" aria-label="Supplier registry summary">
+              ${fact("Total suppliers", String(summary.total))}
+              ${fact("Responded", String(summary.responded))}
+              ${fact("Secured", String(summary.secured))}
+              ${fact("Delivered", String(summary.delivered))}
+            </dl>`
+          : ""
+      }
+      ${
+        entries.length
+          ? `<div class="registry-table" role="table" aria-label="Your suppliers">
+              <div class="registry-row registry-heading" role="row">
+                <span role="columnheader">Supplier</span>
+                <span role="columnheader">Relationship</span>
+                <span role="columnheader">Capabilities</span>
+                <span role="columnheader">Activity</span>
+              </div>
+              ${entries
+                .map(
+                  (entry) => `
+                    <div class="registry-row" role="row">
+                      <div role="cell">
+                        <strong>${escapeHtml(entry.supplierName)}</strong>
+                        <small>${escapeHtml(formatLocationLabel(entry.location))}</small>
+                        <small>${escapeHtml(
+                          entry.source === "live_discovery"
+                            ? "Live public evidence"
+                            : entry.source === "catalog"
+                              ? "Veltact catalog"
+                              : "Labelled demo fixture"
+                        )}</small>
+                      </div>
+                      <div role="cell">
+                        <span class="registry-state registry-state-${escapeHtml(entry.provenanceState)}">${escapeHtml(statusLabel(entry.provenanceState))}</span>
+                      </div>
+                      <div role="cell">
+                        ${tagList(
+                          entry.capabilities
+                            .slice(0, 4)
+                            .map((capability) => formatCapabilityLabel(capability))
+                        )}
+                      </div>
+                      <div role="cell">
+                        <strong>${entry.engagementHistory.length} requirement${entry.engagementHistory.length === 1 ? "" : "s"}</strong>
+                        <small>Last activity ${escapeHtml(formatTime(entry.updatedAt))}</small>
+                      </div>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>`
+          : renderInlineEmpty(
+              "No suppliers in your bench yet",
+              "Suppliers appear here automatically as Veltact discovers, contacts and secures them for your requirements."
+            )
+      }
+    </section>
+  `;
 }
 
 function renderWorkspaceStatus() {
@@ -513,6 +758,11 @@ function renderWorkspaceStatus() {
 function renderIntake() {
   const structured = Boolean(aiIntakeResult);
   const missing = intakeMissingFields();
+  const rawRequirementError = validateIntakeRawRequirement(
+    intakeDraft.description
+  );
+  const primaryActionDisabled =
+    loadState === "loading" || Boolean(rawRequirementError);
   const evidence = intakeEvidence.length
     ? `
       <div class="evidence-list" aria-label="Attached evidence">
@@ -563,8 +813,9 @@ function renderIntake() {
         </div>
         <label class="field field-wide">
           <span>Factory context</span>
-          <textarea name="description" rows="6" placeholder="Packaging line stopped after intermittent Siemens PLC faults in Western Sydney. Need someone today. Speed matters." required>${escapeHtml(intakeDraft.description)}</textarea>
-          <small>Use plain language. Veltact does not diagnose equipment or instruct machinery changes.</small>
+          <textarea name="description" rows="6" minlength="${AI_INTAKE_RAW_REQUIREMENT_MIN_LENGTH}" maxlength="${AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH}" aria-describedby="factory-context-guidance factory-context-boundary" aria-invalid="${intakeDraft.description && rawRequirementError ? "true" : "false"}" placeholder="Packaging line stopped after intermittent Siemens PLC faults in Western Sydney. Need someone today. Speed matters." required>${escapeHtml(intakeDraft.description)}</textarea>
+          <small id="factory-context-guidance">${escapeHtml(intakeRawRequirementGuidance(intakeDraft.description))}</small>
+          <small id="factory-context-boundary">Use plain language. Veltact does not diagnose equipment or instruct machinery changes.</small>
         </label>
       </section>
 
@@ -600,7 +851,7 @@ function renderIntake() {
           <strong>${escapeHtml(primaryActionHeading())}</strong>
           <span>${escapeHtml(primaryActionDescription())}</span>
         </div>
-        <button class="button button-primary" type="submit" ${loadState === "loading" ? "disabled" : ""}>
+        <button class="button button-primary" type="submit" data-analyse-requirement aria-describedby="factory-context-guidance" ${primaryActionDisabled ? "disabled" : ""}>
           Analyse requirement
         </button>
       </div>
@@ -747,6 +998,7 @@ function renderManualFields(open: boolean, missing: string[]) {
 function renderPlan(data: BuyerWorkspace) {
   const profile = requireNeedProfile(data);
   const research = data.researchResult;
+  const readOnly = isHistoricalJourneyPhase(data, "find");
   if (!research) {
     return renderUnavailable(
       "Solution analysis unavailable",
@@ -772,10 +1024,9 @@ function renderPlan(data: BuyerWorkspace) {
   const selectedApproach = approaches.find(
     (approach) => approach.id === selectedApproachId
   );
-  const missing = uniqueStrings([
-    ...intakeMissingFields(),
-    ...research.missingInformation
-  ]);
+  const missing = dedupeSimilarStrings(
+    uniqueStrings([...intakeMissingFields(), ...research.missingInformation])
+  );
   return `
     <div class="view-stack">
       <article class="need-report" aria-label="Veltact Need Profile report">
@@ -808,18 +1059,23 @@ function renderPlan(data: BuyerWorkspace) {
           <div class="solution-report-heading">
             <div>
               <p class="eyebrow">Decision pathways</p>
-              <h2>Select one supplier-ready solution</h2>
+              <h2>${readOnly ? "Selected supplier-ready solution" : "Select one supplier-ready solution"}</h2>
             </div>
             <span class="solution-count">3 pathways</span>
           </div>
-          <p class="section-intro">The highest-confidence path is recommended, but all three remain available for buyer review. Selecting a path does not contact suppliers.</p>
+          <p class="section-intro">${
+            readOnly
+              ? "This completed Find record preserves the buyer-selected pathway used for supplier matching."
+              : "The highest-confidence path is recommended, but all three remain available for buyer review. Selecting a path does not contact suppliers."
+          }</p>
           <div class="solution-grid" role="radiogroup" aria-label="Solution pathways">
             ${approaches
               .map((approach, index) =>
                 renderSolutionOption(
                   approach,
                   research.citations,
-                  index === 0
+                  index === 0,
+                  readOnly
                 )
               )
               .join("")}
@@ -828,6 +1084,16 @@ function renderPlan(data: BuyerWorkspace) {
             <span>Selected supplier scope</span>
             <strong>${selectedApproach ? escapeHtml(selectedApproach.title) : "Select one pathway"}</strong>
           </div>
+          ${
+            readOnly
+              ? `
+                <div class="complete-strip historical-view-notice">
+                  <strong>Find complete</strong>
+                  <span>This is a read-only record. Return to the current journey stage to continue.</span>
+                </div>
+              `
+              : ""
+          }
         </section>
 
         <section class="report-evidence">
@@ -856,17 +1122,18 @@ function renderPlan(data: BuyerWorkspace) {
 
       <section class="outcome-band report-outcomes">
         <div>
-          <p class="eyebrow">Report ready</p>
-          <h2>Keep the report or continue to suppliers</h2>
-          <p>Download is a report utility. Supplier discovery begins only when you choose Find suppliers.</p>
+          <p class="eyebrow">${readOnly ? "Completed stage" : "Report ready"}</p>
+          <h2>${readOnly ? "Find decisions are locked" : "Keep the report or continue to suppliers"}</h2>
+          <p>${readOnly ? "The selected pathway and its evidence remain visible without reopening supplier discovery." : "Download is a report utility. Supplier discovery begins only when you choose Find suppliers."}</p>
         </div>
         <div class="outcome-actions">
-          <button class="button button-secondary button-large" type="button" data-download-report ${selectedApproach ? "" : "disabled"}>
+          <button class="button button-secondary button-large" type="button" data-download-report ${selectedApproach && !readOnly ? "" : "disabled"}>
             Download report
           </button>
-          <button class="button button-primary button-large" type="button" data-find-suppliers ${selectedApproach ? "" : "disabled"}>
+          <button class="button button-primary button-large" type="button" data-find-suppliers ${selectedApproach && !readOnly ? "" : "disabled"}>
             Find suppliers
           </button>
+          ${readOnly ? `<span class="status-chip is-ready">Read-only history</span>` : ""}
         </div>
       </section>
     </div>
@@ -876,7 +1143,8 @@ function renderPlan(data: BuyerWorkspace) {
 function renderSolutionOption(
   approach: SolutionApproach,
   citations: ResearchCitation[],
-  recommended: boolean
+  recommended: boolean,
+  readOnly = false
 ) {
   const selected = approach.id === selectedApproachId;
   return `
@@ -887,6 +1155,7 @@ function renderSolutionOption(
           name="solution-pathway"
           value="${escapeHtml(approach.id)}"
           ${selected ? "checked" : ""}
+          ${readOnly ? "disabled" : ""}
         />
         <span class="solution-choice-copy">
           <span class="solution-option-meta">
@@ -1168,6 +1437,7 @@ function renderCandidate(
             : ""
         }
       </div>
+      ${renderCandidateEvidence(supplier)}
       <div class="candidate-section">
         <strong>Risks to verify</strong>
         ${bulletList(match.risks.slice(0, 2), "No specific match risks returned.")}
@@ -1187,6 +1457,36 @@ function renderCandidate(
         <span>${invitation ? "Private supplier workspace generated" : "Buyer approval required"}</span>
       </div>
     </article>
+  `;
+}
+
+function renderCandidateEvidence(supplier: SupplierReference | undefined) {
+  if (!supplier || !("evidence" in supplier)) return "";
+  const live = supplier.sourceMode === "live";
+  return `
+    <div class="candidate-section candidate-evidence">
+      <strong>${live ? "Public discovery evidence" : "Labelled demo evidence"}</strong>
+      ${
+        live
+          ? `<p>Public evidence produced this candidate. It is not a verified or enrolled supplier.</p>`
+          : `<p>Fixture evidence keeps the keyless demo deterministic and does not represent a real supplier.</p>`
+      }
+      <details class="match-more">
+        <summary>Review ${supplier.evidence.length} source${supplier.evidence.length === 1 ? "" : "s"}</summary>
+        <ul class="candidate-source-list">
+          ${supplier.evidence
+            .map(
+              (evidence) => `
+                <li>
+                  <a href="${safeHttpUrl(evidence.url)}" target="_blank" rel="noreferrer">${escapeHtml(evidence.title)}</a>
+                  <small>Retrieved ${escapeHtml(formatTime(evidence.accessedAt))}</small>
+                </li>
+              `
+            )
+            .join("")}
+        </ul>
+      </details>
+    </div>
   `;
 }
 
@@ -1229,6 +1529,7 @@ function renderOutreachChoice(
 function renderOutreach(data: BuyerWorkspace) {
   const responded = submittedResponses(data).length;
   const readyToCompare = responded >= 2;
+  const singleComparable = hasSingleComparableResponse(data);
   return `
     <div class="view-stack">
       <section class="panel">
@@ -1263,7 +1564,16 @@ function renderOutreach(data: BuyerWorkspace) {
         ${
           readyToCompare
             ? `<button class="button button-primary button-large" type="button" data-compare>Compare responses</button>`
-            : `<button class="button button-primary" type="button" data-refresh-workspace>Refresh responses</button>`
+            : `
+              <div class="outcome-actions">
+                <button class="button button-primary" type="button" data-refresh-workspace>Refresh responses</button>
+                ${
+                  singleComparable
+                    ? `<button class="button button-secondary" type="button" data-compare-single>Review the single response (1 of 2)</button>`
+                    : ""
+                }
+              </div>
+            `
         }
       </section>
     </div>
@@ -1363,7 +1673,13 @@ function renderComparison(data: BuyerWorkspace) {
   const responses = submittedResponses(data);
   const selectable = responses.filter(isSelectableSupplierResponse);
   const hasMinimum = responses.length >= 2;
-  const selected = selectable.find((item) => item.id === selectedResponseId);
+  const singleResponseMode =
+    responses.length === 1 && selectable.length === 1;
+  const readOnly = isHistoricalJourneyPhase(data, "connect");
+  const activeResponseId =
+    data.engagement?.supplierResponseId ?? selectedResponseId;
+  const selected = selectable.find((item) => item.id === activeResponseId);
+  const selectionAllowed = canSelectSupplierFromComparison(data);
   return `
     <div class="view-stack">
       <section class="panel">
@@ -1375,8 +1691,22 @@ function renderComparison(data: BuyerWorkspace) {
           <span class="response-count ${hasMinimum ? "is-ready" : ""}">${responses.length} submitted</span>
         </div>
         ${
-          hasMinimum
+          readOnly
+            ? `
+              <div class="complete-strip historical-view-notice">
+                <strong>Connect complete</strong>
+                <span>This comparison is read-only because a supplier engagement already exists.</span>
+              </div>
+            `
+            : hasMinimum
             ? `<p class="section-intro">Every response uses the same decision fields. Select one credible supplier to create a single engagement.</p>`
+            : singleResponseMode
+              ? `
+                <div class="warning-strip">
+                  <strong>Only one comparable response was received.</strong>
+                  <span>Standard flow compares at least two.</span>
+                </div>
+              `
             : `
               <div class="warning-strip">
                 <strong>A second response is still required for comparison.</strong>
@@ -1387,7 +1717,14 @@ function renderComparison(data: BuyerWorkspace) {
         ${
           responses.length
             ? `<div class="response-grid">${responses
-                .map((response) => renderResponseCard(data, response))
+                .map((response) =>
+                  renderResponseCard(
+                    data,
+                    response,
+                    readOnly,
+                    activeResponseId
+                  )
+                )
                 .join("")}</div>`
             : renderInlineEmpty(
                 "No submitted responses",
@@ -1402,7 +1739,9 @@ function renderComparison(data: BuyerWorkspace) {
           <span>Selection creates the engagement. It does not mark payment complete or secure the supplier.</span>
         </div>
         ${
-          hasMinimum
+          readOnly
+            ? `<button class="button button-primary button-large" type="button" disabled>Supplier already selected</button>`
+            : selectionAllowed
             ? `<button class="button button-primary button-large" type="button" data-select-supplier ${selected ? "" : "disabled"}>Select supplier</button>`
             : `<button class="button button-primary" type="button" data-back-outreach>Return to outreach</button>`
         }
@@ -1413,14 +1752,16 @@ function renderComparison(data: BuyerWorkspace) {
 
 function renderResponseCard(
   data: BuyerWorkspace,
-  response: SupplierResponse
+  response: SupplierResponse,
+  readOnly = false,
+  activeResponseId = selectedResponseId
 ) {
   const supplier = supplierFor(data, response.supplierId);
   const match = matchForSupplier(data, response.supplierId);
   const canHelp = response.decision === "can_help";
   const validPrice = (response.indicativePrice?.amount ?? 0) > 0;
   const selectable = canHelp && validPrice;
-  const selected = selectable && response.id === selectedResponseId;
+  const selected = selectable && response.id === activeResponseId;
   return `
     <article class="response-card ${selected ? "is-selected" : ""} ${selectable ? "" : canHelp ? "is-invalid" : "is-declined"}">
       <label class="response-select">
@@ -1429,7 +1770,7 @@ function renderResponseCard(
           name="supplier-response"
           value="${escapeHtml(response.id)}"
           ${selected ? "checked" : ""}
-          ${selectable ? "" : "disabled"}
+          ${selectable && !readOnly ? "" : "disabled"}
         />
         <span>
           <strong>${renderCompanyIdentity(supplierName(supplier, response.supplierId), true)}</strong>
@@ -1438,15 +1779,14 @@ function renderResponseCard(
         <span class="match-score">${match ? `${Math.round(match.score)}%` : "N/A"}</span>
       </label>
       <dl class="comparison-facts">
-        ${comparisonFact("Availability", response.availability ?? "Not provided", !response.availability)}
+        ${comparisonFact(
+          "Availability",
+          formatSupplierAvailability(response.availability ?? "Not provided"),
+          !response.availability
+        )}
         ${comparisonFact(
           "Price",
-          response.indicativePrice
-            ? money(
-                response.indicativePrice.amount,
-                response.indicativePrice.currency
-              )
-            : "Not provided",
+          supplierResponsePriceLabel(response),
           !validPrice
         )}
         ${comparisonFact(
@@ -1482,6 +1822,20 @@ function renderResponseCard(
   `;
 }
 
+function supplierResponsePriceLabel(response: SupplierResponse) {
+  if (
+    response.decision !== "can_help" ||
+    !response.indicativePrice ||
+    response.indicativePrice.amount <= 0
+  ) {
+    return "Not provided";
+  }
+  return money(
+    response.indicativePrice.amount,
+    response.indicativePrice.currency
+  );
+}
+
 function renderSelected(data: BuyerWorkspace) {
   const selection = selectedSupplier(data);
   if (!selection || !data.engagement) {
@@ -1499,7 +1853,13 @@ function renderSelected(data: BuyerWorkspace) {
       <h2>${renderCompanyIdentity(supplierName(selection.supplier, selection.response.supplierId), true)}</h2>
       <p class="terminal-copy">The engagement exists, but the supplier is not secured until payment evidence is confirmed by the backend.</p>
       <dl class="selection-summary">
-        ${fact("Availability", selection.response.availability ?? "Not provided", !selection.response.availability)}
+        ${fact(
+          "Availability",
+          formatSupplierAvailability(
+            selection.response.availability ?? "Not provided"
+          ),
+          !selection.response.availability
+        )}
         ${fact(
           "Indicative price",
           selection.response.indicativePrice
@@ -1519,6 +1879,105 @@ function renderSelected(data: BuyerWorkspace) {
           <span>The API uses the configured payment provider and returns its hosted link. Payment remains pending until backend evidence is confirmed.</span>
         </div>
         <button class="button button-primary button-large" type="button" data-create-payment>${localDemoPaymentAvailable ? "Create local demo payment link" : "Create Pinch payment link"}</button>
+      </div>
+    </section>
+    ${renderSpeedReceipt(data.speedReceipt)}
+  `;
+}
+
+function formatReceiptElapsed(elapsedMilliseconds: number) {
+  const totalSeconds = Math.max(
+    0,
+    Math.floor(elapsedMilliseconds / 1000)
+  );
+  if (totalSeconds < 1) return "<1s";
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (totalMinutes < 60) {
+    return `${totalMinutes}m ${seconds}s`;
+  }
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${minutes}m`;
+}
+
+function renderSpeedReceipt(receipt?: EngagementSpeedReceipt) {
+  if (!receipt) {
+    return `
+      <section class="panel speed-receipt speed-receipt-pending" aria-labelledby="speed-receipt-title">
+        <p class="eyebrow">Speed receipt</p>
+        <h2 id="speed-receipt-title">Lifecycle timing is loading</h2>
+        <p>The buyer-scoped receipt will use backend-recorded timestamps only.</p>
+      </section>
+    `;
+  }
+  const secured =
+    receipt.status === "secured" &&
+    receipt.elapsedMilliseconds !== undefined;
+  const paymentEvidence = receipt.events.find(
+    (event) => event.stage === "payment_verified"
+  );
+  const sourceLabel =
+    paymentEvidence?.evidenceSource === "local_demo"
+      ? "Local demo evidence"
+      : paymentEvidence?.authoritative
+        ? "Backend-verified evidence"
+        : "Lifecycle in progress";
+  return `
+    <section class="panel speed-receipt" aria-labelledby="speed-receipt-title">
+      <div class="speed-receipt-heading">
+        <div>
+          <p class="eyebrow">Speed receipt</p>
+          <h2 id="speed-receipt-title">${
+            secured
+              ? `Secured in ${escapeHtml(
+                  formatReceiptElapsed(receipt.elapsedMilliseconds as number)
+                )}`
+              : "Supplier securing in progress"
+          }</h2>
+          <p>A timestamped record from requirement to funded engagement.</p>
+        </div>
+        <span class="source-badge ${
+          paymentEvidence?.evidenceSource === "local_demo"
+            ? "is-fixture"
+            : ""
+        }">${escapeHtml(sourceLabel)}</span>
+      </div>
+      <div class="speed-baseline">
+        <span>General claim</span>
+        <strong>${escapeHtml(receipt.baseline.label)}</strong>
+      </div>
+      <ol class="speed-receipt-events">
+        ${receipt.events
+          .map(
+            (event) => `
+              <li class="is-${event.status}">
+                <span class="receipt-marker" aria-hidden="true"></span>
+                <div>
+                  <strong>${escapeHtml(event.label)}</strong>
+                  ${
+                    event.detail
+                      ? `<p>${escapeHtml(event.detail)}</p>`
+                      : ""
+                  }
+                </div>
+                ${
+                  event.occurredAt
+                    ? `<time datetime="${escapeHtml(
+                        event.occurredAt
+                      )}">${escapeHtml(formatTime(event.occurredAt))}</time>`
+                    : `<span class="receipt-pending-label">${escapeHtml(
+                        statusLabel(event.status)
+                      )}</span>`
+                }
+              </li>
+            `
+          )
+          .join("")}
+      </ol>
+      <div class="speed-receipt-actions">
+        <button class="button button-secondary" type="button" data-print-receipt>Print receipt</button>
       </div>
     </section>
   `;
@@ -1632,8 +2091,6 @@ function renderPayment(data: BuyerWorkspace): string {
   }
   const secured = engagement.status === "supplier_secured";
   if (secured) {
-    view = "deployment";
-    persistContext();
     return renderDeployment(data);
   }
   const hostedUrl = engagement.hostedCheckoutUrl;
@@ -1643,6 +2100,8 @@ function renderPayment(data: BuyerWorkspace): string {
     data.deployment?.milestones[0]?.amount ??
     selectedSupplier(data)?.response.indicativePrice ??
     profile.budget;
+  const serviceFeeMinor =
+    data.deployment?.milestones[0]?.serviceFeeMinor;
   return `
     <section class="panel payment-panel">
       <div class="payment-heading">
@@ -1673,6 +2132,15 @@ function renderPayment(data: BuyerWorkspace): string {
         <strong>${escapeHtml(paymentPresentation.boundaryTitle)}</strong>
         <span>${escapeHtml(paymentPresentation.boundaryCopy)}</span>
       </div>
+      ${
+        serviceFeeMinor === undefined
+          ? ""
+          : `<p class="service-fee-disclosure">Includes disclosed Veltact service fee: <strong>${money(serviceFeeMinor, commitmentAmount?.currency ?? "AUD")}</strong>. This records the fee allocation; it does not claim settlement.</p>`
+      }
+      <div class="payment-evidence payment-evidence-pending">
+        <strong>Payment evidence</strong>
+        <span>Secured only by verified Pinch webhook or API reconciliation — never by browser return.</span>
+      </div>
       <div class="primary-action-row">
         <div>
           <strong>${escapeHtml(paymentPresentation.actionTitle)}</strong>
@@ -1700,6 +2168,7 @@ function renderPayment(data: BuyerWorkspace): string {
           : ""
       }
     </section>
+    ${renderSpeedReceipt(data.speedReceipt)}
   `;
 }
 
@@ -1831,6 +2300,164 @@ function deploymentPaymentEvidence(
   };
 }
 
+function paymentEvidenceSourceLabel(
+  source: ReturnType<typeof deploymentPaymentEvidence>["source"]
+) {
+  if (source === "pinch_webhook") {
+    return "Pinch webhook (signature verified)";
+  }
+  if (source === "pinch_reconciliation") {
+    return "Pinch API reconciliation";
+  }
+  return "Pinch provider evidence";
+}
+
+function renderAuthoritativePaymentEvidence(
+  engagement: NonNullable<BuyerWorkspace["engagement"]>,
+  amount:
+    | {
+        amount: number;
+        currency: string;
+      }
+    | undefined
+) {
+  const evidence = deploymentPaymentEvidence(engagement);
+  if (!evidence.authoritative) return "";
+  return `
+    <div class="payment-evidence">
+      <div class="payment-evidence-heading">
+        <p class="eyebrow">Verified commitment</p>
+        <h3>Payment evidence</h3>
+      </div>
+      <dl class="payment-summary payment-evidence-facts">
+        ${fact("Source", paymentEvidenceSourceLabel(evidence.source))}
+        ${fact(
+          "Payment ID",
+          evidence.evidenceId ? shortId(evidence.evidenceId) : "Not recorded",
+          !evidence.evidenceId
+        )}
+        ${fact(
+          "Amount",
+          amount
+            ? `${money(amount.amount, amount.currency)} ${amount.currency}`
+            : "Not recorded",
+          !amount
+        )}
+        ${fact("Recorded", formatTime(engagement.securedAt), !engagement.securedAt)}
+      </dl>
+    </div>
+  `;
+}
+
+function nextFundableMilestone(
+  deployment: BuyerDeployment
+): BuyerDeploymentMilestone | undefined {
+  const nextIncomplete = [...deployment.milestones]
+    .sort((left, right) => left.sequence - right.sequence)
+    .find((milestone) => milestone.status !== "completed");
+  if (
+    !nextIncomplete ||
+    nextIncomplete.sequence === 1 ||
+    !["not_started", "awaiting_payment"].includes(nextIncomplete.status)
+  ) {
+    return undefined;
+  }
+  return nextIncomplete;
+}
+
+function renderMilestonePaymentEvidence(
+  milestone: BuyerDeploymentMilestone
+) {
+  if (milestone.paymentStatus === "awaiting_payment") {
+    return `
+      <span class="milestone-evidence is-pending">
+        Awaiting provider evidence. Browser return does not fund this milestone.
+      </span>
+    `;
+  }
+  if (milestone.paymentEvidenceProvider === "local_demo") {
+    return `
+      <span class="milestone-evidence is-local-demo">
+        Local demo only / non-authoritative evidence${milestone.localDemoPaymentId ? ` / ${escapeHtml(shortId(milestone.localDemoPaymentId))}` : ""}
+      </span>
+    `;
+  }
+  if (milestone.paymentEvidenceAuthoritative) {
+    return `
+      <span class="milestone-evidence is-authoritative">
+        Verified by ${escapeHtml(paymentEvidenceSourceLabel(milestone.paymentEvidenceSource))}${milestone.pinchPaymentId ? ` / ${escapeHtml(shortId(milestone.pinchPaymentId))}` : ""}
+      </span>
+    `;
+  }
+  return "";
+}
+
+function renderNextMilestoneFunding(
+  deployment: BuyerDeployment,
+  profile: NeedProfile
+) {
+  const milestone = nextFundableMilestone(deployment);
+  if (!milestone?.amount) return "";
+  const hostedUrl = milestone.hostedCheckoutUrl;
+  const presentation = paymentLinkPresentation(hostedUrl);
+  const localDemo =
+    hostedPaymentKind(hostedUrl) === "local_demo";
+
+  return `
+    <section class="milestone-funding-panel" aria-labelledby="next-milestone-funding-title">
+      <div class="milestone-funding-heading">
+        <div>
+          <p class="eyebrow">Next commercial release</p>
+          <h3 id="next-milestone-funding-title">${escapeHtml(deploymentMilestoneTitle(milestone, profile))}</h3>
+          <p>Only this next incomplete milestone is eligible. Payment does not mark engineering work complete.</p>
+        </div>
+        <span class="status-chip is-${milestone.status}">${escapeHtml(statusLabel(milestone.status))}</span>
+      </div>
+      <dl class="payment-summary milestone-funding-facts">
+        ${fact("Milestone amount", money(milestone.amount.amount, milestone.amount.currency))}
+        ${fact(
+          "Veltact service fee",
+          milestone.serviceFeeMinor === undefined
+            ? "Disclosed before checkout"
+            : money(milestone.serviceFeeMinor, milestone.amount.currency),
+          milestone.serviceFeeMinor === undefined
+        )}
+      </dl>
+      ${
+        milestone.serviceFeeMinor === undefined
+          ? ""
+          : `<p class="service-fee-disclosure">Includes disclosed Veltact service fee: <strong>${money(milestone.serviceFeeMinor, milestone.amount.currency)}</strong>. This records the fee allocation; it does not claim settlement.</p>`
+      }
+      ${renderMilestonePaymentEvidence(milestone)}
+      <div class="primary-action-row milestone-funding-action">
+        <div>
+          <strong>${hostedUrl ? presentation.actionTitle : "Fund next milestone"}</strong>
+          <span>${hostedUrl ? presentation.actionCopy : "Veltact creates a milestone-specific hosted checkout with the amount, fee and milestone ID in its payment metadata."}</span>
+        </div>
+        ${
+          hostedUrl
+            ? `<a class="button button-primary" href="${safeHttpUrl(hostedUrl)}" target="_blank" rel="noreferrer">${escapeHtml(presentation.openLabel)}</a>`
+            : `<button class="button button-primary" type="button" data-fund-milestone="${escapeHtml(milestone.id)}">Fund next milestone</button>`
+        }
+      </div>
+      ${
+        hostedUrl
+          ? `
+            <div class="secondary-actions milestone-payment-utilities">
+              ${
+                localDemoPaymentAvailable && localDemo
+                  ? `<button class="button button-quiet" type="button" data-demo-milestone-payment="${escapeHtml(milestone.id)}">Record local demo milestone evidence</button>`
+                  : ""
+              }
+              <button class="button button-quiet" type="button" data-cancel-milestone-payment="${escapeHtml(milestone.id)}">Cancel unpaid link</button>
+            </div>
+          `
+          : ""
+      }
+    </section>
+  `;
+}
+
 function renderDeployment(data: BuyerWorkspace): string {
   const engagement = data.engagement;
   if (!engagement) {
@@ -1840,24 +2467,12 @@ function renderDeployment(data: BuyerWorkspace): string {
     );
   }
   if (engagement.status !== "supplier_secured") {
-    view = "payment";
     return renderPayment(data);
   }
   const deployment = data.deployment;
   const profile = requireNeedProfile(data);
   const supplier = supplierFor(data, engagement.supplierId);
   const paymentEvidence = deploymentPaymentEvidence(engagement);
-  const paymentEvidenceValue = paymentEvidence.evidenceId
-    ? shortId(paymentEvidence.evidenceId)
-    : paymentEvidence.authoritative
-      ? paymentEvidence.source === "pinch_webhook"
-        ? "Pinch webhook confirmed"
-        : paymentEvidence.source === "pinch_reconciliation"
-          ? "Pinch reconciliation confirmed"
-          : "Provider confirmation recorded"
-      : paymentEvidence.localDemo
-        ? "Local demo record"
-        : "Provider confirmation recorded";
   const projection = Boolean(
     deployment?.milestones.some((item) => item.id.includes("fixture"))
   );
@@ -1903,8 +2518,11 @@ function renderDeployment(data: BuyerWorkspace): string {
         ${fact("Supplier", supplierName(supplier, engagement.supplierId))}
         ${fact("Current milestone", currentMilestoneTitle, !currentMilestone)}
         ${fact("Next milestone", nextMilestoneTitle, !nextMilestone)}
-        ${fact(paymentEvidence.localDemo ? "Development evidence" : "Payment evidence", paymentEvidenceValue, false)}
       </dl>
+      ${renderAuthoritativePaymentEvidence(
+        engagement,
+        deployment?.milestones[0]?.amount
+      )}
       ${
         paymentEvidence.localDemo
           ? `
@@ -1947,7 +2565,8 @@ function renderDeployment(data: BuyerWorkspace): string {
                       <span class="milestone-index">${milestone.sequence}</span>
                       <span>
                         <strong>${escapeHtml(deploymentMilestoneTitle(milestone, profile))}</strong>
-                        <small>${escapeHtml(statusLabel(milestone.status))}${milestone.latestUpdate ? ` / ${escapeHtml(milestone.latestUpdate)}` : ""}</small>
+                        <small>${escapeHtml(statusLabel(milestone.status))}${milestone.amount ? ` / ${escapeHtml(money(milestone.amount.amount, milestone.amount.currency))}` : ""}${milestone.latestUpdate ? ` / ${escapeHtml(milestone.latestUpdate)}` : ""}</small>
+                        ${renderMilestonePaymentEvidence(milestone)}
                       </span>
                       <span class="milestone-progress">${milestone.progressPercentage}%</span>
                     </li>
@@ -1955,6 +2574,7 @@ function renderDeployment(data: BuyerWorkspace): string {
                 )
                 .join("")}
             </ol>
+            ${renderNextMilestoneFunding(deployment, profile)}
             ${
               projection
                 ? `
@@ -1995,6 +2615,7 @@ function renderDeployment(data: BuyerWorkspace): string {
         }
       </div>
     </section>
+    ${renderSpeedReceipt(data.speedReceipt)}
   `;
 }
 
@@ -2039,6 +2660,21 @@ function renderLoadingSkeleton() {
 }
 
 function bindEvents() {
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-journey-phase]")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        const phase = button.dataset.journeyPhase;
+        if (
+          phase === "find" ||
+          phase === "connect" ||
+          phase === "deploy"
+        ) {
+          navigateToJourneyPhase(phase);
+        }
+      });
+    });
+
   const requirementForm =
     document.querySelector<HTMLFormElement>("#requirement-form");
   requirementForm?.addEventListener("input", (event) => {
@@ -2052,10 +2688,13 @@ function bindEvents() {
     if (target.type === "file") return;
     syncIntakeDraft(requirementForm);
     intakeRevision += 1;
+    persistPreNeedIntakeDraft();
+    updateIntakePrimaryActionState(requirementForm);
   });
   requirementForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     syncIntakeDraft(requirementForm);
+    persistPreNeedIntakeDraft();
     if (intakeMode === "ai" && !aiIntakeResult) {
       void structureRequirement(requirementForm, true);
       return;
@@ -2092,6 +2731,7 @@ function bindEvents() {
         intakeRevision += 1;
         const next = button.dataset.priority as PrioritySignal;
         if (priorities.has(next)) priority = next;
+        persistPreNeedIntakeDraft();
         render();
       });
     }
@@ -2117,6 +2757,7 @@ function bindEvents() {
         intakeEvidence = intakeEvidence.filter((_, itemIndex) => itemIndex !== index);
         intakeRevision += 1;
         aiIntakeResult = undefined;
+        persistPreNeedIntakeDraft();
         render();
       });
     });
@@ -2173,12 +2814,8 @@ function bindEvents() {
     render();
   });
   bindClick("[data-send-outreach]", sendOutreach);
-  bindClick("[data-compare]", () => {
-    view = "compare";
-    persistContext();
-    render();
-    scrollBuyerWorkspaceToTop();
-  });
+  bindClick("[data-compare]", openSupplierComparison);
+  bindClick("[data-compare-single]", openSupplierComparison);
   bindClick("[data-back-outreach]", () => {
     view = "outreach";
     persistContext();
@@ -2191,6 +2828,34 @@ function bindEvents() {
   bindClick("[data-demo-payment]", completeDemoPayment);
   bindClick("[data-refresh-deployment]", refreshDeployment);
   bindClick("[data-start-new]", startNewRequirement);
+  bindClick("[data-open-registry]", openSupplierRegistry);
+  bindClick("[data-close-registry]", closeSupplierRegistry);
+  bindClick("[data-print-receipt]", () => window.print());
+
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-fund-milestone]")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        const milestoneId = button.dataset.fundMilestone;
+        if (milestoneId) void createMilestonePayment(milestoneId);
+      });
+    });
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-demo-milestone-payment]")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        const milestoneId = button.dataset.demoMilestonePayment;
+        if (milestoneId) void completeDemoMilestonePayment(milestoneId);
+      });
+    });
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-cancel-milestone-payment]")
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        const milestoneId = button.dataset.cancelMilestonePayment;
+        if (milestoneId) void cancelMilestonePayment(milestoneId);
+      });
+    });
 
   document
     .querySelectorAll<HTMLInputElement>("input[name='supplier-response']")
@@ -2205,14 +2870,32 @@ function bindEvents() {
   document
     .querySelectorAll<HTMLButtonElement>("[data-copy-link]")
     .forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
         const url = button.dataset.copyLink;
         if (!url) return;
-        void copyText(url).then(() => {
-          showLiveMessage("Secure supplier link copied.");
-        });
+        button.disabled = true;
+        button.textContent = "Copying…";
+        try {
+          const method = await copyText(url);
+          showLiveMessage(
+            method === "legacy"
+              ? "Secure supplier link copied using the browser fallback."
+              : "Secure supplier link copied."
+          );
+        } catch (error) {
+          loadState = "error";
+          errorMessage = errorText(error);
+          render();
+        }
       });
     });
+}
+
+function openSupplierComparison() {
+  if (!workspace || !canReviewSupplierComparison(workspace)) return;
+  view = "compare";
+  persistContext();
+  render();
 }
 
 async function structureRequirement(
@@ -2220,6 +2903,16 @@ async function structureRequirement(
   analyseWhenComplete = false
 ) {
   syncIntakeDraft(form);
+  const rawRequirementError = validateIntakeRawRequirement(
+    intakeDraft.description
+  );
+  if (rawRequirementError) {
+    loadState = "error";
+    errorMessage = rawRequirementError;
+    persistPreNeedIntakeDraft();
+    render();
+    return;
+  }
   const requestRevision = intakeRevision;
   const requestMode = intakeMode;
   const requestId = ++activeIntakeRequestId;
@@ -2262,6 +2955,7 @@ async function structureRequirement(
     aiIntakeResult = outcome.result;
     intakeSourceMode = outcome.sourceMode;
     applyStructuredResult(outcome.result);
+    persistPreNeedIntakeDraft();
     loadState = "success";
     continueToAnalysis =
       analyseWhenComplete && !validateDraft(intakeDraft);
@@ -2409,6 +3103,10 @@ async function analyseRequirement() {
       service.setBuyerAccessToken(needProfile.id, created.buyerAccessToken);
     }
     setNeedProfileUrl(needProfile.id);
+    render();
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 80);
+    });
     workspace = await service.researchRequirement(workspace);
     selectedApproachId = resolveSelectedApproachId(
       workspace.researchResult,
@@ -2603,6 +3301,52 @@ async function completeDemoPayment() {
   });
 }
 
+async function createMilestonePayment(milestoneId: string) {
+  if (!workspace?.engagement || !workspace.deployment) return;
+  await runAction("Creating milestone payment link", async () => {
+    workspace = await service.createMilestonePaymentLink(
+      workspace as BuyerWorkspace,
+      milestoneId
+    );
+    view = "deployment";
+    persistContext();
+    liveMessage = "Milestone payment link is ready with disclosed fee metadata.";
+  });
+}
+
+async function completeDemoMilestonePayment(milestoneId: string) {
+  if (
+    !workspace?.engagement ||
+    !workspace.deployment ||
+    !localDemoPaymentAvailable
+  ) {
+    return;
+  }
+  await runAction("Recording local demo milestone evidence", async () => {
+    workspace = await service.completeDemoMilestonePayment(
+      workspace as BuyerWorkspace,
+      milestoneId
+    );
+    view = "deployment";
+    persistContext();
+    liveMessage =
+      "Milestone funded with explicitly non-authoritative local demo evidence.";
+  });
+}
+
+async function cancelMilestonePayment(milestoneId: string) {
+  if (!workspace?.engagement || !workspace.deployment) return;
+  await runAction("Cancelling unpaid milestone link", async () => {
+    workspace = await service.cancelMilestonePaymentLink(
+      workspace as BuyerWorkspace,
+      milestoneId
+    );
+    view = "deployment";
+    persistContext();
+    liveMessage = "Unpaid milestone payment link cancelled.";
+  });
+}
+
 async function refreshDeployment() {
   if (!workspace?.engagement) return;
   await runAction("Refreshing deployment summary", async () => {
@@ -2670,6 +3414,26 @@ async function runAction(label: string, action: () => Promise<void>) {
   }
   render();
   if (view !== startingView) scrollBuyerWorkspaceToTop();
+}
+
+async function openSupplierRegistry() {
+  const needProfileId = workspace?.needProfile?.id;
+  if (!needProfileId) return;
+  if (view !== "registry") {
+    registryReturnView = view;
+  }
+  view = "registry";
+  await runAction("Loading your supplier bench", async () => {
+    supplierRegistry = await service.loadSupplierRegistry(needProfileId);
+    persistContext();
+  });
+}
+
+function closeSupplierRegistry() {
+  if (!workspace) return;
+  view = resolveLegalBuyerView(workspace, registryReturnView);
+  persistContext();
+  render();
 }
 
 function configurePolling() {
@@ -2761,6 +3525,31 @@ async function initialiseRealtimeSocket(needProfileId: string) {
           ? "Live update: supplier declined this opportunity."
           : "Live update: supplier submitted a response."
       );
+    }
+  );
+  realtimeSocket.on(
+    rapidMatchSocketEvent.agentActivityUpdated,
+    (payload) => {
+      const currentWorkspace = workspace;
+      const activityEvent = payload.agentActivityEvent;
+      if (
+        !currentWorkspace ||
+        payload.needProfileId !== currentWorkspace.needProfile?.id ||
+        !activityEvent
+      ) {
+        return;
+      }
+      const events = currentWorkspace.agentActivityEvents.filter(
+        (event) => event.id !== activityEvent.id
+      );
+      workspace = {
+        ...currentWorkspace,
+        agentActivityEvents: [
+          ...events,
+          activityEvent
+        ].sort((left, right) => left.sequence - right.sequence)
+      };
+      render();
     }
   );
   realtimeSocket.on(rapidMatchSocketEvent.paymentStatusUpdated, (payload) => {
@@ -2878,6 +3667,9 @@ async function pollWorkspace() {
     ) {
       return;
     }
+    const presentationChanged =
+      buyerWorkspacePresentationSignature(activeWorkspace) !==
+      buyerWorkspacePresentationSignature(refreshedWorkspace);
     workspace = refreshedWorkspace;
     const startingView = view;
     const nextResponses = submittedResponses(workspace).length;
@@ -2895,7 +3687,7 @@ async function pollWorkspace() {
       showLiveMessage("Payment confirmed. Supplier secured.");
     } else {
       persistContext();
-      if (!milestoneUpdateFormHasFocus()) render();
+      if (presentationChanged && !milestoneUpdateFormHasFocus()) render();
     }
     if (view !== startingView) scrollBuyerWorkspaceToTop();
   } catch {
@@ -2903,6 +3695,132 @@ async function pollWorkspace() {
   } finally {
     isPolling = false;
   }
+}
+
+function captureRenderInteractionState(
+  root: HTMLElement
+): RenderInteractionState {
+  const activeElement =
+    document.activeElement instanceof HTMLElement &&
+    root.contains(document.activeElement)
+      ? document.activeElement
+      : undefined;
+  const focusedPath = activeElement
+    ? elementPathWithin(root, activeElement)
+    : undefined;
+  const textControl =
+    activeElement instanceof HTMLInputElement ||
+    activeElement instanceof HTMLTextAreaElement
+      ? activeElement
+      : undefined;
+  const selectableTextControl =
+    textControl instanceof HTMLTextAreaElement ||
+    (textControl instanceof HTMLInputElement &&
+      textControl.selectionStart !== null)
+      ? textControl
+      : undefined;
+  return {
+    view,
+    ...(focusedPath
+      ? {
+          focusedPath,
+          focusedSignature: renderElementSignature(activeElement)
+        }
+      : {}),
+    ...(selectableTextControl
+      ? {
+          selectionStart: selectableTextControl.selectionStart,
+          selectionEnd: selectableTextControl.selectionEnd
+        }
+      : {}),
+    openDetailsPaths: Array.from(
+      root.querySelectorAll<HTMLDetailsElement>("details[open]")
+    )
+      .map((details) => elementPathWithin(root, details))
+      .filter((path): path is number[] => Boolean(path)),
+    scrollX: window.scrollX,
+    scrollY: window.scrollY
+  };
+}
+
+function restoreRenderInteractionState(
+  root: HTMLElement,
+  state: RenderInteractionState
+) {
+  for (const path of state.openDetailsPaths) {
+    const details = elementAtPath(root, path);
+    if (details instanceof HTMLDetailsElement) {
+      details.open = true;
+    }
+  }
+
+  const focusTarget = state.focusedPath
+    ? elementAtPath(root, state.focusedPath)
+    : undefined;
+  if (
+    focusTarget instanceof HTMLElement &&
+    renderElementSignature(focusTarget) === state.focusedSignature
+  ) {
+    focusTarget.focus({ preventScroll: true });
+    if (
+      (focusTarget instanceof HTMLInputElement ||
+        focusTarget instanceof HTMLTextAreaElement) &&
+      state.selectionStart !== undefined &&
+      state.selectionEnd !== undefined
+    ) {
+      focusTarget.setSelectionRange(
+        state.selectionStart,
+        state.selectionEnd
+      );
+    }
+  }
+  window.scrollTo({
+    top: state.scrollY,
+    left: state.scrollX,
+    behavior: "auto"
+  });
+}
+
+function elementPathWithin(
+  root: HTMLElement,
+  element: HTMLElement
+): number[] | undefined {
+  const path: number[] = [];
+  let current: Element | null = element;
+  while (current && current !== root) {
+    const parent: Element | null = current.parentElement;
+    if (!parent) return undefined;
+    path.unshift(Array.from(parent.children).indexOf(current));
+    current = parent;
+  }
+  return current === root ? path : undefined;
+}
+
+function elementAtPath(root: HTMLElement, path: number[]) {
+  let current: Element = root;
+  for (const index of path) {
+    const child: Element | undefined = current.children[index];
+    if (!child) return undefined;
+    current = child;
+  }
+  return current;
+}
+
+function renderElementSignature(element: HTMLElement | undefined) {
+  if (!element) return "";
+  const stableData = Array.from(element.attributes)
+    .filter((attribute) => attribute.name.startsWith("data-"))
+    .map((attribute) => `${attribute.name}=${attribute.value}`)
+    .sort()
+    .join("&");
+  return [
+    element.tagName,
+    element.id,
+    element.getAttribute("name") ?? "",
+    element.getAttribute("value") ?? "",
+    element.getAttribute("aria-label") ?? "",
+    stableData
+  ].join("|");
 }
 
 function isCurrentWorkspaceRefresh(
@@ -2946,6 +3864,7 @@ function loadDemo(input: BuyerRequirementInput, robotics: boolean) {
   liveMessage = robotics
     ? "Robotic integration demo loaded into the same intake."
     : "PLC demo loaded into the same intake.";
+  persistPreNeedIntakeDraft();
   render();
 }
 
@@ -2954,7 +3873,10 @@ async function addEvidenceFromInput(
   fallbackKind: "pdf" | "photo"
 ) {
   const form = input.form;
-  if (form) syncIntakeDraft(form);
+  if (form) {
+    syncIntakeDraft(form);
+    persistPreNeedIntakeDraft();
+  }
   const file = input.files?.[0];
   if (!file) return;
   intakeRevision += 1;
@@ -2972,6 +3894,7 @@ async function addEvidenceFromInput(
     aiIntakeResult = undefined;
     loadState = "idle";
     liveMessage = `${file.name} attached for intake structuring.`;
+    persistPreNeedIntakeDraft();
   } catch (error) {
     loadState = "error";
     errorMessage = errorText(error);
@@ -3035,12 +3958,16 @@ function applyStructuredResult(result: AiIntakeResult) {
     category: profile.category,
     equipmentOrTechnology: profile.equipmentOrTechnology,
     requiredCapabilities: profile.requiredCapabilities,
-    location: profile.location ?? intakeDraft.location,
+    location:
+      detectIntakeLocation(profile.location ?? intakeDraft.location) ??
+      profile.location ??
+      intakeDraft.location,
     requiredBy: profile.urgency ?? intakeDraft.requiredBy,
     budgetRange: profile.budgetRange ?? intakeDraft.budgetRange,
-    budgetAmount: parseBudgetAmount(
-      profile.budgetRange ?? intakeDraft.budgetRange
-    ),
+    budgetAmount:
+      parseIntakeBudgetAmount(
+        profile.budgetRange ?? intakeDraft.budgetRange
+      ) ?? 0,
     constraints: profile.certificationsOrConstraints
   };
   if (profile.buyerPriority) priority = profile.buyerPriority;
@@ -3062,15 +3989,47 @@ function syncIntakeDraft(form: HTMLFormElement) {
     location: formValue(formData, "location"),
     requiredBy: formValue(formData, "requiredBy"),
     budgetRange: formValue(formData, "budgetRange"),
-    budgetAmount: parseBudgetAmount(formValue(formData, "budgetRange")),
+    budgetAmount:
+      parseIntakeBudgetAmount(formValue(formData, "budgetRange")) ?? 0,
     constraints: csvValues(formData, "constraints")
   };
 }
 
-function validateDraft(input: BuyerRequirementInput) {
-  if (input.description.trim().length < 24) {
-    return "Add a little more factory context before creating the Need Profile.";
+function updateIntakePrimaryActionState(form: HTMLFormElement) {
+  const description = form.querySelector<HTMLTextAreaElement>(
+    "textarea[name='description']"
+  );
+  const guidance = form.querySelector<HTMLElement>(
+    "#factory-context-guidance"
+  );
+  const submit = form.querySelector<HTMLButtonElement>(
+    "[data-analyse-requirement]"
+  );
+  const validationError = validateIntakeRawRequirement(
+    intakeDraft.description
+  );
+  if (description) {
+    description.setAttribute(
+      "aria-invalid",
+      intakeDraft.description && validationError ? "true" : "false"
+    );
   }
+  if (guidance) {
+    guidance.textContent = intakeRawRequirementGuidance(
+      intakeDraft.description
+    );
+  }
+  if (submit) {
+    submit.disabled =
+      loadState === "loading" || Boolean(validationError);
+  }
+}
+
+function validateDraft(input: BuyerRequirementInput) {
+  const rawRequirementError = validateIntakeRawRequirement(
+    input.description
+  );
+  if (rawRequirementError) return rawRequirementError;
   if (!input.title) return "Add a requirement title.";
   if (!input.category) return "Add a supplier category.";
   if (!input.location) return "Add the site location. Unknown locations must not be inferred.";
@@ -3114,7 +4073,7 @@ function intakeMissingFields() {
       missing.push("PDF content interpretation (live AI required)");
     }
   }
-  return uniqueStrings(missing);
+  return dedupeIntakeMissingFields(missing);
 }
 
 function intakeFieldResolved(field: string) {
@@ -3202,6 +4161,7 @@ function readWorkspaceIdentity() {
   if (freshEntryRequested) {
     safeStorageRemove(LAST_NEED_KEY);
     safeSessionStorageSet(NEW_REQUIREMENT_KEY, "1");
+    safeSessionStorageRemove(PRE_NEED_INTAKE_DRAFT_KEY);
   }
   const explicitNeedProfileId =
     url.searchParams.get("needId") ??
@@ -3254,6 +4214,75 @@ function readWorkspaceIdentity() {
   };
 }
 
+function initialiseBuyerHistory() {
+  historyReady = true;
+  historyView = view;
+  replaceBuyerHistoryView(view);
+}
+
+function syncBuyerHistory() {
+  if (!historyReady) return;
+  if (handlingPopState) {
+    historyView = view;
+    return;
+  }
+  if (historyView === view) return;
+  window.history.pushState(
+    {
+      ...buyerHistoryState(window.history.state),
+      [BUYER_VIEW_HISTORY_KEY]: view
+    },
+    "",
+    `${window.location.pathname}${window.location.search}${window.location.hash}`
+  );
+  historyView = view;
+}
+
+function replaceBuyerHistoryView(nextView: BuyerView) {
+  window.history.replaceState(
+    {
+      ...buyerHistoryState(window.history.state),
+      [BUYER_VIEW_HISTORY_KEY]: nextView
+    },
+    "",
+    `${window.location.pathname}${window.location.search}${window.location.hash}`
+  );
+}
+
+function buyerHistoryState(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function buyerViewFromHistory(value: unknown): BuyerView | undefined {
+  const state = buyerHistoryState(value);
+  const candidate = state[BUYER_VIEW_HISTORY_KEY];
+  return typeof candidate === "string" &&
+    buyerViews.has(candidate as BuyerView)
+    ? (candidate as BuyerView)
+    : undefined;
+}
+
+function handleBuyerPopState(event: PopStateEvent) {
+  const requested = buyerViewFromHistory(event.state);
+  const nextView = workspace
+    ? resolveLegalBuyerView(
+        workspace,
+        requested ?? resolveRestoredView(workspace)
+      )
+    : "intake";
+  handlingPopState = true;
+  view = nextView;
+  historyView = nextView;
+  if (requested !== nextView) {
+    replaceBuyerHistoryView(nextView);
+  }
+  persistContext();
+  render();
+  handlingPopState = false;
+}
+
 function resolveRestoredNeedProfileId(
   explicitNeedProfileId: string | undefined,
   lastNeedProfileId: string | undefined,
@@ -3269,13 +4298,47 @@ function setNeedProfileUrl(needProfileId: string) {
   const url = new URL(window.location.href);
   url.search = "";
   url.searchParams.set("needId", needProfileId);
-  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+  window.history.replaceState(
+    {
+      ...buyerHistoryState(window.history.state),
+      [BUYER_VIEW_HISTORY_KEY]: view
+    },
+    "",
+    `${url.pathname}${url.search}`
+  );
   safeSessionStorageRemove(NEW_REQUIREMENT_KEY);
+  safeSessionStorageRemove(PRE_NEED_INTAKE_DRAFT_KEY);
   safeStorageSet(LAST_NEED_KEY, needProfileId);
 }
 
 function saveBuyerToken(needProfileId: string, token: string) {
   safeStorageSet(`${TOKEN_PREFIX}${needProfileId}`, token);
+}
+
+function persistPreNeedIntakeDraft() {
+  if (workspace) return;
+  safeSessionStorageSet(
+    PRE_NEED_INTAKE_DRAFT_KEY,
+    serializePreNeedIntakeDraft({
+      requirementInput: intakeDraft,
+      priority,
+      intakeSourceMode,
+      intakeResult: aiIntakeResult,
+      evidence: intakeEvidence
+    })
+  );
+}
+
+function restorePreNeedIntakeDraft() {
+  const stored = parsePreNeedIntakeDraft(
+    safeSessionStorageGet(PRE_NEED_INTAKE_DRAFT_KEY)
+  );
+  if (!stored) return;
+  intakeDraft = cloneInput(stored.requirementInput);
+  priority = stored.priority;
+  intakeSourceMode = stored.intakeSourceMode;
+  aiIntakeResult = stored.intakeResult;
+  intakeEvidence = stored.evidence;
 }
 
 function persistContext() {
@@ -3370,7 +4433,7 @@ function loadContext(needProfileId: string): PersistedContext {
           ? value.intakeSourceMode
           : undefined,
       intakeResult: intakeResult.success ? intakeResult.data : undefined,
-      requirementInput: parseStoredRequirement(value.requirementInput),
+      requirementInput: parseBuyerRequirementInput(value.requirementInput),
       intakeEvidence: evidence.success ? evidence.data : undefined,
       researchResult: researchResult.success
         ? researchResult.data
@@ -3384,37 +4447,11 @@ function loadContext(needProfileId: string): PersistedContext {
   }
 }
 
-function parseStoredRequirement(value: unknown) {
-  if (!value || typeof value !== "object") return undefined;
-  const input = value as Partial<BuyerRequirementInput>;
-  if (
-    typeof input.description !== "string" ||
-    typeof input.title !== "string"
-  ) {
-    return undefined;
-  }
-  return {
-    companyName: stringValue(input.companyName),
-    contactName: stringValue(input.contactName),
-    contactEmail: stringValue(input.contactEmail),
-    title: input.title,
-    description: input.description,
-    category: stringValue(input.category),
-    equipmentOrTechnology: stringArray(input.equipmentOrTechnology),
-    requiredCapabilities: stringArray(input.requiredCapabilities),
-    location: stringValue(input.location),
-    requiredBy: stringValue(input.requiredBy),
-    budgetRange: stringValue(input.budgetRange),
-    budgetAmount:
-      typeof input.budgetAmount === "number" ? input.budgetAmount : 0,
-    constraints: stringArray(input.constraints)
-  };
-}
-
 function resolveRestoredView(
   data: BuyerWorkspace,
   storedView?: BuyerView
 ): BuyerView {
+  if (storedView === "registry") return "registry";
   const engagement = data.engagement;
   if (engagement?.status === "supplier_secured") return "deployment";
   if (engagement) {
@@ -3424,8 +4461,13 @@ function resolveRestoredView(
   }
   if (submittedResponses(data).length >= 2) return "compare";
   if (
+    storedView === "compare" &&
+    hasSingleComparableResponse(data)
+  ) {
+    return "compare";
+  }
+  if (
     storedView === "outreach" ||
-    storedView === "compare" ||
     data.outreachDeliveries.some(
       (item) =>
         item.deliveryStatus !== "not_sent" ||
@@ -3435,7 +4477,7 @@ function resolveRestoredView(
       ["opened", "responded"].includes(item.status)
     )
   ) {
-    return storedView === "compare" ? "compare" : "outreach";
+    return "outreach";
   }
   if (
     data.solutionDecision &&
@@ -3457,8 +4499,10 @@ function resetRequirementState(needProfileId?: string) {
   }
   safeStorageRemove(LAST_NEED_KEY);
   safeSessionStorageSet(NEW_REQUIREMENT_KEY, "1");
+  safeSessionStorageRemove(PRE_NEED_INTAKE_DRAFT_KEY);
   workspaceEpoch += 1;
   workspace = undefined;
+  supplierRegistry = undefined;
   aiIntakeResult = undefined;
   intakeEvidence = [];
   milestoneUpdateDraft = "";
@@ -3476,7 +4520,15 @@ function resetRequirementState(needProfileId?: string) {
   loadState = "idle";
   errorMessage = "";
   liveMessage = "";
-  window.history.replaceState({}, "", window.location.pathname);
+  historyView = "intake";
+  lastFocusedView = undefined;
+  window.history.replaceState(
+    {
+      [BUYER_VIEW_HISTORY_KEY]: "intake"
+    },
+    "",
+    window.location.pathname
+  );
 }
 
 function startNewRequirement() {
@@ -3485,7 +4537,10 @@ function startNewRequirement() {
   scrollBuyerWorkspaceToTop();
 }
 
-function currentPhase(): "find" | "connect" | "deploy" {
+function currentPhase(): JourneyPhase {
+  if (view === "registry" && workspace) {
+    return workflowJourneyPhase(workspace);
+  }
   if (
     view === "candidates" ||
     view === "outreach" ||
@@ -3501,6 +4556,137 @@ function currentPhase(): "find" | "connect" | "deploy" {
     return "deploy";
   }
   return "find";
+}
+
+function workflowJourneyPhase(data: BuyerWorkspace): JourneyPhase {
+  if (data.engagement) return "deploy";
+  return data.phase;
+}
+
+function journeyPhaseIndex(phase: JourneyPhase) {
+  return phase === "find" ? 0 : phase === "connect" ? 1 : 2;
+}
+
+function isHistoricalJourneyPhase(
+  data: BuyerWorkspace,
+  phase: JourneyPhase
+) {
+  return (
+    journeyPhaseIndex(phase) <
+    journeyPhaseIndex(workflowJourneyPhase(data))
+  );
+}
+
+function hasSingleComparableResponse(data: BuyerWorkspace) {
+  const responses = submittedResponses(data);
+  return (
+    responses.length === 1 &&
+    responses.filter(isSelectableSupplierResponse).length === 1
+  );
+}
+
+function canReviewSupplierComparison(data: BuyerWorkspace) {
+  return (
+    canSelectSupplierFromComparison(data) ||
+    Boolean(data.engagement)
+  );
+}
+
+function canSelectSupplierFromComparison(data: BuyerWorkspace) {
+  return (
+    submittedResponses(data).length >= 2 ||
+    hasSingleComparableResponse(data)
+  );
+}
+
+function journeyViewForPhase(
+  data: BuyerWorkspace,
+  phase: JourneyPhase
+): BuyerView {
+  if (phase === "find") {
+    return data.researchResult ? "plan" : "intake";
+  }
+  if (phase === "connect") {
+    if (canReviewSupplierComparison(data)) return "compare";
+    if (
+      data.status === "supplier_outreach" ||
+      data.status === "supplier_responses" ||
+      data.nextAction === "await_responses"
+    ) {
+      return "outreach";
+    }
+    return "candidates";
+  }
+  if (data.engagement?.status === "supplier_secured") return "deployment";
+  return data.engagement?.hostedCheckoutUrl ? "payment" : "selected";
+}
+
+function resolveLegalBuyerView(
+  data: BuyerWorkspace,
+  requestedView: BuyerView
+): BuyerView {
+  if (requestedView === "registry") {
+    return "registry";
+  }
+  if (requestedView === "plan" && data.researchResult) {
+    return "plan";
+  }
+  if (
+    requestedView === "compare" &&
+    canReviewSupplierComparison(data)
+  ) {
+    return "compare";
+  }
+  if (data.engagement?.status === "supplier_secured") {
+    return "deployment";
+  }
+  if (data.engagement) {
+    if (requestedView === "payment" || data.engagement.hostedCheckoutUrl) {
+      return "payment";
+    }
+    return "selected";
+  }
+  if (
+    requestedView === "outreach" &&
+    data.invitations.length > 0 &&
+    [
+      "supplier_outreach",
+      "supplier_responses",
+      "supplier_selection"
+    ].includes(data.status)
+  ) {
+    return "outreach";
+  }
+  if (
+    requestedView === "candidates" &&
+    data.phase === "connect" &&
+    ["approve_outreach", "send_invitations"].includes(data.nextAction) &&
+    (data.discoveredSuppliers.length > 0 || data.matches.length > 0)
+  ) {
+    return "candidates";
+  }
+  if (
+    requestedView === "intake" &&
+    !data.researchResult &&
+    data.phase === "find"
+  ) {
+    return "intake";
+  }
+  return resolveRestoredView(data);
+}
+
+function navigateToJourneyPhase(phase: JourneyPhase) {
+  if (!workspace) return;
+  const workflowIndex = journeyPhaseIndex(workflowJourneyPhase(workspace));
+  if (journeyPhaseIndex(phase) > workflowIndex) return;
+  const nextView = resolveLegalBuyerView(
+    workspace,
+    journeyViewForPhase(workspace, phase)
+  );
+  if (nextView === view) return;
+  view = nextView;
+  persistContext();
+  render();
 }
 
 function selectedSupplier(data: BuyerWorkspace) {
@@ -3870,6 +5056,9 @@ function primaryActionDescription() {
 
 function fileEvidenceNote(item: IntakeEvidence) {
   if (item.kind === "written") return "Written evidence ready";
+  if (!item.dataUrl && !item.extractedText) {
+    return "File details restored; reattach before rerunning analysis";
+  }
   if (aiIntakeResult && intakeSourceMode === "fixture") {
     return "Provided; local adapter did not interpret file content";
   }
@@ -3903,16 +5092,10 @@ function cloneInput(input: BuyerRequirementInput): BuyerRequirementInput {
   };
 }
 
-function parseBudgetAmount(value: string) {
-  const matches = [...value.matchAll(/(\d[\d,]*)/g)];
-  const last = matches.at(-1)?.[1];
-  return last ? Number(last.replaceAll(",", "")) : 0;
-}
-
 function titleFromDescription(description: string) {
   const firstSentence = description.split(/[.!?]/)[0]?.trim();
   return firstSentence
-    ? firstSentence.slice(0, 90)
+    ? truncateIntakeTitle(firstSentence)
     : "Industrial supplier requirement";
 }
 
@@ -3927,10 +5110,49 @@ function priorityLabel(value: PrioritySignal) {
   return labels[value];
 }
 
+const AU_STATE_TOKENS = new Set(["nsw", "vic", "qld", "sa", "wa", "tas", "nt", "act"]);
+
+// Catalog records store locations/capabilities lowercase ("sydney", "wa",
+// "plc diagnostics") while live-discovery entries arrive properly cased. Only
+// transform strings that are entirely lowercase so real names pass through.
+function formatLocationLabel(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || /[A-Z]/.test(trimmed)) {
+    return trimmed.replace(/\b[a-z]{2,3}\b/g, (word) =>
+      AU_STATE_TOKENS.has(word) ? word.toUpperCase() : word
+    );
+  }
+  return trimmed
+    .split(/\s+/)
+    .map((word) =>
+      AU_STATE_TOKENS.has(word)
+        ? word.toUpperCase()
+        : word.charAt(0).toUpperCase() + word.slice(1)
+    )
+    .join(" ");
+}
+
+const CAPABILITY_ACRONYMS = new Set(["plc", "scada", "hmi", "cnc", "vfd", "ups", "io"]);
+
+function formatCapabilityLabel(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || /[A-Z]/.test(trimmed)) return trimmed;
+  const acronymised = trimmed.replace(/\b[a-z]{2,5}\b/g, (word) =>
+    CAPABILITY_ACRONYMS.has(word) ? word.toUpperCase() : word
+  );
+  return acronymised.charAt(0).toUpperCase() + acronymised.slice(1);
+}
+
 function humanFieldName(value: string) {
-  return value
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const spaced = value.replaceAll("_", " ").trim();
+  // Live intake/research can return full sentences; title-casing is only for
+  // short field-style labels like "contact email".
+  const looksLikeSentence =
+    spaced.split(/\s+/).length > 5 || /[.:;,]/.test(spaced);
+  if (looksLikeSentence) {
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  }
+  return spaced.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function statusLabel(value: string) {
@@ -4043,14 +5265,35 @@ function uniqueStrings(values: string[]) {
   });
 }
 
-function stringValue(value: unknown) {
-  return typeof value === "string" ? value : "";
-}
-
-function stringArray(value: unknown) {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
+// Live intake and live research each contribute missing-information items that
+// often overlap semantically without matching exactly ("Specific gearbox make
+// and model" vs "Gearbox make/model, ratio, and mounting arrangement."). Keep
+// the first phrasing and drop later items whose significant words mostly
+// repeat an earlier item.
+function dedupeSimilarStrings(values: string[]) {
+  const kept: { value: string; tokens: Set<string> }[] = [];
+  const tokensOf = (value: string) =>
+    new Set(
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9\s/-]/g, " ")
+        .split(/[\s/-]+/)
+        .filter((word) => word.length > 3)
+    );
+  for (const value of values) {
+    const tokens = tokensOf(value);
+    const isNearDuplicate =
+      tokens.size > 0 &&
+      kept.some((entry) => {
+        let shared = 0;
+        for (const token of tokens) {
+          if (entry.tokens.has(token)) shared += 1;
+        }
+        return shared / Math.min(tokens.size, entry.tokens.size || 1) >= 0.6;
+      });
+    if (!isNearDuplicate) kept.push({ value, tokens });
+  }
+  return kept.map((entry) => entry.value);
 }
 
 function bindClick(selector: string, handler: () => void | Promise<void>) {
@@ -4060,21 +5303,6 @@ function bindClick(selector: string, handler: () => void | Promise<void>) {
       void handler();
     }
   );
-}
-
-async function copyText(value: string) {
-  if (navigator.clipboard) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = value;
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.append(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  textarea.remove();
 }
 
 function showLiveMessage(message: string) {

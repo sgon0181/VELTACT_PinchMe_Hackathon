@@ -262,6 +262,28 @@ describe("PinchClient", () => {
     );
   });
 
+  test("deletes an unpaid Payment Link through the documented Pinch route", async () => {
+    const requests: Array<{ url: string; method?: string }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      requests.push({ url, method: init?.method });
+      if (url === "https://pinch.test/auth") {
+        return jsonResponse({ access_token: "sandbox-access-token" });
+      }
+      if (url === "https://pinch.test/api/payment-links/plk_cancel") {
+        return new Response(null, { status: 200 });
+      }
+      throw new Error(`Unexpected test URL: ${url}`);
+    }) as typeof fetch;
+
+    await new PinchClient().cancelHostedPaymentLink("plk_cancel");
+
+    assert.deepEqual(requests.at(-1), {
+      url: "https://pinch.test/api/payment-links/plk_cancel",
+      method: "DELETE"
+    });
+  });
+
   test("does not fabricate a payer or link when Pinch rejects the request", async () => {
     globalThis.fetch = (async (input) => {
       const url = String(input);

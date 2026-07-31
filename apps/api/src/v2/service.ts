@@ -967,6 +967,7 @@ export class VeltactV2Service {
       buyerEmail: need.buyerEmail,
       buyerName: need.buyerName,
       amount: milestone.amount.amount,
+      currency: milestone.amount.currency,
       description: `${project.title}: ${milestone.title}`,
       returnUrl: new URL(
         `/v2.html?needId=${encodeURIComponent(need.id)}&projectId=${encodeURIComponent(project.id)}&payment_return=1`,
@@ -976,7 +977,10 @@ export class VeltactV2Service {
         veltactFlow: "v2_milestone",
         projectId: project.id,
         milestoneId: milestone.id,
-        templateType: project.templateType
+        templateType: project.templateType,
+        commitmentType: "commercial_commitment",
+        commitmentAmountMinor: String(milestone.amount.amount),
+        commitmentCurrency: milestone.amount.currency
       }
     });
     return this.repository.mutate((draft) => {

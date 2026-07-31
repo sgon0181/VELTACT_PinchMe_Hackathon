@@ -203,13 +203,15 @@ describe("authoritative Pinch webhook payments", () => {
       authoritative: true,
       processed: true,
       duplicate: false,
-      supplierSecured: true
+      supplierSecured: true,
+      milestoneFunded: true
     });
     assert.deepEqual(replay, {
       authoritative: true,
       processed: false,
       duplicate: true,
-      supplierSecured: true
+      supplierSecured: true,
+      milestoneFunded: true
     });
     assert.equal(adapter.evidence.length, 1);
     assert.equal(adapter.evidence[0]?.source, "pinch_webhook");
@@ -245,7 +247,8 @@ class ReplayAwareAuthorityAdapter implements PinchWebhookAuthorityAdapter {
     }
     return {
       duplicate,
-      supplierSecured: true
+      supplierSecured: true,
+      milestoneFunded: true
     };
   }
 }

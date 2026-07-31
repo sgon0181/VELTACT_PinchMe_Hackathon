@@ -5,263 +5,206 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Veltact turns an industrial need into relevant supplier responses and a secured commitment."
+      content="Veltact turns industrial evidence into a researched action plan, comparable supplier responses and a Pinch-backed commitment."
     />
-    <title>Veltact | Find. Connect. Deploy.</title>
+    <title>Veltact | Find, connect and deploy industrial expertise</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./landing.css" />
+    <link rel="stylesheet" href="./alloy.css?v=alloy-1" />
     <script type="importmap">
       {
         "imports": {
-          "three": "./assets/vendor/three/three.module.min.js"
+          "three": "./assets/vendor/three/three.module.min.js",
+          "three/addons/": "./assets/vendor/three/addons/"
         }
       }
     </script>
     <noscript>
       <style>
-        .landing-loader,
-        .story-canvas,
-        .story-scroll-hint {
+        .landing-loader {
           display: none;
-        }
-
-        .story-panel {
-          opacity: 1;
-          position: relative;
-          transform: none;
         }
       </style>
     </noscript>
   </head>
-  <body>
+  <body data-theme="landing">
     <div class="landing-loader" data-landing-loader role="status" aria-live="polite">
-      <div class="loader-mark" aria-hidden="true">
-        <span>VELT</span><span>ACT</span>
+      <div class="loader-assembly">
+        <div class="loader-plate" aria-hidden="true">
+          <span class="loader-notch"></span>
+          <span class="loader-wordmark">Veltact</span>
+          <span class="loader-index">01 / 03</span>
+        </div>
+        <div class="loader-track" aria-hidden="true"><span></span></div>
+        <p>Preparing industrial workflow</p>
       </div>
-      <div class="loader-rule" aria-hidden="true"><span></span></div>
-      <p>Opening production line</p>
     </div>
 
-    <a class="skip-link" href="#landing-story">Skip to story</a>
+    <a class="skip-link" href="#main-content">Skip to content</a>
 
     <header class="site-header">
-      <a class="wordmark" href="./landing.html" aria-label="Veltact home">
-        <span class="wordmark-mark" aria-hidden="true"></span>
-        <span>Veltact</span>
-      </a>
-      <nav class="public-actions" aria-label="Account and demo actions">
-        <a class="header-link" href="./signin.html">Sign in</a>
-        <a class="header-link" href="./create-account.html">Create account</a>
-        <a class="header-demo" href="./index.html?start=new">Trial Demo</a>
-      </nav>
+      <div class="header-inner">
+        <a class="wordmark" href="./landing.html" aria-label="Veltact home">
+          <span class="wordmark-notch" aria-hidden="true"></span>
+          <span>Veltact</span>
+        </a>
+        <nav class="public-actions" aria-label="Account and demo actions">
+          <a class="header-link" href="./signin.html">Sign in</a>
+          <a class="header-link" href="./create-account.html">Create account</a>
+          <a class="button button-primary header-demo" href="./index.html?start=new">Trial Demo</a>
+        </nav>
+      </div>
     </header>
 
-    <main id="landing-story">
+    <main id="main-content">
       <section
         id="workflow"
-        class="story"
-        data-story
+        class="factory-story"
+        data-factory-story
         data-story-state="static"
-        aria-labelledby="story-title"
+        aria-labelledby="factory-story-title"
       >
-        <div class="story-stage" data-story-stage>
-          <div class="story-canvas" data-story-canvas aria-hidden="true"></div>
-          <div class="story-shade" aria-hidden="true"></div>
+        <div class="factory-story-stage" data-factory-stage>
+          <div class="factory-story-canvas" data-factory-canvas aria-hidden="true"></div>
+          <div class="factory-story-shade" aria-hidden="true"></div>
 
-          <div class="factory-doors" data-factory-doors aria-hidden="true">
-            <div class="factory-door factory-door-left">
-              <div class="door-word door-word-left">VELT</div>
-              <span>Production</span>
+          <div class="factory-story-overlay">
+            <div class="factory-story-meta" aria-hidden="true">
+              <span>Veltact / Industrial response line</span>
+              <span data-story-progress>000%</span>
             </div>
-            <div class="factory-door factory-door-right">
-              <div class="door-word">ACT</div>
-              <span>Line 01</span>
-            </div>
-          </div>
 
-          <div class="story-meta" aria-hidden="true">
-            <span>Veltact / Industrial response line</span>
-            <span data-story-progress>000%</span>
-          </div>
-
-          <div class="story-panels" aria-live="polite">
-            <article class="story-panel story-panel-intro" data-story-panel="intro">
-              <span class="story-kicker">Industrial response infrastructure</span>
-              <h1 id="story-title">Veltact</h1>
-              <p>From factory problem to supplier secured.</p>
-            </article>
-
-            <article class="story-panel" data-story-panel="find" aria-hidden="true">
-              <span class="story-index">01 / Find</span>
-              <h2>Turn the problem into a plan.</h2>
-              <p>
-                Describe the issue once. Veltact structures factory context, reports and photos
-                into a buyer-reviewed Need Profile with cited solution pathways.
+            <article class="factory-story-panel factory-story-intro" data-story-panel="intro">
+              <span class="eyebrow"><span>Industrial procurement</span> Evidence to engagement</span>
+              <h1 id="factory-story-title">Veltact</h1>
+              <p class="factory-story-lead">
+                From line stop to committed specialist, in one workflow.
               </p>
-              <span class="story-note">Factory evidence / Need Profile / Cited pathways</span>
-              <figure
-                class="story-proof story-proof-find"
-                aria-label="Find product preview showing a buyer-reviewed Need Profile and three solution pathways."
-              >
-                <div class="proof-shell" aria-hidden="true">
-                  <div class="proof-toolbar">
-                    <span>Need Profile</span>
-                    <strong>3 pathways</strong>
-                  </div>
-                  <div class="proof-need">
-                    <span>Requirement</span>
-                    <strong>Robotic palletising cell</strong>
-                    <small>Western Sydney / Technical fit</small>
-                  </div>
-                  <div class="proof-paths">
-                    <div class="proof-path is-selected">
-                      <span>01</span>
-                      <strong>Staged integration</strong>
-                      <em>Selected</em>
-                    </div>
-                    <div class="proof-path">
-                      <span>02</span>
-                      <strong>Proof of process</strong>
-                      <em>83%</em>
-                    </div>
-                    <div class="proof-path">
-                      <span>03</span>
-                      <strong>Gated delivery</strong>
-                      <em>79%</em>
-                    </div>
-                  </div>
-                </div>
-              </figure>
             </article>
 
-            <article class="story-panel" data-story-panel="connect" aria-hidden="true">
-              <span class="story-index">02 / Connect</span>
-              <h2>Make the right suppliers respond.</h2>
+            <article class="factory-story-panel" data-story-panel="find">
+              <span class="factory-story-phase">01 / Find</span>
+              <h2>Make the need decision-ready.</h2>
               <p>
-                RapidMatch explains why each supplier fits, reaches approved candidates in
-                parallel by link, email or SMS, and returns comparable commercial responses.
+                Veltact structures the evidence and returns current, cited solution pathways,
+                including what the factory can prepare and when specialist help is required.
               </p>
-              <span class="story-note">3 matches / Email + SMS / 2 responses</span>
-              <figure
-                class="story-proof story-proof-connect"
-                aria-label="Connect product preview showing three explainable supplier matches, Email and SMS outreach, and two responses ready."
-              >
-                <div class="proof-shell" aria-hidden="true">
-                  <div class="proof-toolbar">
-                    <span>RapidMatch shortlist</span>
-                    <strong>3 selected</strong>
-                  </div>
-                  <div class="proof-matches">
-                    <div class="proof-match">
-                      <img src="./logos/axisforge_robotics_logo.svg" alt="" />
-                      <span><strong>AxisForge Robotics</strong><small>Robotic cell integration</small></span>
-                      <em>94%</em>
-                    </div>
-                    <div class="proof-match">
-                      <img src="./logos/southern_cell_automation_logo.svg" alt="" />
-                      <span><strong>Southern Cell Automation</strong><small>Safety and commissioning</small></span>
-                      <em>88%</em>
-                    </div>
-                    <div class="proof-match">
-                      <img src="./logos/harbour_motion_systems_logo.svg" alt="" />
-                      <span><strong>Harbour Motion Systems</strong><small>Controls and simulation</small></span>
-                      <em>84%</em>
-                    </div>
-                  </div>
-                  <div class="proof-outreach">
-                    <span class="proof-channel is-on">Email</span>
-                    <span class="proof-channel is-on">SMS</span>
-                    <strong>2 responses ready</strong>
-                  </div>
-                </div>
-              </figure>
             </article>
 
-            <article class="story-panel" data-story-panel="deploy" aria-hidden="true">
-              <span class="story-index">03 / Deploy</span>
-              <h2>Secure the supplier. Start the work.</h2>
+            <article class="factory-story-panel" data-story-panel="connect">
+              <span class="factory-story-phase">02 / Connect</span>
+              <h2>Turn relevance into response.</h2>
               <p>
-                Open a real Pinch hosted Payment Link for the site-assessment milestone. Veltact
-                marks the supplier secured only after verified payment evidence.
+                RapidMatch turns the chosen scope into one standard request, contacts the most
+                relevant suppliers in parallel and returns comparable commercial intent instead of
+                search results.
               </p>
-              <span class="story-note">Pinch hosted payment / Verified / Supplier secured</span>
-              <figure
-                class="story-proof story-proof-deploy"
-                aria-label="Deploy product preview showing a Pinch hosted Payment Link and a supplier secured after verified payment evidence."
-              >
-                <div class="proof-shell" aria-hidden="true">
-                  <div class="proof-pinch">
-                    <span>Hosted Payment Link via</span>
-                    <img src="./assets/brand/pinch-logo.svg" alt="" />
-                    <small>Pinch Payments</small>
-                  </div>
-                  <div class="proof-commitment">
-                    <span>
-                      <small>Commitment milestone</small>
-                      <strong>Site Assessment / Scoping Visit</strong>
-                    </span>
-                    <strong>$18,500 <small>AUD</small></strong>
-                  </div>
-                  <div class="proof-secured">
-                    <span aria-hidden="true">✓</span>
-                    <span>
-                      <strong>Supplier secured</strong>
-                      <small>Verified payment evidence</small>
-                    </span>
-                  </div>
-                </div>
-              </figure>
             </article>
 
-            <article class="story-panel story-panel-outcome" data-story-panel="outcome" aria-hidden="true">
-              <span class="story-index">Find / Connect / Deploy</span>
+            <article class="factory-story-panel" data-story-panel="deploy">
+              <span class="factory-story-phase">03 / Deploy</span>
+              <h2>Secure attention, then track delivery.</h2>
+              <p>
+                Pinch turns the selected response into a commitment for the site assessment while
+                backend payment evidence and delivery progress remain distinct and visible.
+              </p>
+            </article>
+
+            <article class="factory-story-panel factory-story-outcome" data-story-panel="outcome">
+              <span class="factory-story-phase">Find / Connect / Deploy</span>
               <h2>Find the path. Connect with the right supplier. Deploy with control.</h2>
-              <p>One industrial need. One visible route from evidence to engagement.</p>
+              <p>One requirement stays intact from factory evidence to secured engagement.</p>
             </article>
           </div>
 
-          <nav class="story-rail" aria-label="Animation chapters">
-            <span class="story-rail-track" aria-hidden="true">
-              <span class="story-rail-fill" data-story-rail-fill></span>
-            </span>
-            <button
-              type="button"
-              class="story-rail-step"
-              data-story-jump="find"
-              aria-label="Go to Find animation"
-            >
-              <span>01</span><strong>Find</strong>
-            </button>
-            <button
-              type="button"
-              class="story-rail-step"
-              data-story-jump="connect"
-              aria-label="Go to Connect animation"
-            >
-              <span>02</span><strong>Connect</strong>
-            </button>
-            <button
-              type="button"
-              class="story-rail-step"
-              data-story-jump="deploy"
-              aria-label="Go to Deploy animation"
-            >
-              <span>03</span><strong>Deploy</strong>
-            </button>
-          </nav>
+          <ol class="factory-story-rail" aria-label="Find Connect Deploy progress">
+            <li data-story-rail="find"><span>01</span><strong>Find</strong></li>
+            <li data-story-rail="connect"><span>02</span><strong>Connect</strong></li>
+            <li data-story-rail="deploy"><span>03</span><strong>Deploy</strong></li>
+          </ol>
 
-          <p class="story-scroll-hint" data-story-hint aria-hidden="true">Scroll to move the line</p>
-          <p class="story-fallback" data-story-fallback role="status">
-            The interactive factory is unavailable. The Veltact story remains accessible.
+          <p class="factory-story-hint" data-story-hint aria-hidden="true">Scroll to move the line</p>
+          <p class="factory-story-fallback-note" data-story-fallback role="status">
+            The interactive factory view is unavailable. The complete workflow remains visible.
           </p>
         </div>
       </section>
+
+      <section class="role-band" aria-labelledby="role-title">
+        <div class="role-intro section-shell" data-reveal>
+          <p class="eyebrow"><span>02</span> Buyer and supplier</p>
+          <h2 id="role-title">Separate controls. One commercial record.</h2>
+          <p>
+            Buyers control the scope, outreach and selection. Each supplier sees one private
+            opportunity and submits one standard response.
+          </p>
+        </div>
+        <div class="role-lanes">
+          <article class="role-lane buyer-lane" data-reveal>
+            <span class="role-label">Buyer workspace</span>
+            <h3>Review evidence and choose the next move.</h3>
+            <ul>
+              <li>Approve one Need Profile</li>
+              <li>Compare supplier responses</li>
+              <li>Open the commitment milestone</li>
+            </ul>
+          </article>
+          <article class="role-lane supplier-lane" data-reveal data-delay="1">
+            <span class="role-label">Private supplier opportunity</span>
+            <h3>Confirm fit and return commercial intent.</h3>
+            <ul>
+              <li>See why the requirement matched</li>
+              <li>Confirm availability and approach</li>
+              <li>Submit assumptions and conditions</li>
+            </ul>
+            <p class="role-boundary">No competing supplier data. No buyer controls.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="commitment section-shell" aria-labelledby="commitment-title">
+        <div class="commitment-copy" data-reveal>
+          <p class="eyebrow"><span>03</span> Commitment without ambiguity</p>
+          <h2 id="commitment-title">Pinch secures the commitment. Veltact keeps the work visible.</h2>
+          <p>
+            The selected supplier moves into one engagement. A real hosted checkout can reserve a
+            diagnosis, emergency callout or site assessment while Veltact shows the current delivery
+            milestone.
+          </p>
+          <p class="truth-note">
+            Payment is confirmed only by backend evidence. It never marks engineering work complete.
+          </p>
+        </div>
+
+        <ol class="commitment-sequence" aria-label="Commitment sequence" data-reveal data-delay="1">
+          <li><span>01</span><strong>Supplier selected</strong><small>Comparable response approved</small></li>
+          <li class="is-active"><span>02</span><strong>Commitment opened</strong><small>Pinch-hosted checkout</small></li>
+          <li><span>03</span><strong>Delivery visible</strong><small>Milestones remain evidence-based</small></li>
+        </ol>
+      </section>
+
+      <section class="final-cta">
+        <div class="final-material" aria-hidden="true"></div>
+        <div class="final-inner section-shell" data-reveal>
+          <p class="eyebrow"><span>Veltact</span> Find / Connect / Deploy</p>
+          <h2>Start with the industrial need. Keep control through commitment.</h2>
+        </div>
+      </section>
     </main>
+
+    <footer class="site-footer">
+      <a class="wordmark" href="./landing.html" aria-label="Veltact home">
+        <span class="wordmark-notch" aria-hidden="true"></span>
+        <span>Veltact</span>
+      </a>
+      <p>Industrial procurement from evidence to deployment.</p>
+      <span>Find / Connect / Deploy · <span id="year">2026</span></span>
+    </footer>
 
     <script type="module" src="./assets/landing.js"></script>
   </body>

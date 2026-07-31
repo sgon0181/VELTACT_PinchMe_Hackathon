@@ -14,6 +14,7 @@ import {
 } from "./store.js";
 import {
   attachRealtime,
+  emitAgentActivityUpdated,
   emitCommitmentNotificationUpdated,
   emitSupplierResponseSubmitted
 } from "../realtime.js";
@@ -76,6 +77,7 @@ describe("canonical RapidMatch realtime", { concurrency: false }, () => {
       await Promise.all([connected(authorised), connected(unauthorised)]);
       let unauthorisedUpdate = false;
       let unauthorisedCommitmentUpdate = false;
+      let unauthorisedActivityUpdate = false;
       let nonCanonicalEvent = false;
       unauthorised.on(
         rapidMatchSocketEvent.supplierResponseSubmitted,
@@ -87,6 +89,12 @@ describe("canonical RapidMatch realtime", { concurrency: false }, () => {
         rapidMatchSocketEvent.commitmentNotificationUpdated,
         () => {
           unauthorisedCommitmentUpdate = true;
+        }
+      );
+      unauthorised.on(
+        rapidMatchSocketEvent.agentActivityUpdated,
+        () => {
+          unauthorisedActivityUpdate = true;
         }
       );
       authorised.onAny((eventName) => {
@@ -167,6 +175,26 @@ describe("canonical RapidMatch realtime", { concurrency: false }, () => {
         "sent"
       );
       assert.equal(unauthorisedCommitmentUpdate, false);
+
+      const activityPromise = onceEvent(
+        authorised,
+        rapidMatchSocketEvent.agentActivityUpdated
+      );
+      emitAgentActivityUpdated(need.id, {
+        id: "activity-123",
+        needProfileId: need.id,
+        sequence: 0,
+        operation: "research",
+        stage: "source_read",
+        message: "Read an official source.",
+        sourceMode: "fixture",
+        sourceUrl: "https://example.com/source",
+        occurredAt: "2026-07-31T00:00:00.000Z"
+      });
+      const activityUpdate = await activityPromise;
+      await wait(30);
+      assert.equal(activityUpdate.agentActivityEvent.id, "activity-123");
+      assert.equal(unauthorisedActivityUpdate, false);
     } finally {
       authorised.close();
       unauthorised.close();

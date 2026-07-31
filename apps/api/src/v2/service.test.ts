@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import type { MarketplaceNeedProfile, SupplierLead } from "@veltact/contracts";
 import { env } from "../env.js";
 import { localDemoPaymentProvider } from "../payments/localDemoPaymentProvider.js";
+import type { CreateHostedPaymentLinkInput } from "../payments/paymentProvider.js";
 import {
   resetPaymentProviderForTest,
   setPaymentProviderForTest
@@ -261,8 +262,10 @@ describe("VeltactV2Service", { concurrency: false }, () => {
     assert.equal(accepted.milestones[0].status, "accepted");
     assert.equal(accepted.milestones[1].status, "awaiting_payment");
 
+    let createdPinchLinkInput: CreateHostedPaymentLinkInput | undefined;
     setPaymentProviderForTest({
       async createHostedPaymentLink(input) {
+        createdPinchLinkInput = input;
         return {
           provider: "pinch",
           payerId: "pinch-payer-1",
@@ -283,6 +286,22 @@ describe("VeltactV2Service", { concurrency: false }, () => {
       project.id,
       created.buyerAccessToken,
       accepted.milestones[1].id
+    );
+    assert.equal(
+      createdPinchLinkInput?.metadata?.commitmentType,
+      "commercial_commitment"
+    );
+    assert.equal(
+      createdPinchLinkInput?.metadata?.commitmentAmountMinor,
+      String(accepted.milestones[1].amount.amount)
+    );
+    assert.equal(
+      createdPinchLinkInput?.metadata?.commitmentCurrency,
+      accepted.milestones[1].amount.currency
+    );
+    assert.equal(
+      createdPinchLinkInput?.currency,
+      accepted.milestones[1].amount.currency
     );
     const reconciled = await service.reconcileMilestonePayment(
       project.id,

@@ -1,42 +1,40 @@
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
+import { SSAOPass } from "three/addons/postprocessing/SSAOPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { VignetteShader } from "three/addons/shaders/VignetteShader.js";
+import { factoryAssetManifest } from "./landingAssets.js";
 
 type Vec3 = readonly [number, number, number];
 type NumberKeyframe = readonly [number, number];
 type VectorKeyframe = readonly [number, Vec3];
-type Chapter = "intro" | "find" | "connect" | "deploy" | "outcome";
-type RailChapter = Exclude<Chapter, "intro" | "outcome">;
+type StoryPhase = "intro" | "find" | "connect" | "deploy" | "outcome";
 
-export interface LumenStoryController {
+export interface FactoryStoryController {
   destroy(): void;
 }
 
-interface StoryWindow {
-  chapter: Chapter;
-  start: number;
-  end: number;
+interface RobotVisualRig {
+  root: THREE.Object3D;
+  shoulder: THREE.Object3D;
+  elbow: THREE.Object3D;
+  wrist: THREE.Object3D;
+  clawLeft: THREE.Object3D;
+  clawRight: THREE.Object3D;
+  bulbAnchor: THREE.Object3D;
 }
 
-const storyWindows: readonly StoryWindow[] = [
-  { chapter: "intro", start: 0, end: 0.085 },
-  { chapter: "find", start: 0.1, end: 0.34 },
-  { chapter: "connect", start: 0.43, end: 0.68 },
-  { chapter: "deploy", start: 0.72, end: 0.92 },
-  { chapter: "outcome", start: 0.935, end: 1 },
-];
-
-const chapterTargets: Readonly<Record<RailChapter, number>> = {
-  find: 0.145,
-  connect: 0.505,
-  deploy: 0.765,
-};
-
-const clamp = (value: number, minimum = 0, maximum = 1) =>
+const clamp = (value: number, minimum: number, maximum: number) =>
   Math.max(minimum, Math.min(maximum, value));
 
 const smooth = (value: number) => value * value * (3 - 2 * value);
 
 const segment = (progress: number, start: number, end: number) =>
-  smooth(clamp((progress - start) / (end - start)));
+  smooth(clamp((progress - start) / (end - start), 0, 1));
 
 function numberAt(progress: number, keyframes: readonly NumberKeyframe[]) {
   if (progress <= keyframes[0][0]) {
@@ -48,23 +46,6 @@ function numberAt(progress: number, keyframes: readonly NumberKeyframe[]) {
     const next = keyframes[index + 1];
     if (progress <= next[0]) {
       const amount = smooth((progress - current[0]) / (next[0] - current[0]));
-      return current[1] + (next[1] - current[1]) * amount;
-    }
-  }
-
-  return keyframes[keyframes.length - 1][1];
-}
-
-function linearAt(progress: number, keyframes: readonly NumberKeyframe[]) {
-  if (progress <= keyframes[0][0]) {
-    return keyframes[0][1];
-  }
-
-  for (let index = 0; index < keyframes.length - 1; index += 1) {
-    const current = keyframes[index];
-    const next = keyframes[index + 1];
-    if (progress <= next[0]) {
-      const amount = (progress - current[0]) / (next[0] - current[0]);
       return current[1] + (next[1] - current[1]) * amount;
     }
   }
@@ -93,69 +74,130 @@ function vectorAt(progress: number, keyframes: readonly VectorKeyframe[]): Vec3 
   return keyframes[keyframes.length - 1][1];
 }
 
+function createTimedCameraCurve(keyframes: readonly VectorKeyframe[]) {
+  return new THREE.CatmullRomCurve3(
+    keyframes.map(([, value]) => new THREE.Vector3(...value)),
+    false,
+    "centripetal",
+  );
+}
+
+function cameraCurveAt(
+  progress: number,
+  keyframes: readonly VectorKeyframe[],
+  curve: THREE.CatmullRomCurve3,
+  target: THREE.Vector3,
+) {
+  if (progress <= keyframes[0][0]) {
+    return target.set(...keyframes[0][1]);
+  }
+
+  for (let index = 0; index < keyframes.length - 1; index += 1) {
+    const current = keyframes[index];
+    const next = keyframes[index + 1];
+    if (progress <= next[0]) {
+      // Uneven keyframe timing creates station dwells without stopping the spline.
+      const segmentProgress = (progress - current[0]) / (next[0] - current[0]);
+      const curveProgress = (index + segmentProgress) / (keyframes.length - 1);
+      return curve.getPoint(curveProgress, target);
+    }
+  }
+
+  return target.set(...keyframes[keyframes.length - 1][1]);
+}
+
 function panelOpacity(progress: number, start: number, end: number) {
-  const fadeIn = start === 0 ? 1 : segment(progress, start, start + 0.028);
-  const fadeOut = end === 1 ? 1 : 1 - segment(progress, end - 0.028, end);
-  return Math.min(fadeIn, fadeOut);
+  const withinWindow =
+    progress >= start && (end >= 1 ? progress <= 1 : progress < end);
+  return withinWindow ? 1 : 0;
 }
 
 function requiredElement<T extends Element>(root: ParentNode, selector: string) {
   const element = root.querySelector<T>(selector);
   if (!element) {
-    throw new Error(`Lumen story is missing ${selector}`);
+    throw new Error(`Factory story is missing ${selector}`);
   }
   return element;
 }
 
-function seededRandom(seed = 1827) {
-  let state = seed >>> 0;
-  return () => {
-    state = (state * 1664525 + 1013904223) >>> 0;
-    return state / 4294967296;
-  };
-}
-
-export function createLumenStory(root: HTMLElement): LumenStoryController {
-  const stage = requiredElement<HTMLElement>(root, "[data-story-stage]");
-  const canvasHost = requiredElement<HTMLElement>(root, "[data-story-canvas]");
+export function createFactoryStory(root: HTMLElement): FactoryStoryController {
+  const stage = requiredElement<HTMLElement>(root, "[data-factory-stage]");
+  const canvasHost = requiredElement<HTMLElement>(root, "[data-factory-canvas]");
   const progressLabel = requiredElement<HTMLElement>(root, "[data-story-progress]");
-  const railFill = requiredElement<HTMLElement>(root, "[data-story-rail-fill]");
   const hint = requiredElement<HTMLElement>(root, "[data-story-hint]");
-  const doors = requiredElement<HTMLElement>(root, "[data-factory-doors]");
-  const panels = new Map<Chapter, HTMLElement>(
+  const panels = new Map<StoryPhase, HTMLElement>(
     Array.from(root.querySelectorAll<HTMLElement>("[data-story-panel]")).map((panel) => [
-      panel.dataset.storyPanel as Chapter,
+      panel.dataset.storyPanel as StoryPhase,
       panel,
     ]),
   );
-  const railButtons = new Map<RailChapter, HTMLButtonElement>(
-    Array.from(root.querySelectorAll<HTMLButtonElement>("[data-story-jump]")).map((button) => [
-      button.dataset.storyJump as RailChapter,
-      button,
+  const railItems = new Map<Exclude<StoryPhase, "intro" | "outcome">, HTMLElement>(
+    Array.from(root.querySelectorAll<HTMLElement>("[data-story-rail]")).map((item) => [
+      item.dataset.storyRail as Exclude<StoryPhase, "intro" | "outcome">,
+      item,
     ]),
   );
 
   const renderer = new THREE.WebGLRenderer({
+    alpha: false,
     antialias: window.innerWidth >= 720,
     powerPreference: "high-performance",
   });
-  renderer.setPixelRatio(
-    Math.min(window.devicePixelRatio, window.innerWidth < 720 ? 1.35 : 1.75),
-  );
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.25;
+  renderer.toneMappingExposure = 1.08;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.domElement.setAttribute("aria-hidden", "true");
   canvasHost.replaceChildren(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0e1828);
-  scene.fog = new THREE.Fog(0x16233a, 30, 140);
+  scene.background = new THREE.Color(0x0b1d3a);
+  scene.fog = new THREE.Fog(0x193b60, 36, 148);
 
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 300);
-  const random = seededRandom();
+  const composer = new EffectComposer(renderer);
+  const renderPass = new RenderPass(scene, camera);
+  const ssaoPass = new SSAOPass(scene, camera, 1, 1, 16);
+  ssaoPass.kernelRadius = 7;
+  ssaoPass.minDistance = 0.002;
+  ssaoPass.maxDistance = 0.11;
+  const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.56, 0.28, 1.15);
+  const vignettePass = new ShaderPass(VignetteShader);
+  vignettePass.uniforms.offset.value = 0.92;
+  vignettePass.uniforms.darkness.value = 1.16;
+  const outputPass = new OutputPass();
+  composer.addPass(renderPass);
+  composer.addPass(ssaoPass);
+  composer.addPass(bloomPass);
+  composer.addPass(vignettePass);
+  composer.addPass(outputPass);
+
+  const floorCanvas = document.createElement("canvas");
+  floorCanvas.width = 256;
+  floorCanvas.height = 256;
+  const floorContext = floorCanvas.getContext("2d");
+  if (!floorContext) {
+    throw new Error("Canvas 2D rendering is unavailable");
+  }
+  floorContext.fillStyle = "#12304c";
+  floorContext.fillRect(0, 0, 256, 256);
+  for (let line = 0; line < 64; line += 1) {
+    const position = (line * 73) % 256;
+    const lightness = 35 + ((line * 19) % 22);
+    floorContext.strokeStyle = `rgba(${lightness}, ${lightness + 15}, ${lightness + 24}, 0.16)`;
+    floorContext.lineWidth = line % 9 === 0 ? 2 : 1;
+    floorContext.beginPath();
+    floorContext.moveTo(0, position);
+    floorContext.lineTo(256, position + ((line * 11) % 7) - 3);
+    floorContext.stroke();
+  }
+  const floorTexture = new THREE.CanvasTexture(floorCanvas);
+  floorTexture.colorSpace = THREE.SRGBColorSpace;
+  floorTexture.wrapS = THREE.RepeatWrapping;
+  floorTexture.wrapT = THREE.RepeatWrapping;
+  floorTexture.repeat.set(18, 3);
+  floorTexture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
 
   const material = (
     color: number,
@@ -163,25 +205,73 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
   ) =>
     new THREE.MeshStandardMaterial({
       color,
-      flatShading: true,
-      metalness: 0.05,
-      roughness: 0.92,
+      metalness: 0.08,
+      roughness: 0.88,
       ...options,
     });
 
   const materials = {
-    platform: material(0x223042),
-    road: material(0x1a2433),
-    machine: material(0x41506a),
-    machineDark: material(0x2b374a),
-    dark: material(0x18202e),
-    belt: material(0x202b3c),
-    metal: material(0x8296b2, { metalness: 0.4, roughness: 0.5 }),
-    greyGlass: material(0x6a7d9a, { flatShading: false, roughness: 0.35 }),
-    base: material(0x8a94a6, { metalness: 0.5, roughness: 0.45 }),
-    heroBase: material(0xc23434, { metalness: 0.35, roughness: 0.5 }),
-    lightBlue: material(0x9db8dc, { roughness: 0.6 }),
-    red: material(0xd63c3c, { roughness: 0.6 }),
+    platform: material(0x123a5a, {
+      map: floorTexture,
+      metalness: 0.12,
+      roughness: 0.93,
+    }),
+    road: material(0x07111d),
+    machine: material(0x2a3b4c),
+    machineDark: material(0x16283c),
+    dark: material(0x040a11),
+    belt: material(0x0a1522),
+    metal: material(0xa9b5bf, { metalness: 0.55, roughness: 0.42 }),
+    glass: material(0x8796a3, { flatShading: false, roughness: 0.32 }),
+    base: material(0xc3cfd9, { metalness: 0.55, roughness: 0.4 }),
+    red: material(0xd6283f, { roughness: 0.58 }),
+    crimson: material(0x7a1425, { metalness: 0.32, roughness: 0.52 }),
+    white: material(0xf3f6f8, { roughness: 0.5 }),
+  };
+  const modelLoader = new GLTFLoader();
+  const loadedModelRoots = new Set<THREE.Object3D>();
+  const replacedModelMaterials = new Set<THREE.Material>();
+
+  const styleModel = (
+    rootObject: THREE.Object3D,
+    resolveMaterial: (mesh: THREE.Mesh) => THREE.MeshStandardMaterial,
+  ) => {
+    rootObject.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) {
+        return;
+      }
+      const sourceMaterials = Array.isArray(object.material)
+        ? object.material
+        : [object.material];
+      sourceMaterials.forEach((sourceMaterial) => replacedModelMaterials.add(sourceMaterial));
+      object.material = resolveMaterial(object);
+      object.castShadow = true;
+      object.receiveShadow = true;
+    });
+    loadedModelRoots.add(rootObject);
+    return rootObject;
+  };
+
+  const loadModel = async (url: string) => {
+    try {
+      return (await modelLoader.loadAsync(url)).scene;
+    } catch {
+      return null;
+    }
+  };
+
+  const disposeModels = (models: Array<THREE.Object3D | null>) => {
+    for (const model of models) {
+      model?.traverse((object) => {
+        if (object instanceof THREE.Mesh) {
+          object.geometry.dispose();
+          const objectMaterials = Array.isArray(object.material)
+            ? object.material
+            : [object.material];
+          objectMaterials.forEach((objectMaterial) => objectMaterial.dispose());
+        }
+      });
+    }
   };
 
   const box = (
@@ -230,75 +320,33 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
     return mesh;
   };
 
-  scene.add(new THREE.HemisphereLight(0x33496a, 0x101826, 1.15));
-  const rimLight = new THREE.DirectionalLight(0x8fb2e8, 1.4);
-  rimLight.position.set(-14, 16, -30);
-  scene.add(rimLight);
+  scene.add(new THREE.HemisphereLight(0x6c9ec8, 0x07111d, 1.05));
+  const moonLight = new THREE.DirectionalLight(0x9acbf0, 1.65);
+  moonLight.position.set(58, 20, 18);
+  moonLight.target.position.set(34, 2, 0);
+  scene.add(moonLight, moonLight.target);
 
-  const keyLight = new THREE.DirectionalLight(0xaac4e8, 2.8);
+  const keyLight = new THREE.DirectionalLight(0xfff3dc, 2.35);
   keyLight.position.set(18, 32, 20);
   keyLight.castShadow = true;
-  const shadowSize = window.innerWidth < 720 ? 1024 : 2048;
-  keyLight.shadow.mapSize.set(shadowSize, shadowSize);
-  keyLight.shadow.bias = -0.0004;
-  keyLight.shadow.normalBias = 0.03;
+  keyLight.shadow.mapSize.set(1024, 1024);
+  keyLight.shadow.bias = -0.00035;
+  keyLight.shadow.normalBias = 0.025;
   Object.assign(keyLight.shadow.camera, {
-    left: -45,
-    right: 45,
-    top: 32,
-    bottom: -32,
-    near: 2,
-    far: 110,
+    left: -32,
+    right: 36,
+    top: 22,
+    bottom: -18,
+    near: 5,
+    far: 90,
   });
   keyLight.target.position.set(24, 0, 0);
   scene.add(keyLight, keyLight.target);
 
-  const floorCanvas = document.createElement("canvas");
-  floorCanvas.width = 512;
-  floorCanvas.height = 128;
-  const floorContext = floorCanvas.getContext("2d");
-  if (!floorContext) {
-    throw new Error("Canvas 2D is unavailable");
-  }
-  floorContext.fillStyle = "#223042";
-  floorContext.fillRect(0, 0, 512, 128);
-  for (let index = 0; index < 90; index += 1) {
-    floorContext.fillStyle = `rgba(10,16,26,${(0.03 + random() * 0.07).toFixed(3)})`;
-    floorContext.beginPath();
-    floorContext.arc(
-      random() * 512,
-      random() * 128,
-      6 + random() * 28,
-      0,
-      Math.PI * 2,
-    );
-    floorContext.fill();
-  }
-  floorContext.strokeStyle = "rgba(12,18,28,0.75)";
-  floorContext.lineWidth = 2;
-  for (let x = 0; x <= 512; x += 44) {
-    floorContext.beginPath();
-    floorContext.moveTo(x, 0);
-    floorContext.lineTo(x, 128);
-    floorContext.stroke();
-  }
-  for (let y = 0; y <= 128; y += 33) {
-    floorContext.beginPath();
-    floorContext.moveTo(0, y);
-    floorContext.lineTo(512, y);
-    floorContext.stroke();
-  }
-  const floorTexture = new THREE.CanvasTexture(floorCanvas);
-  floorTexture.colorSpace = THREE.SRGBColorSpace;
-  const floorMaterial = new THREE.MeshStandardMaterial({
-    map: floorTexture,
-    roughness: 0.95,
-  });
-  const slab = box(58, 1.2, 15, floorMaterial, 23, -0.6, 0);
-  slab.receiveShadow = true;
-  box(25, 0.8, 3.6, materials.road, 64.5, -0.4, 3.4);
-  box(14, 1.2, 12, materials.platform, 84, -0.6, 3);
-  box(58, 0.05, 0.1, materials.red, 23, 0.06, 7.45, scene, true);
+  const floor = box(94, 1.2, 15, materials.platform, 39, -0.6, 0);
+  floor.receiveShadow = true;
+  box(58, 0.06, 0.1, materials.red, 23, 0.04, 7.44, scene, true);
+  box(44, 0.8, 3.6, materials.road, 61, -0.4, 3.4);
 
   const basePoints = [new THREE.Vector2(0.001, 0), new THREE.Vector2(0.125, 0)];
   for (let index = 0; index < 6; index += 1) {
@@ -322,14 +370,20 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
   const bulbGlassGeometry = new THREE.LatheGeometry(glassPoints, 28);
   bulbGlassGeometry.computeVertexNormals();
 
-  const redGlass = new THREE.MeshStandardMaterial({
-    color: 0xd63c3c,
-    emissive: new THREE.Color(0x4a0a0a),
-    emissiveIntensity: 0.7,
-    opacity: 0.9,
+  const heroGlass = new THREE.MeshStandardMaterial({
+    color: 0xd6283f,
+    emissive: new THREE.Color(0x7a1425),
+    emissiveIntensity: 0.72,
+    opacity: 0.92,
     roughness: 0.3,
     transparent: true,
   });
+  const heroRed = new THREE.Color(0xd6283f);
+  const heroCrimson = new THREE.Color(0x7a1425);
+  const heroWarmWhite = new THREE.Color(0xfff3dc);
+  const heroWarmGlow = new THREE.Color(0xffd9a0);
+  const bulbScale = 0.13;
+  const bulbAttachmentOffset = 1.18 * bulbScale;
 
   const makeBulb = (
     glassMaterial: THREE.Material,
@@ -341,6 +395,7 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
     base.castShadow = true;
     glass.castShadow = true;
     group.add(base, glass);
+    group.scale.setScalar(bulbScale);
     return group;
   };
 
@@ -367,21 +422,21 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
       if (Math.abs(x - sourceX) < 0.01 && Math.abs(z - sourceZ) < 0.01) {
         continue;
       }
-      const bulb = makeBulb(materials.greyGlass);
+      const bulb = makeBulb(materials.glass);
       bulb.position.set(x, 0.8, z);
       bulb.rotation.y = column * 1.3 + row * 0.7;
       scene.add(bulb);
     }
   }
 
-  const heroBulb = makeBulb(redGlass, materials.heroBase);
+  const heroBulb = makeBulb(heroGlass, materials.crimson);
   heroBulb.position.set(sourceX, 0.8, sourceZ);
   scene.add(heroBulb);
 
   const filamentMaterial = new THREE.MeshStandardMaterial({
-    color: 0x2a1c10,
-    emissive: 0xffc070,
-    emissiveIntensity: 0.15,
+    color: 0x7a1425,
+    emissive: 0xffd9a0,
+    emissiveIntensity: 0.14,
   });
   cylinder(0.012, 0.012, 0.26, filamentMaterial, -0.05, 0.47, 0, heroBulb, 5);
   cylinder(0.012, 0.012, 0.26, filamentMaterial, 0.05, 0.47, 0, heroBulb, 5);
@@ -398,12 +453,12 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
   glowCanvas.height = 128;
   const glowContext = glowCanvas.getContext("2d");
   if (!glowContext) {
-    throw new Error("Canvas 2D is unavailable");
+    throw new Error("Canvas 2D rendering is unavailable");
   }
   const glowGradient = glowContext.createRadialGradient(64, 64, 2, 64, 64, 62);
-  glowGradient.addColorStop(0, "rgba(255,214,150,0.9)");
-  glowGradient.addColorStop(0.35, "rgba(255,180,110,0.32)");
-  glowGradient.addColorStop(1, "rgba(255,170,100,0)");
+  glowGradient.addColorStop(0, "rgba(255, 243, 220, 0.92)");
+  glowGradient.addColorStop(0.35, "rgba(255, 217, 160, 0.34)");
+  glowGradient.addColorStop(1, "rgba(255, 217, 160, 0)");
   glowContext.fillStyle = glowGradient;
   glowContext.fillRect(0, 0, 128, 128);
   const glowTexture = new THREE.CanvasTexture(glowCanvas);
@@ -414,28 +469,18 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
     opacity: 0,
     transparent: true,
   });
-  const bulbGlow = new THREE.Sprite(glowMaterial);
-  bulbGlow.scale.set(3, 3, 1);
-  scene.add(bulbGlow);
+  const glow = new THREE.Sprite(glowMaterial);
+  glow.scale.set(3, 3, 1);
+  scene.add(glow);
 
   const scanMaterial = new THREE.MeshBasicMaterial({
-    color: 0xff4a3c,
+    color: 0xd6283f,
     opacity: 0,
     transparent: true,
   });
-  const scanPlane = box(
-    3,
-    0.03,
-    0.5,
-    scanMaterial,
-    0,
-    1.62,
-    0,
-    scene,
-    true,
-  );
+  const scan = box(3, 0.03, 0.5, scanMaterial, 0, 1.62, 0, scene, true);
   const reticleMaterial = new THREE.MeshBasicMaterial({
-    color: 0xff4a3c,
+    color: 0xd6283f,
     opacity: 0,
     transparent: true,
   });
@@ -449,54 +494,84 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
 
   const upperArmLength = 2.4;
   const lowerArmLength = 2.2;
-  const armPivot = new THREE.Vector3(2.4, 1.2, 2.4);
-  cylinder(0.55, 0.7, 0.25, materials.machineDark, armPivot.x, 0.12, armPivot.z, scene, 12);
-  cylinder(0.4, 0.48, 1.1, materials.machine, armPivot.x, 0.68, armPivot.z, scene, 12);
-  const armYaw = new THREE.Group();
-  armYaw.position.copy(armPivot);
-  scene.add(armYaw);
-  box(0.7, 0.55, 0.55, materials.machine, 0, 0.1, 0, armYaw);
-  const upperArm = new THREE.Group();
-  upperArm.position.y = 0.25;
-  armYaw.add(upperArm);
-  box(upperArmLength, 0.3, 0.3, materials.machine, upperArmLength / 2, 0, 0, upperArm);
-  const elbow = new THREE.Group();
-  elbow.position.x = upperArmLength;
-  upperArm.add(elbow);
-  const elbowJoint = cylinder(0.22, 0.22, 0.5, materials.machineDark, 0, 0, 0, elbow, 10);
-  elbowJoint.rotation.x = Math.PI / 2;
-  box(lowerArmLength, 0.24, 0.24, materials.machine, lowerArmLength / 2, 0, 0, elbow);
-  const armTip = new THREE.Group();
-  armTip.position.x = lowerArmLength;
-  elbow.add(armTip);
-  const gripper = new THREE.Group();
-  armTip.add(gripper);
-  cylinder(0.09, 0.1, 0.24, materials.machineDark, 0, 0.04, 0, gripper, 8);
-  box(0.34, 0.16, 1.42, materials.machineDark, 0, -0.12, 0, gripper);
-  box(0.2, 0.1, 0.2, materials.machine, 0, -0.25, 0, gripper);
+  const pivot = new THREE.Vector3(2.4, 1.2, 2.4);
+  const proceduralRobot = new THREE.Group();
+  scene.add(proceduralRobot);
+  cylinder(
+    0.55,
+    0.7,
+    0.25,
+    materials.machineDark,
+    pivot.x,
+    0.12,
+    pivot.z,
+    proceduralRobot,
+    12,
+  );
+  cylinder(
+    0.4,
+    0.48,
+    1.1,
+    materials.machine,
+    pivot.x,
+    0.68,
+    pivot.z,
+    proceduralRobot,
+    12,
+  );
+  const yawGroup = new THREE.Group();
+  yawGroup.position.copy(pivot);
+  proceduralRobot.add(yawGroup);
+  box(0.7, 0.55, 0.55, materials.machine, 0, 0.1, 0, yawGroup);
+  const upperGroup = new THREE.Group();
+  upperGroup.position.y = 0.25;
+  yawGroup.add(upperGroup);
+  box(upperArmLength, 0.3, 0.3, materials.machine, upperArmLength / 2, 0, 0, upperGroup);
+  const elbowGroup = new THREE.Group();
+  elbowGroup.position.x = upperArmLength;
+  upperGroup.add(elbowGroup);
+  const elbow = cylinder(0.22, 0.22, 0.5, materials.machineDark, 0, 0, 0, elbowGroup, 10);
+  elbow.rotation.x = Math.PI / 2;
+  box(lowerArmLength, 0.24, 0.24, materials.machine, lowerArmLength / 2, 0, 0, elbowGroup);
   const sensorMaterial = new THREE.MeshStandardMaterial({
-    color: 0x330808,
-    emissive: 0xd63c3c,
+    color: 0x7a1425,
+    emissive: 0xd6283f,
     emissiveIntensity: 0,
   });
-  box(0.15, 0.1, 0.15, sensorMaterial, 0.28, -0.22, 0, gripper, true);
-  const fingerLeft = box(0.07, 0.55, 0.12, materials.metal, 0, -0.48, 0.45, gripper);
-  const fingerRight = box(0.07, 0.55, 0.12, materials.metal, 0, -0.48, -0.45, gripper);
-  box(0.09, 0.16, 0.05, materials.dark, 0, -0.22, -0.085, fingerLeft, true);
-  box(0.09, 0.16, 0.05, materials.dark, 0, -0.22, 0.085, fingerRight, true);
-  const armTipWorld = new THREE.Vector3();
+  const sensor = box(
+    0.14,
+    0.14,
+    0.14,
+    sensorMaterial,
+    lowerArmLength * 0.65,
+    -0.2,
+    0,
+    elbowGroup,
+    true,
+  );
+  const tipGroup = new THREE.Group();
+  tipGroup.position.x = lowerArmLength;
+  elbowGroup.add(tipGroup);
+  const gripGroup = new THREE.Group();
+  tipGroup.add(gripGroup);
+  box(0.3, 0.28, 0.34, materials.machineDark, 0, -0.14, 0, gripGroup);
+  const fingerOne = box(0.06, 0.42, 0.09, materials.metal, 0, -0.45, 0.14, gripGroup);
+  const fingerTwo = box(0.06, 0.42, 0.09, materials.metal, 0, -0.45, -0.14, gripGroup);
+  const tipWorld = new THREE.Vector3();
+  const visualTipWorld = new THREE.Vector3();
+  let robotVisualRig: RobotVisualRig | null = null;
 
   const solveArm = (target: Vec3) => {
-    const dx = target[0] - armPivot.x;
-    const dz = target[2] - armPivot.z;
-    const radius = Math.hypot(dx, dz);
-    const height = target[1] - armPivot.y - 0.25;
+    const deltaX = target[0] - pivot.x;
+    const deltaZ = target[2] - pivot.z;
+    const radius = Math.hypot(deltaX, deltaZ);
+    const height = target[1] - pivot.y - 0.25;
     const distance = clamp(
       Math.hypot(radius, height),
       0.6,
       upperArmLength + lowerArmLength - 0.05,
     );
-    const shoulderAngle = Math.acos(
+    const shoulder = Math.acos(
       clamp(
         (upperArmLength ** 2 + distance ** 2 - lowerArmLength ** 2) /
           (2 * upperArmLength * distance),
@@ -512,12 +587,30 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
         1,
       ),
     );
-    armYaw.rotation.y = -Math.atan2(dz, dx);
-    upperArm.rotation.z = Math.atan2(height, radius) + shoulderAngle;
-    elbow.rotation.z = -(Math.PI - elbowAngle);
-    gripper.rotation.z = -(upperArm.rotation.z + elbow.rotation.z);
-    armYaw.updateMatrixWorld(true);
-    armTip.getWorldPosition(armTipWorld);
+    yawGroup.rotation.y = -Math.atan2(deltaZ, deltaX);
+    upperGroup.rotation.z = Math.atan2(height, radius) + shoulder;
+    elbowGroup.rotation.z = -(Math.PI - elbowAngle);
+    gripGroup.rotation.z = -(upperGroup.rotation.z + elbowGroup.rotation.z);
+    yawGroup.updateMatrixWorld(true);
+    tipGroup.getWorldPosition(tipWorld);
+  };
+
+  const updateRobotVisual = (gripGap: number) => {
+    if (!robotVisualRig) {
+      return false;
+    }
+
+    robotVisualRig.root.rotation.y = yawGroup.rotation.y;
+    robotVisualRig.shoulder.rotation.z = upperGroup.rotation.z - Math.PI / 2;
+    robotVisualRig.elbow.rotation.z = elbowGroup.rotation.z;
+    robotVisualRig.wrist.rotation.z =
+      gripGroup.rotation.z - Math.PI / 2;
+    const visualGap = 0.12 + gripGap / Math.max(robotVisualRig.root.scale.x, 0.001);
+    robotVisualRig.clawLeft.position.x = visualGap;
+    robotVisualRig.clawRight.position.x = -visualGap;
+    robotVisualRig.root.updateMatrixWorld(true);
+    robotVisualRig.bulbAnchor.getWorldPosition(visualTipWorld);
+    return true;
   };
 
   const armKeyframes: readonly VectorKeyframe[] = [
@@ -525,35 +618,34 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
     [0.115, [0, 3.8, 0]],
     [0.155, [sourceX, 3.1, sourceZ]],
     [0.195, [sourceX, 2.6, sourceZ]],
-    [0.218, [sourceX, 2.15, sourceZ]],
-    [0.255, [sourceX, 3.6, sourceZ]],
-    [0.285, [4, 3.85, 0]],
-    [0.305, [4, 3.65, 0]],
-    [0.335, [3.9, 3.9, 0.6]],
+    [0.218, [sourceX, 1.04, sourceZ]],
+    [0.255, [sourceX, 2.7, sourceZ]],
+    [0.305, [4, 2.54, 0]],
     [0.39, [3.6, 3.3, 0.9]],
   ];
 
-  box(39, 0.5, 1.4, materials.belt, 23, 2.05, 0);
+  const proceduralConveyor = new THREE.Group();
+  scene.add(proceduralConveyor);
+  box(39, 0.5, 1.4, materials.belt, 23, 2.05, 0, proceduralConveyor);
   for (let x = 5; x <= 41; x += 4.5) {
-    box(0.25, 1.8, 0.25, materials.dark, x, 0.9, 0.5);
-    box(0.25, 1.8, 0.25, materials.dark, x, 0.9, -0.5);
+    box(0.25, 1.8, 0.25, materials.dark, x, 0.9, 0.5, proceduralConveyor);
+    box(0.25, 1.8, 0.25, materials.dark, x, 0.9, -0.5, proceduralConveyor);
   }
-  box(39, 0.1, 0.08, materials.red, 23, 2.36, 0.72);
-  box(39, 0.1, 0.08, materials.machineDark, 23, 2.36, -0.72);
-  const beltStripes: THREE.Mesh[] = [];
-  for (let index = 0; index < 13; index += 1) {
-    beltStripes.push(
-      box(0.2, 0.03, 1.3, materials.dark, 4, 2.31, 0, scene, true),
-    );
-  }
+  box(39, 0.1, 0.08, materials.machineDark, 23, 2.36, 0.72, proceduralConveyor);
+  box(39, 0.1, 0.08, materials.machineDark, 23, 2.36, -0.72, proceduralConveyor);
+  const beltStripes = Array.from({ length: 13 }, () =>
+    box(0.2, 0.03, 1.3, materials.dark, 4, 2.31, 0, scene, true),
+  );
 
   box(0.35, 6, 0.35, materials.machine, 24, 3, 1.6);
   box(0.35, 6, 0.35, materials.machine, 24, 3, -1.6);
   box(0.3, 0.3, 3.6, materials.machine, 24, 6, 0);
-  cylinder(0.05, 0.05, 1, materials.dark, 24, 5.35, 0, scene, 6);
-  cylinder(0.26, 0.3, 0.45, materials.metal, 24, 4.6, 0, scene, 10);
-  const lifter = cylinder(0.28, 0.34, 1, materials.machineDark, 24, 2.3, 0, scene, 10);
+  cylinder(0.05, 0.05, 1.05, materials.dark, 24, 5.32, 0, scene, 6);
+  cylinder(0.26, 0.3, 0.45, materials.metal, 24, 4.6, 0);
+  const lifter = cylinder(0.28, 0.34, 1, materials.machineDark, 24, 2.3, 0);
   const heroLight = new THREE.PointLight(0xffd9a0, 0, 15, 2);
+  heroLight.shadow.mapSize.set(256, 256);
+  heroLight.shadow.bias = -0.001;
   scene.add(heroLight);
 
   box(2.2, 0.18, 1.7, materials.machine, 43, 1.42, 0);
@@ -565,83 +657,45 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
   ]) {
     box(0.16, 1.4, 0.16, materials.dark, 43 + x, 0.7, z);
   }
-  const rollerA = new THREE.Group();
-  rollerA.position.set(43, 1.2, 1.9);
-  rollerA.rotation.x = 0.185;
-  scene.add(rollerA);
-  box(0.08, 0.1, 2.7, materials.machineDark, -0.5, 0, 0, rollerA);
-  box(0.08, 0.1, 2.7, materials.machineDark, 0.5, 0, 0, rollerA);
-  for (let z = -1.2; z <= 1.2; z += 0.34) {
-    const roller = cylinder(0.05, 0.05, 0.94, materials.metal, 0, 0.02, z, rollerA, 8);
-    roller.rotation.z = Math.PI / 2;
-  }
-  const rollerB = new THREE.Group();
-  rollerB.position.set(44.5, 0.82, 3.4);
-  rollerB.rotation.z = -0.15;
-  scene.add(rollerB);
-  box(2.5, 0.1, 0.08, materials.machineDark, 0, 0, -0.5, rollerB);
-  box(2.5, 0.1, 0.08, materials.machineDark, 0, 0, 0.5, rollerB);
-  for (let x = -1.1; x <= 1.1; x += 0.31) {
-    const roller = cylinder(0.05, 0.05, 0.94, materials.metal, x, 0.02, 0, rollerB, 8);
-    roller.rotation.x = Math.PI / 2;
-  }
-  box(0.14, 1, 0.14, materials.dark, 43, 0.5, 2.9);
-  box(0.14, 0.7, 0.14, materials.dark, 44.2, 0.35, 3);
-  box(0.14, 0.6, 0.14, materials.dark, 45.3, 0.3, 3.8);
 
   const crate = new THREE.Group();
   scene.add(crate);
-  const woodMaterial = material(0x4a4436, { roughness: 0.95 });
-  const crateMaterial = material(0xb93532, { roughness: 0.7 });
-  box(1, 0.1, 1, crateMaterial, 0, 0.05, 0, crate);
-  box(1, 0.7, 0.08, crateMaterial, 0, 0.45, -0.46, crate);
-  box(1, 0.7, 0.08, crateMaterial, 0, 0.45, 0.46, crate);
-  box(0.08, 0.7, 1, crateMaterial, -0.46, 0.45, 0, crate);
-  box(0.08, 0.7, 1, crateMaterial, 0.46, 0.45, 0, crate);
-  for (const [x, z] of [
-    [0.47, 0.47],
-    [0.47, -0.47],
-    [-0.47, 0.47],
-    [-0.47, -0.47],
-  ]) {
-    box(0.09, 0.78, 0.09, materials.dark, x, 0.42, z, crate, true);
-  }
-  const seamMaterial = new THREE.MeshBasicMaterial({
+  const proceduralCrateShell = new THREE.Group();
+  crate.add(proceduralCrateShell);
+  box(1, 0.1, 1, materials.crimson, 0, 0.05, 0, proceduralCrateShell);
+  box(1, 0.7, 0.08, materials.crimson, 0, 0.45, -0.46, proceduralCrateShell);
+  box(1, 0.7, 0.08, materials.crimson, 0, 0.45, 0.46, proceduralCrateShell);
+  box(0.08, 0.7, 1, materials.crimson, -0.46, 0.45, 0, proceduralCrateShell);
+  box(0.08, 0.7, 1, materials.crimson, 0.46, 0.45, 0, proceduralCrateShell);
+  const crateGlowMaterial = new THREE.MeshStandardMaterial({
     color: 0xffd9a0,
+    emissive: 0xffd9a0,
+    emissiveIntensity: 2.8,
     opacity: 0,
     transparent: true,
   });
-  box(0.9, 0.04, 0.9, seamMaterial, 0, 0.82, 0, crate, true);
-  const lid = new THREE.Group();
-  lid.position.set(0, 0.82, -0.5);
-  crate.add(lid);
-  box(1.08, 0.09, 1.08, crateMaterial, 0, 0.045, 0.5, lid);
+  box(0.9, 0.04, 0.9, crateGlowMaterial, 0, 0.82, 0, crate, true);
+  const lidGroup = new THREE.Group();
+  lidGroup.position.set(0, 0.82, -0.5);
+  crate.add(lidGroup);
+  box(1.08, 0.09, 1.08, materials.crimson, 0, 0.045, 0.5, lidGroup);
 
   const van = new THREE.Group();
   van.position.set(47.5, 0, 3.4);
   scene.add(van);
-  box(3, 0.12, 1.5, materials.machine, -0.2, 0.61, 0, van);
-  box(3, 0.12, 1.5, materials.machine, -0.2, 1.79, 0, van);
-  box(3, 1.06, 0.1, materials.machine, -0.2, 1.2, 0.7, van);
-  box(3, 1.06, 0.1, materials.machine, -0.2, 1.2, -0.7, van);
-  box(0.1, 1.06, 1.5, materials.machine, 1.25, 1.2, 0, van);
-  box(0.95, 0.95, 1.4, materials.machineDark, 1.75, 1.02, 0, van);
-  box(0.9, 0.4, 1.3, materials.dark, 1.78, 1.62, 0, van, true);
+  const proceduralVanBody = new THREE.Group();
+  van.add(proceduralVanBody);
+  box(3, 1.3, 1.5, materials.machine, -0.2, 1.2, 0, proceduralVanBody);
+  box(0.95, 0.95, 1.4, materials.machineDark, 1.75, 1.02, 0, proceduralVanBody);
+  box(0.9, 0.4, 1.3, materials.dark, 1.78, 1.62, 0, proceduralVanBody, true);
   const headlightMaterial = new THREE.MeshStandardMaterial({
-    color: 0x222a36,
-    emissive: 0xffe8c0,
+    color: 0x1b222a,
+    emissive: 0xfff3dc,
     emissiveIntensity: 0,
   });
   box(0.08, 0.14, 0.22, headlightMaterial, 2.24, 0.85, 0.45, van, true);
   box(0.08, 0.14, 0.22, headlightMaterial, 2.24, 0.85, -0.45, van, true);
-  box(0.1, 0.1, 1.3, materials.red, -1.72, 0.48, 0, van, true);
-  const tailLightMaterial = new THREE.MeshStandardMaterial({
-    color: 0x2a0808,
-    emissive: 0xff2a22,
-    emissiveIntensity: 0.5,
-  });
-  box(0.06, 0.16, 0.2, tailLightMaterial, -1.78, 1, 0.6, van, true);
-  box(0.06, 0.16, 0.2, tailLightMaterial, -1.78, 1, -0.6, van, true);
+  box(0.1, 0.1, 1.3, materials.red, -1.72, 0.9, 0, proceduralVanBody, true);
   const wheelGeometry = new THREE.CylinderGeometry(0.34, 0.34, 0.22, 10);
   wheelGeometry.rotateX(Math.PI / 2);
   const wheels: THREE.Mesh[] = [];
@@ -654,430 +708,60 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
     const wheel = new THREE.Mesh(wheelGeometry, materials.dark);
     wheel.position.set(x, 0.34, z);
     wheel.castShadow = true;
-    van.add(wheel);
+    proceduralVanBody.add(wheel);
     wheels.push(wheel);
   }
-  const doorLeft = new THREE.Group();
-  doorLeft.position.set(-1.72, 1.2, 0.75);
-  van.add(doorLeft);
-  box(0.08, 1.24, 0.72, materials.machineDark, 0, 0, -0.36, doorLeft);
-  const doorRight = new THREE.Group();
-  doorRight.position.set(-1.72, 1.2, -0.75);
-  van.add(doorRight);
-  box(0.08, 1.24, 0.72, materials.machineDark, 0, 0, 0.36, doorRight);
+  const leftDoor = new THREE.Group();
+  leftDoor.position.set(-1.78, 1.12, 0.91);
+  van.add(leftDoor);
+  box(0.08, 1.2, 0.88, materials.machineDark, 0, 0, -0.44, leftDoor);
+  const rightDoor = new THREE.Group();
+  rightDoor.position.set(-1.78, 1.12, -0.91);
+  van.add(rightDoor);
+  box(0.08, 1.2, 0.88, materials.machineDark, 0, 0, 0.44, rightDoor);
+  let visualVanWheels: THREE.Object3D[] = [];
 
   box(7, 6, 6, materials.machine, 84, 3, 3);
   box(4, 3.2, 5, materials.machineDark, 79.5, 1.6, 5.5);
   box(7.4, 0.35, 6.4, materials.machineDark, 84, 6.15, 3);
-  box(4.4, 0.28, 5.4, materials.dark, 79.5, 3.3, 5.5);
   cylinder(0.5, 0.6, 3.2, materials.machineDark, 85.5, 7.4, 1.8, scene, 10);
-  cylinder(0.32, 0.4, 2.2, materials.machineDark, 83.6, 6.9, 4.2, scene, 10);
   box(2.6, 0.55, 0.14, materials.red, 80.42, 5.3, 3, scene, true);
-  const coolWindowMaterial = new THREE.MeshStandardMaterial({
-    color: 0x1a2434,
-    emissive: 0x9db4d8,
-    emissiveIntensity: 0.35,
-    flatShading: true,
-  });
-  for (let row = 0; row < 2; row += 1) {
-    box(0.1, 0.7, 0.55, coolWindowMaterial, 80.47, 2.2 + row * 1.6, 1.2, scene, true);
-    box(0.1, 0.7, 0.55, coolWindowMaterial, 80.47, 2.2 + row * 1.6, 5, scene, true);
-  }
-  for (let column = 0; column < 3; column += 1) {
-    box(0.95, 0.75, 0.1, coolWindowMaterial, 82.4 + column * 1.5, 4.5, 0.02, scene, true);
-  }
-  const destinationWindowMaterial = new THREE.MeshStandardMaterial({
-    color: 0x131a26,
-    emissive: 0xffc98a,
+  const windowMaterial = new THREE.MeshStandardMaterial({
+    color: 0x123a5a,
+    emissive: 0xffd9a0,
     emissiveIntensity: 0,
     flatShading: true,
   });
-  box(0.12, 1.5, 1.2, destinationWindowMaterial, 80.45, 3.4, 3.2, scene, true);
-  box(0.12, 2, 1.4, materials.dark, 80.45, 1.3, 4.4, scene, true);
-  box(1.4, 0.5, 1.2, materials.machineDark, 81.3, 0.25, 3.4);
-  box(0.9, 0.9, 0.9, woodMaterial, 81.7, 0.45, 5.4);
-  box(0.65, 0.65, 0.65, woodMaterial, 80.9, 0.33, 6.2);
-  const destinationLight = new THREE.PointLight(0xffc98a, 0, 22, 2);
-  destinationLight.position.set(79.2, 3.4, 3.2);
-  scene.add(destinationLight);
-
-  box(1.2, 0.18, 1, materials.dark, 12, 0.09, -2.6);
-  box(1.1, 0.5, 0.9, materials.machineDark, 12, 0.5, -2.6);
-  box(1.2, 0.18, 1, materials.dark, 12, 0.85, -2.6);
-  cylinder(0.35, 0.35, 0.9, materials.machineDark, 30, 0.45, 2.4, scene, 10);
-  cylinder(0.35, 0.35, 0.9, materials.machine, 30.8, 0.45, 2.1, scene, 10);
-  cylinder(0.35, 0.35, 0.9, materials.machineDark, 30.4, 1.35, 2.25, scene, 10);
-
-  const poolCanvas = document.createElement("canvas");
-  poolCanvas.width = 128;
-  poolCanvas.height = 128;
-  const poolContext = poolCanvas.getContext("2d");
-  if (!poolContext) {
-    throw new Error("Canvas 2D is unavailable");
-  }
-  const poolGradient = poolContext.createRadialGradient(64, 64, 4, 64, 64, 62);
-  poolGradient.addColorStop(0, "rgba(168,200,242,0.55)");
-  poolGradient.addColorStop(1, "rgba(168,200,242,0)");
-  poolContext.fillStyle = poolGradient;
-  poolContext.fillRect(0, 0, 128, 128);
-  const poolTexture = new THREE.CanvasTexture(poolCanvas);
-  const addLightPool = (x: number, z: number, size: number) => {
-    const pool = new THREE.Mesh(
-      new THREE.PlaneGeometry(size, size),
-      new THREE.MeshBasicMaterial({
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        map: poolTexture,
-        opacity: 0.5,
-        polygonOffset: true,
-        polygonOffsetFactor: -1,
-        polygonOffsetUnits: -2,
-        transparent: true,
-      }),
-    );
-    pool.rotation.x = -Math.PI / 2;
-    pool.position.set(x, 0.08, z);
-    scene.add(pool);
-  };
+  box(0.12, 1.5, 1.2, windowMaterial, 80.45, 3.4, 3.2, scene, true);
+  const factoryLight = new THREE.PointLight(0xffd9a0, 0, 22, 2);
+  factoryLight.position.set(79.2, 3.4, 3.2);
+  scene.add(factoryLight);
 
   for (const x of [2, 14, 28, 40]) {
     box(0.14, 3.4, 0.14, materials.dark, x, 1.7, -3.1);
     box(0.5, 0.12, 0.3, materials.machineDark, x, 3.42, -2.95);
-    box(
-      0.3,
-      0.06,
-      0.2,
-      new THREE.MeshBasicMaterial({ color: 0xb8cce8 }),
-      x,
-      3.34,
-      -2.95,
-      scene,
-      true,
-    );
-    addLightPool(x, -2.2, 5.5);
+    box(0.3, 0.06, 0.2, materials.white, x, 3.34, -2.95, scene, true);
   }
   for (const x of [10, 19, 37]) {
     box(0.22, 5.2, 0.22, materials.machine, x, 2.6, 2.9);
     box(0.22, 5.2, 0.22, materials.machine, x, 2.6, -2.9);
     box(0.26, 0.3, 6.1, materials.machineDark, x, 5.25, 0);
-    box(
-      0.14,
-      0.05,
-      3.4,
-      new THREE.MeshBasicMaterial({ color: 0xb8cce8 }),
-      x,
-      5.07,
-      0,
-      scene,
-      true,
-    );
-    addLightPool(x, 0, 7);
+    box(0.14, 0.05, 3.4, materials.white, x, 5.07, 0, scene, true);
   }
-
-  const hazardCanvas = document.createElement("canvas");
-  hazardCanvas.width = 64;
-  hazardCanvas.height = 64;
-  const hazardContext = hazardCanvas.getContext("2d");
-  if (!hazardContext) {
-    throw new Error("Canvas 2D is unavailable");
-  }
-  hazardContext.fillStyle = "#18202e";
-  hazardContext.fillRect(0, 0, 64, 64);
-  hazardContext.strokeStyle = "#a83430";
-  hazardContext.lineWidth = 11;
-  for (let offset = -64; offset < 128; offset += 26) {
-    hazardContext.beginPath();
-    hazardContext.moveTo(offset, 64);
-    hazardContext.lineTo(offset + 64, 0);
-    hazardContext.stroke();
-  }
-  const hazardTexture = new THREE.CanvasTexture(hazardCanvas);
-  hazardTexture.wrapS = THREE.RepeatWrapping;
-  hazardTexture.wrapT = THREE.RepeatWrapping;
-  hazardTexture.repeat.set(8, 1);
-  const hazardMaterial = new THREE.MeshStandardMaterial({
-    map: hazardTexture,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -2,
-    roughness: 0.9,
-  });
-  box(4.5, 0.06, 0.35, hazardMaterial, 0, 0.07, 6.9, scene, true);
-  box(4.5, 0.06, 0.35, hazardMaterial, 24, 0.07, 6.9, scene, true);
-  box(4.5, 0.06, 0.35, hazardMaterial, 43, 0.07, 6.9, scene, true);
-
-  for (const [height, z] of [
-    [1.25, -3.35],
-    [1.65, -3.55],
-  ]) {
-    const pipe = cylinder(0.14, 0.14, 44, materials.machineDark, 24, height, z, scene, 8);
-    pipe.rotation.z = Math.PI / 2;
-    for (let x = 4; x <= 44; x += 8) {
-      box(0.12, height + 0.1, 0.12, materials.dark, x, height / 2, z);
-    }
-  }
-
   box(36, 0.35, 1.1, materials.belt, 22, 1.5, -5.6);
   for (let x = 6; x <= 38; x += 5) {
     box(0.2, 1.35, 0.2, materials.dark, x, 0.67, -5.2);
     box(0.2, 1.35, 0.2, materials.dark, x, 0.67, -6);
   }
-  const backgroundParts: THREE.Object3D[] = [];
-  for (let index = 0; index < 8; index += 1) {
-    backgroundParts.push(
-      index % 2
-        ? box(0.5, 0.4, 0.5, materials.machine, 0, 1.9, -5.6)
-        : cylinder(0.24, 0.24, 0.45, materials.metal, 0, 1.9, -5.6, scene, 8),
-    );
-  }
-
+  const backgroundParts = Array.from({ length: 8 }, (_, index) =>
+    index % 2
+      ? box(0.5, 0.4, 0.5, materials.machine, 0, 1.9, -5.6)
+      : cylinder(0.24, 0.24, 0.45, materials.metal, 0, 1.9, -5.6, scene, 8),
+  );
   box(24, 0.12, 1, materials.machineDark, 23, 3.8, -4.6);
   for (let x = 12; x <= 34; x += 5.5) {
     box(0.22, 3.8, 0.22, materials.dark, x, 1.9, -4.6);
   }
-  box(24, 0.05, 0.05, materials.dark, 23, 4.6, -4.15);
-  box(24, 0.05, 0.05, materials.dark, 23, 4.6, -5.05);
-  for (let x = 11.5; x <= 34.5; x += 2.3) {
-    box(0.04, 0.8, 0.04, materials.dark, x, 4.2, -4.15);
-    box(0.04, 0.8, 0.04, materials.dark, x, 4.2, -5.05);
-  }
-
-  type SignPalette = {
-    faceStart: string;
-    faceEnd: string;
-    border: string;
-    text: string;
-    accent: string;
-    light: number;
-  };
-  const signPalette: SignPalette = {
-    faceStart: "#751b2d",
-    faceEnd: "#d64a46",
-    border: "#9edcf4",
-    text: "#f4fbff",
-    accent: "#70c4e8",
-    light: 0x9edcf4,
-  };
-  const signTextures: THREE.CanvasTexture[] = [];
-  const signTexture = (text: string, palette: SignPalette) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 512;
-    canvas.height = 256;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("Canvas 2D is unavailable");
-    }
-
-    const faceGradient = context.createLinearGradient(0, 0, 512, 256);
-    faceGradient.addColorStop(0, palette.faceStart);
-    faceGradient.addColorStop(1, palette.faceEnd);
-    context.fillStyle = faceGradient;
-    context.fillRect(0, 0, 512, 256);
-
-    const shadeGradient = context.createLinearGradient(0, 0, 0, 256);
-    shadeGradient.addColorStop(0, "rgba(255,255,255,0.16)");
-    shadeGradient.addColorStop(0.38, "rgba(255,255,255,0)");
-    shadeGradient.addColorStop(1, "rgba(4,12,24,0.26)");
-    context.fillStyle = shadeGradient;
-    context.fillRect(0, 0, 512, 256);
-
-    context.strokeStyle = palette.border;
-    context.lineWidth = 12;
-    context.strokeRect(10, 10, 492, 236);
-    context.strokeStyle = "rgba(7,17,30,0.34)";
-    context.lineWidth = 3;
-    context.strokeRect(30, 30, 452, 196);
-    context.fillStyle = palette.accent;
-    context.fillRect(36, 34, 94, 15);
-
-    context.save();
-    context.fillStyle = palette.text;
-    context.font = `800 ${text.length > 5 ? 72 : 84}px monospace`;
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.shadowColor = palette.border;
-    context.shadowBlur = 16;
-    context.fillText(text, 256, 145);
-    context.restore();
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 4);
-    signTextures.push(texture);
-    return texture;
-  };
-  const addSign = (
-    text: string,
-    x: number,
-    y: number,
-    z: number,
-    palette: SignPalette,
-  ) => {
-    const signWidth = 2.45;
-    const signHeight = 1.3;
-    box(
-      signWidth + 0.18,
-      signHeight + 0.18,
-      0.16,
-      materials.dark,
-      x,
-      y,
-      z - 0.09,
-      scene,
-      true,
-    );
-    const sign = new THREE.Mesh(
-      new THREE.PlaneGeometry(signWidth, signHeight),
-      new THREE.MeshBasicMaterial({
-        map: signTexture(text, palette),
-        toneMapped: false,
-      }),
-    );
-    sign.position.set(x, y, z);
-    scene.add(sign);
-    const postHeight = y - signHeight / 2;
-    for (const offset of [-0.72, 0.72]) {
-      box(
-        0.09,
-        postHeight,
-        0.09,
-        materials.dark,
-        x + offset,
-        postHeight / 2,
-        z - 0.14,
-      );
-    }
-    const lampMaterial = new THREE.MeshStandardMaterial({
-      color: palette.light,
-      emissive: palette.light,
-      emissiveIntensity: 1.8,
-      roughness: 0.4,
-    });
-    box(0.88, 0.07, 0.09, lampMaterial, x, y + signHeight / 2 + 0.11, z, scene, true);
-    const spillLight = new THREE.PointLight(palette.light, 5.5, 5.2, 2);
-    spillLight.position.set(x, y + 0.1, z + 1.15);
-    scene.add(spillLight);
-  };
-  addSign("FIND", 0, 2.95, -2.95, signPalette);
-  addSign("CONNECT", 25.8, 2.95, -2.95, signPalette);
-  addSign("DEPLOY", 41, 2.95, -2.95, signPalette);
-
-  const pallet = (x: number, z: number, rotationY = 0) => {
-    const group = new THREE.Group();
-    group.position.set(x, 0, z);
-    group.rotation.y = rotationY;
-    scene.add(group);
-    box(1.4, 0.08, 1.3, woodMaterial, 0, 0.25, 0, group);
-    for (const offset of [-0.6, 0, 0.6]) {
-      box(0.14, 0.18, 1.3, woodMaterial, offset, 0.09, 0, group);
-    }
-    return group;
-  };
-  let palletGroup = pallet(7, 2.6, 0.3);
-  box(0.9, 0.7, 0.8, materials.machineDark, -0.15, 0.65, 0, palletGroup);
-  box(0.5, 0.45, 0.5, materials.machine, 0.4, 0.52, 0.25, palletGroup);
-  palletGroup = pallet(20.5, -2.4, -0.2);
-  box(1.1, 0.5, 0.9, materials.machine, 0, 0.55, 0, palletGroup);
-  box(0.7, 0.4, 0.6, materials.machineDark, 0.1, 1, 0.05, palletGroup);
-  palletGroup = pallet(38.5, 2.7, 0.5);
-  box(0.8, 0.6, 0.7, materials.machineDark, 0, 0.6, 0, palletGroup);
-  palletGroup = pallet(41.2, 3.1, -0.4);
-  box(1, 0.55, 0.85, materials.machine, 0, 0.57, 0, palletGroup);
-
-  box(3.2, 0.06, 0.35, hazardMaterial, 44.3, 0.07, 1.1, scene, true);
-  box(0.12, 1.9, 0.12, materials.dark, 45.6, 0.95, 0.9);
-  cylinder(0.14, 0.16, 0.16, materials.machineDark, 45.6, 1.95, 0.9, scene, 8);
-  const beacon = new THREE.Group();
-  beacon.position.set(45.6, 2.1, 0.9);
-  scene.add(beacon);
-  const beaconMaterial = new THREE.MeshStandardMaterial({
-    color: 0x3a0d0d,
-    emissive: 0xd63c3c,
-    emissiveIntensity: 1.6,
-  });
-  cylinder(0.1, 0.12, 0.2, beaconMaterial, 0, 0, 0, beacon, 8);
-  box(0.55, 0.05, 0.05, beaconMaterial, 0.22, 0, 0, beacon, true);
-
-  box(0.8, 12, 9.9, materials.machineDark, 52, 6, -4.05);
-  box(0.8, 12, 4.6, materials.machineDark, 52, 6, 8.2);
-  box(0.8, 5, 5, materials.machineDark, 52, 9.5, 3.4);
-  box(0.9, 0.9, 5.2, materials.machine, 52, 7.15, 3.4);
-  box(0.9, 7.2, 0.25, materials.red, 52, 3.5, 0.9, scene, true);
-  box(0.9, 7.2, 0.25, materials.red, 52, 3.5, 5.9, scene, true);
-  box(0.95, 0.3, 5.2, materials.red, 52, 6.85, 3.4, scene, true);
-  box(0.86, 0.06, 0.4, hazardMaterial, 51.55, 0.07, 0.9, scene, true);
-  box(0.86, 0.06, 0.4, hazardMaterial, 51.55, 0.07, 5.9, scene, true);
-  for (let z = -8; z <= 9.5; z += 2.5) {
-    if (z < 0.4 || z > 6.4) {
-      box(0.85, 11.6, 0.06, materials.dark, 52, 6, z, scene, true);
-    }
-  }
-
-  const starPositions = new Float32Array(300 * 3);
-  for (let index = 0; index < 300; index += 1) {
-    starPositions[index * 3] = 55 + random() * 90;
-    starPositions[index * 3 + 1] = 3 + random() * 55;
-    starPositions[index * 3 + 2] = -70 + random() * 140;
-  }
-  const starGeometry = new THREE.BufferGeometry();
-  starGeometry.setAttribute("position", new THREE.BufferAttribute(starPositions, 3));
-  scene.add(
-    new THREE.Points(
-      starGeometry,
-      new THREE.PointsMaterial({ color: 0xcfe0ff, fog: false, size: 0.22 }),
-    ),
-  );
-  const hillMaterial = material(0x121c2c);
-  for (const [x, z, radius, height] of [
-    [75, -35, 25, 6],
-    [100, 35, 38, 9],
-    [130, -25, 45, 11],
-  ]) {
-    const hill = new THREE.Mesh(
-      new THREE.ConeGeometry(radius, height, 5),
-      hillMaterial,
-    );
-    hill.position.set(x, height / 2 - 0.5, z);
-    scene.add(hill);
-  }
-  const roadBend = box(18, 0.7, 3, materials.road, 68, -0.45, 12);
-  roadBend.rotation.y = 0.6;
-  const moon = new THREE.Mesh(
-    new THREE.CircleGeometry(2.2, 24),
-    new THREE.MeshBasicMaterial({ color: 0xe8f1fc, fog: false }),
-  );
-  moon.position.set(125, 42, -30);
-  moon.lookAt(28, 4, 8);
-  scene.add(moon);
-  const moonLight = new THREE.DirectionalLight(0xbdd4f5, 0.9);
-  moonLight.position.set(85, 18, 12);
-  moonLight.target.position.set(48, 0, 3.4);
-  scene.add(moonLight, moonLight.target);
-
-  const addRail = (start: number, end: number) => {
-    const length = end - start;
-    const center = (start + end) / 2;
-    box(length, 0.06, 0.06, materials.red, center, 1.05, 7, scene, true);
-    box(length, 0.05, 0.05, materials.red, center, 0.6, 7, scene, true);
-    for (let x = start; x <= end; x += 4.4) {
-      box(0.08, 1.1, 0.08, materials.machineDark, x, 0.55, 7);
-    }
-  };
-  addRail(3, 20);
-  addRail(26, 40);
-
-  const destinationGlowMaterial = new THREE.SpriteMaterial({
-    blending: THREE.AdditiveBlending,
-    color: 0xffc98a,
-    depthWrite: false,
-    map: glowTexture,
-    opacity: 0,
-    transparent: true,
-  });
-  const destinationGlow = new THREE.Sprite(destinationGlowMaterial);
-  destinationGlow.scale.set(4.5, 4.5, 1);
-  destinationGlow.position.set(80.2, 3.4, 3.2);
-  scene.add(destinationGlow);
 
   const cameraPositions: readonly VectorKeyframe[] = [
     [0, [28, 24, 44]],
@@ -1088,13 +772,13 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
     [0.31, [6, 4.4, 10.5]],
     [0.4, [16, 4.2, 10]],
     [0.47, [27.5, 4.4, 9.5]],
-    [0.55, [28.6, 5.2, 7.2]],
-    [0.62, [27.4, 5.4, 6]],
+    [0.55, [26.2, 4.8, 5.6]],
+    [0.62, [25.8, 4.9, 4.8]],
     [0.68, [28, 4.6, 10.5]],
-    [0.75, [45, 4.2, 10]],
-    [0.82, [48.2, 3.8, 9.5]],
-    [0.88, [51, 5.2, 12.5]],
-    [1, [50, 16, 28]],
+    [0.75, [42.5, 5, 13.5]],
+    [0.82, [46, 4.8, 13]],
+    [0.88, [52, 6, 16]],
+    [1, [56, 17, 32]],
   ];
   const cameraTargets: readonly VectorKeyframe[] = [
     [0, [30, 1, 0]],
@@ -1109,153 +793,382 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
     [0.62, [24, 4.1, 0]],
     [0.68, [28, 2.4, 0]],
     [0.75, [43, 2, 0]],
-    [0.82, [44.5, 1.6, 0.8]],
-    [0.88, [48, 1.5, 2.5]],
+    [0.82, [44.5, 1.8, 0.8]],
+    [0.88, [50, 1.8, 3.4]],
     [1, [72, 3, 3]],
   ];
-  const cameraCurve = new THREE.CatmullRomCurve3(
-    cameraPositions.map(([, value]) => new THREE.Vector3(...value)),
-    false,
-    "centripetal",
-  );
-  const targetCurve = new THREE.CatmullRomCurve3(
-    cameraTargets.map(([, value]) => new THREE.Vector3(...value)),
-    false,
-    "centripetal",
-  );
-  const cameraTiming: readonly NumberKeyframe[] = cameraPositions.map(
-    ([progress], index) => [progress, index / (cameraPositions.length - 1)],
-  );
-  const targetTiming: readonly NumberKeyframe[] = cameraTargets.map(
-    ([progress], index) => [progress, index / (cameraTargets.length - 1)],
-  );
+  const cameraPositionCurve = createTimedCameraCurve(cameraPositions);
+  const cameraTargetCurve = createTimedCameraCurve(cameraTargets);
+  const cameraPosition = new THREE.Vector3();
   const cameraTarget = new THREE.Vector3();
-
-  solveArm(vectorAt(0.305, armKeyframes));
-  const bulbKeyframes: readonly VectorKeyframe[] = [
-    [0.305, [armTipWorld.x, armTipWorld.y - 1.35, armTipWorld.z]],
-    [0.322, [4.2, 2.3, 0]],
+  const gripperReleaseProgress = 0.305;
+  solveArm(vectorAt(gripperReleaseProgress, armKeyframes));
+  const gripperReleasePosition: [number, number, number] = [
+    tipWorld.x,
+    tipWorld.y - bulbAttachmentOffset,
+    tipWorld.z,
+  ];
+  const bulbPositions: readonly VectorKeyframe[] = [
+    [gripperReleaseProgress, gripperReleasePosition],
     [0.455, [24, 2.3, 0]],
     [0.5, [24, 2.3, 0]],
-    [0.53, [24, 3.3, 0]],
-    [0.555, [24, 4.3, 0]],
-    [0.578, [24, 4.75, 0]],
-    [0.645, [24, 4.75, 0]],
+    [0.53, [24, 3.7, 0]],
+    [0.585, [24, 4.14, 0]],
+    [0.645, [24, 4.14, 0]],
     [0.685, [24, 2.3, 0]],
     [0.7, [24, 2.3, 0]],
     [0.755, [42, 2.3, 0]],
-    [0.772, [43, 2.65, 0]],
+    [0.775, [43, 2.15, 0]],
     [0.795, [43, 1.62, 0]],
   ];
-  const crateKeyframes: readonly VectorKeyframe[] = [
-    [0, [43, 1.51, 0]],
-    [0.838, [43, 1.51, 0]],
-    [0.846, [43, 1.46, 0.95]],
-    [0.858, [43, 1.06, 3.35]],
-    [0.87, [44.4, 0.88, 3.4]],
-    [0.882, [46.35, 0.67, 3.4]],
+  const cratePositions: readonly VectorKeyframe[] = [
+    [0, [43, 1.5, 0]],
+    [0.84, [43, 1.5, 0]],
+    [0.858, [44.8, 1.1, 1.7]],
+    [0.878, [46.3, 0.62, 3.4]],
   ];
+  const panelWindows = new Map<StoryPhase, readonly [number, number]>([
+    ["intro", [0, 0.1]],
+    ["find", [0.1, 0.38]],
+    ["connect", [0.38, 0.7]],
+    ["deploy", [0.7, 0.93]],
+    ["outcome", [0.93, 1]],
+  ]);
+  const findModelGroup = new THREE.Group();
+  scene.add(findModelGroup);
 
-  const heroWorld = new THREE.Vector3();
-  const heroProjected = new THREE.Vector3();
-  let viewportWidth = 1;
-  let viewportHeight = 1;
-  let storyStart = 0;
-  let storyRange = 1;
-  let targetProgress = 0;
-  let renderedProgress = 0;
-  let animationFrame = 0;
-  let destroyed = false;
+  const loadFindModels = async () => {
+    const [robotModel, conveyorModel, scannerModel] = await Promise.all([
+      loadModel(factoryAssetManifest.robotArm),
+      loadModel(factoryAssetManifest.conveyor),
+      loadModel(factoryAssetManifest.scanner),
+    ]);
 
-  const currentRailChapter = (progress: number): RailChapter => {
-    if (progress < 0.405) {
-      return "find";
-    }
-    if (progress < 0.7) {
-      return "connect";
-    }
-    return "deploy";
-  };
-
-  const updatePanels = (progress: number) => {
-    for (const { chapter, start, end } of storyWindows) {
-      const panel = panels.get(chapter);
-      if (!panel) {
-        continue;
-      }
-      const opacity = panelOpacity(progress, start, end);
-      const entering = start === 0 ? 1 : segment(progress, start, start + 0.04);
-      const leaving = end === 1 ? 0 : segment(progress, end - 0.04, end);
-      const offset = (1 - entering) * 36 - leaving * 36;
-      panel.style.opacity = opacity.toFixed(4);
-      panel.style.transform = `translateY(calc(-50% + ${offset.toFixed(2)}px))`;
-      panel.setAttribute("aria-hidden", opacity > 0.35 ? "false" : "true");
-    }
-
-    const activeChapter = currentRailChapter(progress);
-    const chapterOrder: readonly RailChapter[] = ["find", "connect", "deploy"];
-    const activeIndex = chapterOrder.indexOf(activeChapter);
-    chapterOrder.forEach((chapter, index) => {
-      const button = railButtons.get(chapter);
-      if (!button) {
-        return;
-      }
-      button.classList.toggle("is-active", index === activeIndex);
-      button.classList.toggle("is-complete", index < activeIndex);
-      if (index === activeIndex) {
-        button.setAttribute("aria-current", "step");
-      } else {
-        button.removeAttribute("aria-current");
-      }
-    });
-
-    railFill.style.transform = `scaleY(${progress.toFixed(4)})`;
-    progressLabel.textContent = `${String(Math.round(progress * 100)).padStart(3, "0")}%`;
-    hint.style.opacity = String(1 - segment(progress, 0.005, 0.035));
-    root.dataset.storyChapter = activeChapter;
-  };
-
-  const composeProtagonist = (progress: number) => {
-    if (progress < 0.055) {
+    if (destroyed) {
+      disposeModels([robotModel, conveyorModel, scannerModel]);
       return;
     }
-    heroBulb.updateWorldMatrix(true, false);
-    heroBulb.getWorldPosition(heroWorld);
-    heroWorld.y += 0.56;
-    heroProjected.copy(heroWorld).project(camera);
 
-    const isNarrow = viewportWidth < 680;
-    const desiredX = isNarrow ? 0.04 : 0.34;
-    const desiredY = isNarrow ? 0.34 : 0;
-    const strength = segment(progress, 0.055, 0.095);
-    const correctionX = (desiredX - heroProjected.x) * strength;
-    const correctionY = (desiredY - heroProjected.y) * strength;
+    if (robotModel) {
+      styleModel(robotModel, (mesh) => {
+        if (mesh.name.startsWith("claw")) {
+          return materials.metal;
+        }
+        return mesh.name === "robot-arm-a" || /element-[ace]/.test(mesh.name)
+          ? materials.machineDark
+          : materials.machine;
+      });
+      const shoulder = robotModel.getObjectByName("element-b");
+      const elbow = robotModel.getObjectByName("element-d");
+      const wrist = robotModel.getObjectByName("element-f");
+      const clawLeft = robotModel.getObjectByName("claw-a");
+      const clawRight = robotModel.getObjectByName("claw-b");
+      if (shoulder && elbow && wrist && clawLeft && clawRight) {
+        robotModel.position.set(pivot.x, 0.08, pivot.z);
+        robotModel.scale.setScalar(1.75);
+        clawLeft.scale.y = 0.42;
+        clawRight.scale.y = 0.42;
+        clawLeft.position.y = 0.22;
+        clawRight.position.y = 0.22;
+        const bulbAnchor = new THREE.Object3D();
+        bulbAnchor.position.y = 0.48;
+        wrist.add(bulbAnchor);
+        robotVisualRig = {
+          root: robotModel,
+          shoulder,
+          elbow,
+          wrist,
+          clawLeft,
+          clawRight,
+          bulbAnchor,
+        };
+        findModelGroup.add(robotModel);
+        proceduralRobot.visible = false;
+        solveArm(vectorAt(gripperReleaseProgress, armKeyframes));
+        updateRobotVisual(0.06);
+        robotModel.position.add(
+          new THREE.Vector3(4, 2.54, 0).sub(visualTipWorld),
+        );
+        updateRobotVisual(0.06);
+        gripperReleasePosition[0] = visualTipWorld.x;
+        gripperReleasePosition[1] = visualTipWorld.y - bulbAttachmentOffset;
+        gripperReleasePosition[2] = visualTipWorld.z;
+      }
+    }
 
-    camera.projectionMatrix.elements[8] -= correctionX;
-    camera.projectionMatrix.elements[9] -= correctionY;
-    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+    if (conveyorModel) {
+      styleModel(conveyorModel, () => materials.machineDark);
+      for (let x = 5; x <= 41; x += 2) {
+        const segmentModel = conveyorModel.clone(true);
+        segmentModel.position.set(x, 1.9, 0);
+        segmentModel.scale.z = 1.35;
+        findModelGroup.add(segmentModel);
+      }
+      proceduralConveyor.visible = false;
+    }
 
-    heroProjected.copy(heroWorld).project(camera);
-    root.dataset.protagonistX = ((heroProjected.x + 1) / 2).toFixed(3);
-    root.dataset.protagonistY = ((1 - heroProjected.y) / 2).toFixed(3);
+    if (scannerModel) {
+      styleModel(scannerModel, () => materials.crimson);
+      scannerModel.position.set(-1.7, 0.02, -1.9);
+      scannerModel.rotation.y = Math.PI / 2;
+      scannerModel.scale.setScalar(1.2);
+      findModelGroup.add(scannerModel);
+    }
+
+    updateScene(progress);
+    requestRender();
+  };
+  const connectModelGroup = new THREE.Group();
+  scene.add(connectModelGroup);
+
+  const loadConnectModels = async () => {
+    const [machineModel, shelfModel, palletModel, boxModel] = await Promise.all([
+      loadModel(factoryAssetManifest.machineWindow),
+      loadModel(factoryAssetManifest.shelf),
+      loadModel(factoryAssetManifest.pallet),
+      loadModel(factoryAssetManifest.shippingBoxWide),
+    ]);
+
+    if (destroyed) {
+      disposeModels([machineModel, shelfModel, palletModel, boxModel]);
+      return;
+    }
+
+    if (machineModel) {
+      styleModel(machineModel, () => materials.machine);
+      for (const x of [20.5, 27.5]) {
+        const machine = machineModel.clone(true);
+        machine.position.set(x, 0.02, -2.55);
+        machine.scale.setScalar(1.65);
+        connectModelGroup.add(machine);
+      }
+    }
+
+    if (shelfModel) {
+      styleModel(shelfModel, () => materials.machineDark);
+      for (const x of [17.5, 31]) {
+        const shelf = shelfModel.clone(true);
+        shelf.position.set(x, 0.02, -3.25);
+        shelf.scale.setScalar(2.25);
+        connectModelGroup.add(shelf);
+      }
+    }
+
+    if (palletModel) {
+      styleModel(palletModel, () => materials.metal);
+      for (const [x, z, rotation] of [
+        [19, -2.2, 0.08],
+        [29.5, -2.35, -0.1],
+      ] as const) {
+        const pallet = palletModel.clone(true);
+        pallet.position.set(x, 0.05, z);
+        pallet.rotation.y = rotation;
+        pallet.scale.setScalar(1.15);
+        connectModelGroup.add(pallet);
+      }
+    }
+
+    if (boxModel) {
+      styleModel(boxModel, () => materials.machineDark);
+      for (const [x, y, z, rotation] of [
+        [19, 0.22, -2.2, 0.08],
+        [19.25, 0.72, -2.25, -0.04],
+        [29.5, 0.22, -2.35, -0.1],
+      ] as const) {
+        const shippingBox = boxModel.clone(true);
+        shippingBox.position.set(x, y, z);
+        shippingBox.rotation.y = rotation;
+        shippingBox.scale.setScalar(0.85);
+        connectModelGroup.add(shippingBox);
+      }
+    }
+
+    updateScene(progress);
+    requestRender();
+  };
+  const deployModelGroup = new THREE.Group();
+  scene.add(deployModelGroup);
+  let visualCrateModel: THREE.Object3D | null = null;
+
+  const loadDeployModels = async () => {
+    const [
+      deliveryVanModel,
+      crateModel,
+      dockDoorModel,
+      catwalkStairsModel,
+      catwalkStraightModel,
+      pipeLongModel,
+      pipeBendModel,
+      beaconModel,
+    ] = await Promise.all([
+      loadModel(factoryAssetManifest.deliveryVan),
+      loadModel(factoryAssetManifest.shippingBox),
+      loadModel(factoryAssetManifest.dockDoor),
+      loadModel(factoryAssetManifest.catwalkStairs),
+      loadModel(factoryAssetManifest.catwalkStraight),
+      loadModel(factoryAssetManifest.pipeLong),
+      loadModel(factoryAssetManifest.pipeBend),
+      loadModel(factoryAssetManifest.beacon),
+    ]);
+
+    const deployModels = [
+      deliveryVanModel,
+      crateModel,
+      dockDoorModel,
+      catwalkStairsModel,
+      catwalkStraightModel,
+      pipeLongModel,
+      pipeBendModel,
+      beaconModel,
+    ];
+    if (destroyed) {
+      disposeModels(deployModels);
+      return;
+    }
+
+    if (deliveryVanModel) {
+      styleModel(deliveryVanModel, (mesh) => {
+        if (mesh.name.startsWith("wheel")) {
+          return materials.dark;
+        }
+        return mesh.name === "body" ? materials.machine : materials.machineDark;
+      });
+      const originalDoor = deliveryVanModel.getObjectByName("door");
+      if (originalDoor) {
+        originalDoor.visible = false;
+      }
+      deliveryVanModel.rotation.y = Math.PI / 2;
+      deliveryVanModel.scale.setScalar(1.25);
+      van.add(deliveryVanModel);
+      visualVanWheels = [
+        "wheel-front-right",
+        "wheel-front-left",
+        "wheel-back-right",
+        "wheel-back-left",
+      ]
+        .map((name) => deliveryVanModel.getObjectByName(name))
+        .filter((wheel): wheel is THREE.Object3D => Boolean(wheel));
+      proceduralVanBody.visible = false;
+    }
+
+    if (crateModel) {
+      styleModel(crateModel, () => materials.red);
+      crateModel.position.set(0, 0.04, 0);
+      crateModel.scale.set(0.9, 1.4, 0.9);
+      crate.add(crateModel);
+      visualCrateModel = crateModel;
+      proceduralCrateShell.visible = false;
+    }
+
+    if (dockDoorModel) {
+      styleModel(dockDoorModel, () => materials.machineDark);
+      dockDoorModel.position.set(59, 0.02, 3.4);
+      dockDoorModel.rotation.y = Math.PI / 2;
+      dockDoorModel.scale.setScalar(2.2);
+      deployModelGroup.add(dockDoorModel);
+    }
+
+    if (catwalkStairsModel) {
+      styleModel(catwalkStairsModel, () => materials.machine);
+      catwalkStairsModel.position.set(46, 0.02, -4.1);
+      catwalkStairsModel.scale.setScalar(1.4);
+      deployModelGroup.add(catwalkStairsModel);
+    }
+
+    if (catwalkStraightModel) {
+      styleModel(catwalkStraightModel, () => materials.machine);
+      for (const x of [48.8, 51.6]) {
+        const catwalk = catwalkStraightModel.clone(true);
+        catwalk.position.set(x, 2.3, -4.1);
+        catwalk.scale.setScalar(1.4);
+        deployModelGroup.add(catwalk);
+        box(0.12, 2.3, 0.12, materials.machineDark, x, 1.15, -4.1, deployModelGroup);
+      }
+    }
+
+    if (pipeLongModel) {
+      styleModel(pipeLongModel, () => materials.metal);
+      for (const [x, y, z, rotation] of [
+        [46, 5.8, -5.5, 0],
+        [49, 5.8, -5.5, 0],
+        [52, 5.8, -5.5, 0],
+      ] as const) {
+        const pipe = pipeLongModel.clone(true);
+        pipe.position.set(x, y, z);
+        pipe.rotation.z = rotation;
+        pipe.scale.setScalar(1);
+        deployModelGroup.add(pipe);
+      }
+    }
+
+    if (pipeBendModel) {
+      styleModel(pipeBendModel, () => materials.metal);
+      pipeBendModel.position.set(54, 5.8, -5.5);
+      pipeBendModel.rotation.z = Math.PI / 2;
+      pipeBendModel.scale.setScalar(1);
+      deployModelGroup.add(pipeBendModel);
+    }
+
+    if (beaconModel) {
+      styleModel(beaconModel, () => materials.red);
+      beaconModel.position.set(58.8, 6.75, 5.25);
+      beaconModel.scale.setScalar(0.75);
+      deployModelGroup.add(beaconModel);
+    }
+
+    updateScene(progress);
+    requestRender();
+  };
+
+  const updateInterface = (progress: number) => {
+    for (const [phase, panel] of panels) {
+      const window = panelWindows.get(phase);
+      const opacity = window ? panelOpacity(progress, window[0], window[1]) : 0;
+      panel.style.setProperty("--story-opacity", opacity.toFixed(3));
+      panel.style.setProperty("--story-shift", `${((1 - opacity) * 16).toFixed(1)}px`);
+      panel.setAttribute("aria-hidden", opacity >= 0.5 ? "false" : "true");
+    }
+
+    const activePhase = progress < 0.38 ? "find" : progress < 0.7 ? "connect" : "deploy";
+    const phaseOrder: Array<Exclude<StoryPhase, "intro" | "outcome">> = [
+      "find",
+      "connect",
+      "deploy",
+    ];
+    const activeIndex = phaseOrder.indexOf(activePhase);
+    phaseOrder.forEach((phase, index) => {
+      const item = railItems.get(phase);
+      item?.classList.toggle("is-active", index === activeIndex);
+      item?.classList.toggle("is-complete", index < activeIndex);
+    });
+
+    progressLabel.textContent = `${String(Math.round(progress * 100)).padStart(3, "0")}%`;
+    hint.style.opacity = String(1 - segment(progress, 0.005, 0.045));
   };
 
   const updateScene = (progress: number) => {
-    cameraCurve.getPoint(clamp(linearAt(progress, cameraTiming)), camera.position);
-    targetCurve.getPoint(clamp(linearAt(progress, targetTiming)), cameraTarget);
-    camera.lookAt(cameraTarget);
-    camera.updateMatrixWorld();
+    cameraCurveAt(progress, cameraPositions, cameraPositionCurve, cameraPosition);
+    cameraCurveAt(progress, cameraTargets, cameraTargetCurve, cameraTarget);
+    const narrow = stage.clientWidth < 720;
+    camera.fov = narrow ? 49 : 42;
+    camera.position.set(
+      cameraPosition.x,
+      cameraPosition.y + (narrow ? 0.8 : 0),
+      cameraPosition.z + (narrow ? 4.5 : 0),
+    );
+    camera.lookAt(cameraTarget.x, cameraTarget.y, cameraTarget.z);
     camera.updateProjectionMatrix();
 
     solveArm(vectorAt(progress, armKeyframes));
-    const fingerGap = numberAt(progress, [
-      [0.18, 0.62],
-      [0.215, 0.4],
-      [0.3, 0.4],
-      [0.315, 0.62],
+    const gripGap = numberAt(progress, [
+      [0.18, 0.2],
+      [0.215, 0.06],
+      [0.3, 0.06],
+      [0.315, 0.2],
     ]);
-    fingerLeft.position.z = fingerGap;
-    fingerRight.position.z = -fingerGap;
+    fingerOne.position.z = gripGap;
+    fingerTwo.position.z = -gripGap;
+    const hasVisualTip = updateRobotVisual(gripGap);
     sensorMaterial.emissiveIntensity = numberAt(progress, [
       [0.08, 0],
       [0.1, 1.6],
@@ -1263,38 +1176,35 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
       [0.28, 0],
     ]);
 
-    scanPlane.position.z = numberAt(progress, [
+    scan.position.z = numberAt(progress, [
       [0.095, -1.25],
       [0.15, 1.25],
     ]);
     scanMaterial.opacity =
       0.4 *
-      Math.min(
-        segment(progress, 0.093, 0.105),
-        1 - segment(progress, 0.14, 0.152),
-      );
+      Math.min(segment(progress, 0.093, 0.105), 1 - segment(progress, 0.14, 0.152));
     reticleMaterial.opacity = Math.min(
       segment(progress, 0.145, 0.16),
       1 - segment(progress, 0.2, 0.215),
     );
-    const reticlePulse = 1 + 0.22 * Math.sin(progress * 620);
-    reticle.scale.set(reticlePulse, reticlePulse, 1);
+    const reticlePulse = 1 + 0.18 * Math.sin(progress * 620);
+    reticle.scale.set(reticlePulse * 0.55, reticlePulse * 0.55, 1);
 
-    if (progress > 0.218 && progress <= 0.305) {
-      heroBulb.position.set(armTipWorld.x, armTipWorld.y - 1.35, armTipWorld.z);
+    if (progress > 0.218 && progress <= gripperReleaseProgress) {
+      const activeTip = hasVisualTip ? visualTipWorld : tipWorld;
+      heroBulb.position.set(
+        activeTip.x,
+        activeTip.y - bulbAttachmentOffset,
+        activeTip.z,
+      );
     } else if (progress <= 0.218) {
       heroBulb.position.set(sourceX, 0.8, sourceZ);
     } else if (progress < 0.8) {
-      heroBulb.position.set(...vectorAt(progress, bulbKeyframes));
+      const position = vectorAt(progress, bulbPositions);
+      heroBulb.position.set(position[0], position[1], position[2]);
     }
-    heroBulb.rotation.y = Math.PI * 6 * segment(progress, 0.555, 0.578);
-    heroBulb.rotation.z =
-      Math.PI *
-      Math.min(
-        segment(progress, 0.525, 0.555),
-        1 - segment(progress, 0.648, 0.675),
-      );
-    const flip = heroBulb.rotation.z / Math.PI;
+    heroBulb.rotation.y = Math.PI * 6 * segment(progress, 0.55, 0.585);
+
     const ignitionEnvelope = segment(progress, 0.578, 0.602);
     const lit =
       progress < 0.578
@@ -1303,37 +1213,25 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
           ? 1
           : ignitionEnvelope * (Math.sin(progress * 2600) > -0.35 ? 1 : 0.15);
     const packed = segment(progress, 0.83, 0.86);
-    heroLight.intensity = 40 * lit * (1 - 0.55 * packed);
+    heroLight.castShadow = !narrow && lit > 0.5;
+    heroLight.intensity = 34 * lit * (1 - 0.55 * packed);
     heroLight.position.set(
       heroBulb.position.x,
-      heroBulb.position.y + 0.78 * (1 - 2 * flip),
+      heroBulb.position.y + 0.14,
       heroBulb.position.z,
     );
-    redGlass.emissive.setRGB(
-      0.29 + 0.55 * lit,
-      0.04 + 0.5 * lit,
-      0.04 + 0.26 * lit,
-    );
-    redGlass.emissiveIntensity = 0.7 + 2 * lit;
-    redGlass.opacity = 0.9 - 0.18 * lit;
-    filamentMaterial.emissiveIntensity = 0.15 + 7 * lit;
-    bulbGlow.position.set(
-      heroBulb.position.x,
-      heroBulb.position.y + 0.78 * (1 - 2 * flip),
-      heroBulb.position.z,
-    );
-    glowMaterial.opacity = 0.75 * lit * (1 - 0.85 * packed);
-    const glowSize = 3 + 0.25 * Math.sin(progress * 400);
-    bulbGlow.scale.set(glowSize, glowSize, 1);
+    heroGlass.color.copy(heroRed).lerp(heroWarmWhite, lit);
+    heroGlass.emissive.copy(heroCrimson).lerp(heroWarmGlow, lit);
+    heroGlass.emissiveIntensity = 0.72 + 2 * lit;
+    filamentMaterial.emissiveIntensity = 0.14 + 7 * lit;
+    glow.position.copy(heroLight.position);
+    glowMaterial.opacity = 0.72 * lit * (1 - 0.85 * packed);
+    const glowSize = 1.2 + 0.12 * Math.sin(progress * 400);
+    glow.scale.set(glowSize, glowSize, 1);
 
-    const lifterHeight = Math.max(
-      heroBulb.position.x === 24
-        ? heroBulb.position.y - 1.18 * flip - 2.3
-        : 0,
-      0.001,
-    );
-    lifter.scale.y = lifterHeight;
-    lifter.position.y = 2.3 + lifterHeight / 2;
+    const liftHeight = Math.max(heroBulb.position.x === 24 ? heroBulb.position.y - 2.3 : 0, 0.001);
+    lifter.scale.y = liftHeight;
+    lifter.position.y = 2.3 + liftHeight / 2;
 
     const beltTravel = numberAt(progress, [
       [0.315, 0],
@@ -1342,118 +1240,138 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
       [0.755, 38],
     ]);
     beltStripes.forEach((stripe, index) => {
-      stripe.position.x = 4 + ((((index * 3 + beltTravel) % 39) + 39) % 39);
+      stripe.position.x = 4 + (((index * 3 + beltTravel) % 39) + 39) % 39;
     });
     backgroundParts.forEach((part, index) => {
-      part.position.x = 5 + ((((index * 4.3 + progress * 30) % 34) + 34) % 34);
+      part.position.x = 5 + (((index * 4.3 + progress * 30) % 34) + 34) % 34;
     });
-    beacon.rotation.y = progress * 160;
 
     const vanX = numberAt(progress, [
-      [0.905, 47.5],
-      [0.985, 76],
+      [0.885, 47.5],
+      [0.98, 76],
     ]);
-    if (progress > 0.882) {
-      crate.position.set(vanX - 47.5 + 46.35, 0.67, 3.4);
+    if (progress > 0.878) {
+      crate.position.set(vanX - 47.5 + 46.3, 0.62, 3.4);
     } else {
-      crate.position.set(...vectorAt(progress, crateKeyframes));
+      const position = vectorAt(progress, cratePositions);
+      crate.position.set(position[0], position[1], position[2]);
     }
-    lid.rotation.x = -1.85 * (1 - segment(progress, 0.8, 0.832));
-    seamMaterial.opacity = lit * 0.9 * segment(progress, 0.79, 0.81);
+    lidGroup.rotation.x = -1.85 * (1 - segment(progress, 0.8, 0.832));
+    crateGlowMaterial.opacity = lit * 0.9 * segment(progress, 0.79, 0.81);
     if (progress > 0.795) {
-      heroBulb.position.set(
-        crate.position.x,
-        crate.position.y + 0.12,
-        crate.position.z,
-      );
+      heroBulb.position.set(crate.position.x, crate.position.y + 0.12, crate.position.z);
     }
 
     van.position.x = vanX;
-    const doorOpening =
+    const doorOpen =
       1.9 *
-      Math.min(
-        segment(progress, 0.822, 0.842),
-        1 - segment(progress, 0.888, 0.902),
-      );
-    doorLeft.rotation.y = doorOpening;
-    doorRight.rotation.y = -doorOpening;
+      Math.min(segment(progress, 0.83, 0.85), 1 - segment(progress, 0.878, 0.9));
+    leftDoor.rotation.y = doorOpen;
+    rightDoor.rotation.y = -doorOpen;
     wheels.forEach((wheel) => {
       wheel.rotation.z = -(vanX - 47.5) / 0.34;
     });
-    headlightMaterial.emissiveIntensity = 3 * segment(progress, 0.902, 0.918);
-    tailLightMaterial.emissiveIntensity =
-      0.5 + 2.5 * segment(progress, 0.9, 0.92);
+    visualVanWheels.forEach((wheel) => {
+      wheel.rotation.x = (vanX - 47.5) / 0.3;
+    });
+    if (visualCrateModel) {
+      visualCrateModel.rotation.y = 0.025 * segment(progress, 0.84, 0.878);
+    }
+    headlightMaterial.emissiveIntensity = 3 * segment(progress, 0.885, 0.9);
 
-    const destinationWake = segment(progress, 0.94, 0.985);
-    destinationWindowMaterial.emissiveIntensity = 2.2 * destinationWake;
-    destinationLight.intensity = 40 * destinationWake;
-    destinationGlowMaterial.opacity = 0.55 * destinationWake;
+    const factoryWake = segment(progress, 0.94, 0.985);
+    windowMaterial.emissiveIntensity = 2.2 * factoryWake;
+    factoryLight.intensity = 38 * factoryWake;
 
-    composeProtagonist(progress);
-    updatePanels(progress);
+    updateInterface(progress);
   };
 
-  const measure = () => {
+  let destroyed = false;
+  let visible = true;
+  let frame = 0;
+  let progress = 0;
+  let targetProgress = 0;
+  let storyStart = 0;
+  let storyRange = 1;
+
+  const resize = () => {
     const bounds = stage.getBoundingClientRect();
-    viewportWidth = Math.max(Math.round(bounds.width), 1);
-    viewportHeight = Math.max(Math.round(bounds.height), 1);
-    renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, viewportWidth < 720 ? 1.35 : 1.75),
-    );
-    renderer.setSize(viewportWidth, viewportHeight, false);
-    camera.aspect = viewportWidth / viewportHeight;
+    const width = Math.max(Math.round(bounds.width), 1);
+    const height = Math.max(Math.round(bounds.height), 1);
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, width < 720 ? 1.5 : 2);
+    renderer.setPixelRatio(pixelRatio);
+    renderer.setSize(width, height, false);
+    composer.setPixelRatio(pixelRatio);
+    composer.setSize(width, height);
+    ssaoPass.enabled = width >= 720;
+    bloomPass.strength = width < 720 ? 0.38 : 0.56;
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
-    storyStart = root.getBoundingClientRect().top + window.scrollY;
-    storyRange = Math.max(root.offsetHeight - window.innerHeight, 1);
-    targetProgress = clamp((window.scrollY - storyStart) / storyRange);
+    storyStart = root.getBoundingClientRect().top + window.scrollY - parseFloat(getComputedStyle(stage).top);
+    storyRange = Math.max(root.offsetHeight - height, 1);
+    targetProgress = clamp((window.scrollY - storyStart) / storyRange, 0, 1);
+    updateScene(progress);
+    composer.render(0);
+  };
+
+  const renderFrame = () => {
+    frame = 0;
+    if (destroyed || !visible || document.hidden) {
+      return;
+    }
+    progress += (targetProgress - progress) * 0.12;
+    if (Math.abs(targetProgress - progress) < 0.0004) {
+      progress = targetProgress;
+    }
+    updateScene(progress);
+    composer.render(0);
+    if (Math.abs(targetProgress - progress) >= 0.0004) {
+      frame = window.requestAnimationFrame(renderFrame);
+    }
+  };
+
+  const requestRender = () => {
+    if (!frame && visible && !document.hidden) {
+      frame = window.requestAnimationFrame(renderFrame);
+    }
   };
 
   const onScroll = () => {
-    targetProgress = clamp((window.scrollY - storyStart) / storyRange);
+    targetProgress = clamp((window.scrollY - storyStart) / storyRange, 0, 1);
+    requestRender();
   };
 
-  const jumpHandlers = new Map<HTMLButtonElement, () => void>();
-  railButtons.forEach((button, chapter) => {
-    const handler = () => {
-      measure();
-      const top = storyStart + chapterTargets[chapter] * storyRange;
-      window.scrollTo({ behavior: "smooth", top });
-    };
-    jumpHandlers.set(button, handler);
-    button.addEventListener("click", handler);
-  });
-
-  const render = () => {
-    if (destroyed) {
-      return;
+  const onVisibilityChange = () => {
+    if (!document.hidden) {
+      requestRender();
     }
-    animationFrame = window.requestAnimationFrame(render);
-    renderedProgress += (targetProgress - renderedProgress) * 0.115;
-    if (Math.abs(targetProgress - renderedProgress) < 0.00035) {
-      renderedProgress = targetProgress;
-    }
-    updateScene(renderedProgress);
-    renderer.render(scene, camera);
   };
 
-  const resizeObserver = new ResizeObserver(measure);
+  const intersectionObserver = new IntersectionObserver(
+    ([entry]) => {
+      visible = entry?.isIntersecting ?? false;
+      if (visible) {
+        onScroll();
+      } else if (frame) {
+        window.cancelAnimationFrame(frame);
+        frame = 0;
+      }
+    },
+    { rootMargin: "25% 0px" },
+  );
+  const resizeObserver = new ResizeObserver(resize);
+  intersectionObserver.observe(root);
   resizeObserver.observe(stage);
-  window.addEventListener("resize", measure);
   window.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", resize, { passive: true });
+  document.addEventListener("visibilitychange", onVisibilityChange);
 
-  measure();
-  renderedProgress = targetProgress;
-  updateScene(renderedProgress);
-  renderer.render(scene, camera);
   root.dataset.storyState = "animated";
-  animationFrame = window.requestAnimationFrame(render);
-
-  const doorOpenTimer = window.setTimeout(() => {
-    doors.classList.add("is-open");
-  }, 620);
-  const doorRemoveTimer = window.setTimeout(() => {
-    doors.classList.add("is-gone");
-  }, 2200);
+  resize();
+  onScroll();
+  void loadFindModels();
+  void loadConnectModels();
+  void loadDeployModels();
 
   return {
     destroy() {
@@ -1461,17 +1379,16 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
         return;
       }
       destroyed = true;
-      window.cancelAnimationFrame(animationFrame);
-      window.clearTimeout(doorOpenTimer);
-      window.clearTimeout(doorRemoveTimer);
+      intersectionObserver.disconnect();
       resizeObserver.disconnect();
-      window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", onScroll);
-      jumpHandlers.forEach((handler, button) => {
-        button.removeEventListener("click", handler);
-      });
+      window.removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (frame) {
+        window.cancelAnimationFrame(frame);
+      }
       scene.traverse((object) => {
-        if (object instanceof THREE.Mesh || object instanceof THREE.Points) {
+        if (object instanceof THREE.Mesh) {
           object.geometry.dispose();
           const objectMaterials = Array.isArray(object.material)
             ? object.material
@@ -1479,13 +1396,29 @@ export function createLumenStory(root: HTMLElement): LumenStoryController {
           objectMaterials.forEach((objectMaterial) => objectMaterial.dispose());
         }
       });
-      floorTexture.dispose();
+      replacedModelMaterials.forEach((modelMaterial) => {
+        if (
+          modelMaterial instanceof THREE.MeshStandardMaterial ||
+          modelMaterial instanceof THREE.MeshBasicMaterial
+        ) {
+          modelMaterial.map?.dispose();
+        }
+        modelMaterial.dispose();
+      });
+      replacedModelMaterials.clear();
+      loadedModelRoots.clear();
       glowTexture.dispose();
-      poolTexture.dispose();
-      hazardTexture.dispose();
-      signTextures.forEach((texture) => texture.dispose());
+      glowMaterial.dispose();
+      floorTexture.dispose();
+      ssaoPass.dispose();
+      bloomPass.dispose();
+      vignettePass.dispose();
+      outputPass.dispose();
+      composer.dispose();
       renderer.dispose();
+      renderer.forceContextLoss();
       renderer.domElement.remove();
+      root.dataset.storyState = "static";
     },
   };
 }

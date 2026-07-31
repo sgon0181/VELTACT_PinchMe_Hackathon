@@ -20,6 +20,7 @@ donor capabilities are migrated.
 - `intakeEvidence`
 - `researchResult`
 - `solutionDecision`
+- `agentActivityEvents`
 - `discoveredSuppliers`
 - `suppliers`
 - `matches`
@@ -28,6 +29,7 @@ donor capabilities are migrated.
 - `responses`
 - `engagement`
 - `deployment`
+- `speedReceipt`
 
 The aggregate does not replace domain records. Need Profile, invitation,
 response, engagement and payment statuses remain authoritative.
@@ -59,6 +61,7 @@ User-facing outcomes map as:
 - `SupplierOutreachDelivery`
 - `SupplierProfile`
 - `SupplierResponse`
+- `SupplierRegistryEntry`
 
 `SupplierResponse` may include:
 
@@ -73,6 +76,12 @@ Public discovery produces `SupplierLead` evidence. It does not create a trusted
 `Supplier`. Buyer outreach approval and supplier confirmation remain separate
 backend records, even when the supplier UI completes confirmation and response
 from one screen.
+
+The private supplier registry is an account-scoped projection of normal
+workflow activity. Its provenance advances monotonically through `discovered`,
+`contacted`, `responded`, `secured` and `delivered`. Registry history may add a
+bounded ranking signal only after a candidate directly matches at least one
+required capability for the selected solution.
 
 Invitation requests select supplier lead IDs and zero or more delivery
 channels. An empty channel list creates copyable links without making an
@@ -89,10 +98,21 @@ copyable invitation links and adds no provider channel to
 - `Engagement`: selected supplier and Pinch commercial state.
 - `PaymentStatus`: backend payment lifecycle.
 - `DeploymentSummary`: lightweight project projection.
-- `DeploymentMilestoneSummary`: at most four demo milestones.
+- `DeploymentMilestoneSummary`: at most four ordered demo milestones, each with
+  its own amount, hosted-link state and payment evidence.
 
 `DeploymentSummary.progressPercentage` must be derived from milestone state.
 Payment may fund a milestone but cannot mark engineering work complete.
+Only the first incomplete milestone can create a Payment Link. The first
+milestone is the supplier commitment; later milestones reuse the same Pinch
+link, webhook and reconciliation machinery without re-running supplier
+selection. Each link carries `milestoneId`, `serviceFeeMinor` and
+`serviceFeeDisclosed: true` metadata.
+
+The service-fee amount is disclosed as an allocation within the milestone
+amount. The interface and API do not claim fee settlement or commission
+collection. A pending unpaid link may be cancelled through the provider; a paid
+milestone cannot be reverted without a separately verified refund lifecycle.
 
 The canonical buyer aggregate does not expose V2 task, issue, document,
 approval or change-request collections.
@@ -113,6 +133,7 @@ Route templates are exported as `rapidMatchApiRoute`.
 ### Connect
 
 - `POST /api/need-profiles/:needProfileId/suppliers/discover`
+- `GET /api/registry?needProfileId=:needProfileId`
 - `POST /api/need-profiles/:needProfileId/invitations/send`
 - `GET /api/need-profiles/:needProfileId/responses`
 - `GET /api/supplier-invitations/:token`
@@ -125,7 +146,10 @@ Route templates are exported as `rapidMatchApiRoute`.
 ### Deploy
 
 - `GET /api/engagements/:engagementId`
+- `GET /api/engagements/:engagementId/receipt`
 - `POST /api/engagements/:engagementId/payment-link`
+- `POST /api/engagements/:engagementId/milestones/:milestoneId/payment-link`
+- `POST /api/engagements/:engagementId/milestones/:milestoneId/payment-link/cancel`
 - `GET /api/engagements/:engagementId/deployment`
 - `PATCH /api/engagements/:engagementId/deployment/milestones/:milestoneId`
 - `GET /api/engagements/:engagementId/commitment-notification`
@@ -134,9 +158,13 @@ Route templates are exported as `rapidMatchApiRoute`.
 ### Development
 
 - `POST /api/demo/reset`
+- `POST /api/engagements/:engagementId/demo-payment`
+- `POST /api/engagements/:engagementId/milestones/:milestoneId/demo-payment`
 
 The reset response must identify one canonical buyer workspace and at least two
 supplier invitation paths for comparison. All fixture records remain labelled.
+Demo-payment routes are unavailable in production and record explicitly
+non-authoritative local evidence only.
 
 ### Release Readiness
 
@@ -192,6 +220,7 @@ Find:
 - `rapidmatch:ai_intake.structured`
 - `rapidmatch:research.updated`
 - `rapidmatch:solution_decision.updated`
+- `rapidmatch:agent.activity_updated`
 
 Connect:
 
@@ -226,6 +255,15 @@ Agents must not emit canonical workflow updates under `veltact:v2:*`.
 - Selection requires a submitted `can_help` response.
 - One selected response creates one engagement.
 - Payment Link creation reuses an existing usable link.
+- Milestone Payment Links are sequential and cannot skip incomplete work.
+- Every milestone stores its own provider, link, payment and evidence IDs.
+- The engagement receipt is a read-only projection of persisted lifecycle
+  timestamps. It labels the industry baseline as a general claim and renders
+  incomplete payment or milestone steps as pending.
+- Local-demo outreach is recorded as prepared, not sent. Local-demo payment is
+  recorded as non-authoritative, not Pinch-verified.
+- Unpaid-link cancellation calls the configured provider before local state
+  changes.
 - Browser return does not update authoritative payment state.
 - Only verified webhook or reconciliation evidence secures the supplier.
 - Commitment notification is idempotent and follows authoritative payment
@@ -234,6 +272,8 @@ Agents must not emit canonical workflow updates under `veltact:v2:*`.
 - Deployment progress is derived and cannot be advanced by payment alone.
 - Fixture and local-demo evidence remain visible.
 - Buyer and supplier controls remain separated by capability.
+- Registry state is private to one account scope and upgrades monotonically.
+- Registry history never overrides a selected-pathway capability mismatch.
 
 ## Environment Conventions
 
@@ -247,7 +287,13 @@ Agents must not emit canonical workflow updates under `veltact:v2:*`.
 - `BUYER_CAPABILITY_AUTH_REQUIRED` defaults to true in production.
 - `VELTACT_RESEARCH_PROVIDER=auto|openai|fixture` selects research behavior.
 - `OPENAI_API_KEY` enables live intake/research.
+- `VELTACT_DISCOVERY_PROVIDER=auto|openai|perplexity|fixture` independently
+  selects supplier discovery; auto prefers OpenAI, then Perplexity, then
+  labelled fixtures.
+- `PERPLEXITY_API_KEY` enables the optional Sonar supplier-discovery adapter.
 - `FIRECRAWL_API_KEY` enables optional discovery fallback.
+- `VELTACT_SERVICE_FEE_BPS` configures the disclosed milestone fee allocation
+  and defaults to `500` (5%).
 - Resend or SendGrid provides email.
 - Twilio provides SMS or WhatsApp.
 - `WEB_ORIGIN` and `PUBLIC_BASE_URL` must identify the API-served public origin.
@@ -275,38 +321,16 @@ Delivery state semantics:
 
 Cross-owner edits require A0 integration review.
 
-## Canonical Demo Sprint
+## Current Integration Branch
 
-The active integration branch is `codex/canonical-demo-flow`, created from
-`origin/main` commit `5376b0c`. Historical A1-A6 branches are evidence of prior
-work, not merge inputs for this sprint.
+The completed Phase A correctness baseline is `e95a9c9` on `30-jul-night`.
+The active snowball marketplace integration branch is `feature-polish`, created
+from that baseline. Its feature order is registry, live discovery, activity
+timeline, milestone funding, speed receipt and registry-aware ranking.
 
-Agents do not update automatically. Before each assignment, A0 supplies the
-latest integration SHA. The agent must:
-
-1. Fetch `origin`.
-2. Confirm its worktree is clean.
-3. Create a fresh task branch from the supplied
-   `origin/codex/canonical-demo-flow` SHA.
-4. Read the active product, blueprint, architecture and integration documents.
-5. Change only its owned files.
-6. Run its focused tests plus lint, typecheck and build.
-7. Commit and push without merging.
-
-A0 reviews and integrates one workstream at a time. No agent merges directly
-into `main`, `Recurssion` or `codex/canonical-demo-flow`. Do not merge or rebase
-an old agent branch into the sprint.
-
-Integration order:
-
-1. A5 landing simplification.
-2. A2 Find intake and recommendation review.
-3. A1 supplier matching and Connect preparation.
-4. A3 multi-channel outreach, supplier response and realtime status.
-5. A4 commitment and lightweight Deploy.
-6. A6 complete journey certification.
-7. A0 legacy-surface removal after parity.
-
-Only one workstream may edit `apps/buyer/src/main.ts` at a time. A5 must remain
-within landing assets during its first pass; A6 adds tests and release evidence
+Historical A1-A6 branches are implementation evidence, not merge inputs for
+this run. A0 owns shared contracts, route/event names, root configuration and
+integration decisions. No agent merges directly into `main`; a reviewed release
+must start from the committed `feature-polish` tip recorded in
+`codex/CODEX_RUN_REPORT.md`.
 without redesigning product surfaces.

@@ -4,7 +4,10 @@ import type {
   PaymentStatus
 } from "@veltact/contracts";
 
-export type DeploymentScenario = "plc_recovery" | "robotic_integration";
+export type DeploymentScenario =
+  | "plc_recovery"
+  | "robotic_integration"
+  | "industrial_response";
 
 export type DeploymentEngagementContext = {
   engagementId: string;

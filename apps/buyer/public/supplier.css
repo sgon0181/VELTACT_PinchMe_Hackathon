@@ -564,10 +564,13 @@ legend {
 }
 
 .demo-tools summary {
+  min-height: 44px;
+  padding: 12px 0;
   color: var(--warning);
   font-family: var(--font-mono);
   font-size: 0.75rem;
   font-weight: 700;
+  line-height: 20px;
   text-transform: uppercase;
   cursor: pointer;
 }
@@ -583,6 +586,10 @@ legend {
   gap: 10px;
   align-items: end;
   margin-top: 12px;
+}
+
+.demo-controls select {
+  min-width: 0;
 }
 
 button {

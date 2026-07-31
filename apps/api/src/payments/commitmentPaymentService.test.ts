@@ -77,6 +77,11 @@ describe("CommitmentPaymentService", () => {
       provider.lastCreateInput?.metadata?.commitmentType,
       "commercial_commitment"
     );
+    assert.equal(provider.lastCreateInput?.metadata?.serviceFeeMinor, "37500");
+    assert.equal(
+      provider.lastCreateInput?.metadata?.serviceFeeDisclosed,
+      "true"
+    );
     assert.match(provider.lastCreateInput?.description ?? "", /commitment/i);
     assert.doesNotMatch(provider.lastCreateInput?.description ?? "", /escrow/i);
   });
@@ -196,6 +201,33 @@ describe("CommitmentPaymentService", () => {
     assert.equal(provider.createCalls, 0);
   });
 
+  test("cancels only an unpaid pending link through the configured provider", async () => {
+    const context = commitmentContext();
+    context.paymentStatus = "awaiting_payment";
+    context.existingPaymentLink = {
+      ...hostedPaymentLink("cancel"),
+      paymentStatus: "awaiting_payment"
+    };
+    const persistence = new MemoryCommitmentAdapter(context);
+    const provider = new FakePaymentProvider();
+    const result = await new CommitmentPaymentService(
+      persistence,
+      provider
+    ).cancelUnpaidHostedPaymentLink({
+      engagementId: context.engagementId,
+      milestoneId: context.commitment.milestoneId,
+      buyerAccessToken: "buyer-token"
+    });
+
+    assert.deepEqual(result, {
+      cancelled: true,
+      milestoneId: context.commitment.milestoneId
+    });
+    assert.deepEqual(provider.cancelledLinkIds, ["plk_cancel"]);
+    assert.equal(context.paymentStatus, "cancelled");
+    assert.equal(context.existingPaymentLink, undefined);
+  });
+
   test("secures only through explicit approved provider reconciliation", async () => {
     const context = commitmentContext();
     context.existingPaymentLink = {
@@ -231,12 +263,14 @@ describe("CommitmentPaymentService", () => {
     assert.deepEqual(first, {
       reconciled: true,
       duplicate: false,
-      supplierSecured: true
+      supplierSecured: true,
+      milestoneFunded: true
     });
     assert.deepEqual(replay, {
       reconciled: true,
       duplicate: true,
-      supplierSecured: true
+      supplierSecured: true,
+      milestoneFunded: true
     });
     assert.equal(persistence.evidence[0]?.source, "pinch_reconciliation");
     assert.equal(persistence.evidence[0]?.providerStatus, "approved");
@@ -294,6 +328,7 @@ class MemoryCommitmentAdapter
 
   async saveHostedPaymentLink(
     _engagementId: string,
+    _milestoneId: string,
     paymentLink: HostedPaymentLink
   ) {
     this.saveCalls += 1;
@@ -301,6 +336,11 @@ class MemoryCommitmentAdapter
       ...paymentLink,
       paymentStatus: "awaiting_payment"
     };
+  }
+
+  async cancelHostedPaymentLink() {
+    this.context.existingPaymentLink = undefined;
+    this.context.paymentStatus = "cancelled";
   }
 
   async recordAuthoritativePayment(evidence: AuthoritativePinchEvidence) {
@@ -311,7 +351,8 @@ class MemoryCommitmentAdapter
     }
     return {
       duplicate,
-      supplierSecured: true
+      supplierSecured: true,
+      milestoneFunded: true
     };
   }
 }
@@ -325,6 +366,7 @@ class FakePaymentProvider implements PaymentProvider {
   lastCreateInput: CreateHostedPaymentLinkInput | undefined;
   approvedPayment: AuthoritativePaymentResult | undefined;
   returnedProvider: HostedPaymentLink["provider"] = "pinch";
+  readonly cancelledLinkIds: string[] = [];
 
   async createHostedPaymentLink(input: CreateHostedPaymentLinkInput) {
     this.createCalls += 1;
@@ -342,6 +384,10 @@ class FakePaymentProvider implements PaymentProvider {
   async getApprovedPaymentForLink() {
     return this.approvedPayment;
   }
+
+  async cancelHostedPaymentLink(paymentLinkId: string) {
+    this.cancelledLinkIds.push(paymentLinkId);
+  }
 }
 
 function commitmentContext(): CommitmentPaymentContext {
@@ -351,6 +397,7 @@ function commitmentContext(): CommitmentPaymentContext {
     supplierId: "supplier-robotics",
     buyerEmail: "buyer@example.com",
     buyerName: "Western Sydney Factory",
+    isNextIncomplete: true,
     commitment: {
       milestoneId: "eng-robotics-m1-site-assessment-scoping-visit",
       title: "Site Assessment / Scoping Visit",

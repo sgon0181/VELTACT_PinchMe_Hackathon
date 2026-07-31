@@ -58,11 +58,16 @@ const envSchema = z.object({
   SUPPLIER_OUTREACH_EMAIL_TO: optionalProviderEmail,
   SUPPLIER_OUTREACH_SMS_TO: optionalProviderString,
   SUPPLIER_OUTREACH_WHATSAPP_TO: optionalProviderString,
-  OPENAI_API_KEY: z.string().trim().min(1).optional(),
+  OPENAI_API_KEY: optionalProviderString,
   OPENAI_MODEL: z.string().trim().min(1).default("gpt-5.4-mini"),
   VELTACT_RESEARCH_PROVIDER: z
     .enum(["auto", "openai", "fixture"])
     .default("auto"),
+  VELTACT_DISCOVERY_PROVIDER: z
+    .enum(["auto", "openai", "perplexity", "fixture"])
+    .default("auto"),
+  VELTACT_SERVICE_FEE_BPS: z.coerce.number().int().min(0).max(10_000).default(500),
+  PERPLEXITY_API_KEY: optionalProviderString,
   FIRECRAWL_API_KEY: optionalProviderString,
   PINCH_CLIENT_ID: optionalProviderString,
   PINCH_SECRET_KEY: optionalProviderString,

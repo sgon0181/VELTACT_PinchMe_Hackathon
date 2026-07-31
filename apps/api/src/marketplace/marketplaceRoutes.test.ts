@@ -4,8 +4,11 @@ import crypto from "node:crypto";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import {
+  AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH,
+  AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE,
   aiIntakeResultSchema,
   deploymentSummarySchema,
+  engagementSpeedReceiptSchema,
   engagementSchema,
   needProfileSchema,
   rapidMatchBuyerWorkspaceSchema,
@@ -49,24 +52,37 @@ import {
 let server: Server;
 let baseUrl: string;
 let originalPaymentProviderMode: typeof env.PAYMENT_PROVIDER;
+const createdPaymentLinkInputs: Array<{
+  engagementId: string;
+  amount: number;
+  metadata?: Record<string, string>;
+}> = [];
+const cancelledPaymentLinkIds: string[] = [];
 
 beforeEach(async () => {
   resetMarketplaceStore();
   originalPaymentProviderMode = env.PAYMENT_PROVIDER;
   env.PAYMENT_PROVIDER = "pinch";
+  createdPaymentLinkInputs.length = 0;
+  cancelledPaymentLinkIds.length = 0;
   process.env.PINCH_WEBHOOK_SECRET = "whsec_test_secret";
   setPaymentProviderForTest({
     async createHostedPaymentLink(input) {
       assert.equal(input.amount, 1_850_000);
       assert.equal(input.buyerName, undefined);
       assert.equal(input.metadata?.commitmentType, "commercial_commitment");
-      assert.match(input.metadata?.milestoneId ?? "", /-m1-diagnosis$/);
-      assert.match(input.returnUrl, new RegExp(`/api/pinch/return/${input.engagementId}$`));
+      assert.match(input.metadata?.milestoneId ?? "", /-m[1-4]-/);
+      assert.match(input.returnUrl, new RegExp(`/api/pinch/return/${input.engagementId}`));
+      createdPaymentLinkInputs.push(input);
+      const milestoneId = input.metadata?.milestoneId ?? "";
+      const suffix = /-m1-/.test(milestoneId)
+        ? input.engagementId
+        : `${input.engagementId}_${milestoneId}`;
       return {
         provider: "pinch",
-        payerId: `pyr_${input.engagementId}`,
-        paymentLinkId: `plink_${input.engagementId}`,
-        hostedCheckoutUrl: `https://sandbox.getpinch.com.au/pay/${input.engagementId}`
+        payerId: `pyr_${suffix}`,
+        paymentLinkId: `plink_${suffix}`,
+        hostedCheckoutUrl: `https://sandbox.getpinch.com.au/pay/${suffix}`
       };
     },
     async getApprovedPaymentForLink(paymentLinkId) {
@@ -75,6 +91,9 @@ beforeEach(async () => {
         paymentId: `pmt_${paymentLinkId}`,
         status: "approved"
       };
+    },
+    async cancelHostedPaymentLink(paymentLinkId) {
+      cancelledPaymentLinkIds.push(paymentLinkId);
     }
   });
   server = createServer(app);
@@ -216,6 +235,20 @@ describe("marketplace core routes", () => {
 
     assert.equal(rejected.status, 400);
     assert.equal(rejected.body.error, "low_signal_ai_intake_request");
+  });
+
+  test("rejects oversized AI intake with friendly JSON before provider selection", async () => {
+    const rejected = await postJson("/api/ai-intake/structure", {
+      rawRequirement: "x".repeat(
+        AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH + 1
+      )
+    });
+
+    assert.equal(rejected.status, 400);
+    assert.equal(rejected.body.error, "invalid_ai_intake_request");
+    assert.equal(rejected.body.message, AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE);
+    assert.equal(rejected.body.source, undefined);
+    assert.equal(rejected.body.aiIntakeResult, undefined);
   });
 
   test("does not fabricate local intake facts from a binary evidence filename", async () => {
@@ -883,6 +916,18 @@ describe("marketplace core routes", () => {
       );
       assert.equal(reset.body.workspace.researchResult.sourceMode, "fixture");
       assert.ok(reset.body.workspace.researchResult.citations.length >= 3);
+      assert.ok(
+        reset.body.workspace.researchResult.activityEvents.length >= 4
+      );
+      assert.ok(reset.body.workspace.agentActivityEvents.length >= 8);
+      assert.deepEqual(
+        reset.body.workspace.agentActivityEvents.map(
+          (event: { sequence: number }) => event.sequence
+        ),
+        reset.body.workspace.agentActivityEvents.map(
+          (_: unknown, index: number) => index
+        )
+      );
       assert.equal(
         reset.body.workspace.solutionDecision.selectedApproachIds.length,
         1
@@ -1857,6 +1902,51 @@ describe("marketplace core routes", () => {
     assert.equal(missingInvitation.status, 404);
   });
 
+  test("acknowledges a signed payment event that cannot be matched", async () => {
+    const evidenceCount = listPinchWebhookEvidence().length;
+    const eventId = "evt_signed_unmatched_engagement";
+    const unknownEngagementId = "engagement-does-not-exist";
+    const webhook = await postSignedWebhook({
+      Id: eventId,
+      Type: "realtime-payment",
+      EventDate: new Date().toISOString(),
+      Data: {
+        Payment: {
+          Id: "pmt_unmatched",
+          Amount: 1_850_000,
+          Currency: "AUD",
+          Status: "approved",
+          Payer: {
+            Id: "pyr_unmatched"
+          },
+          Metadata: JSON.stringify({
+            engagementId: unknownEngagementId,
+            needId: "need-does-not-exist",
+            supplierId: "supplier-does-not-exist",
+            milestoneId: "milestone-does-not-exist",
+            commitmentType: "commercial_commitment",
+            commitmentAmountMinor: "1850000",
+            commitmentCurrency: "AUD"
+          })
+        }
+      }
+    });
+
+    assert.equal(webhook.status, 200);
+    assert.equal(webhook.body.received, true);
+    assert.equal(webhook.body.processed, false);
+    assert.equal(webhook.body.reason, "no_matching_engagement");
+    assert.equal(getEngagement(unknownEngagementId), undefined);
+    assert.equal(listPinchWebhookEvidence().length, evidenceCount);
+
+    const events = await getJson("/api/pinch/webhooks/events");
+    const storedEvent = events.body.events.find(
+      (event: { id?: string }) => event.id === eventId
+    );
+    assert.equal(storedEvent?.processed, false);
+    assert.equal(storedEvent?.reason, "no_matching_engagement");
+  });
+
   test("preserves cents and secures and notifies only after verified Pinch event", async () => {
     const created = await postJson("/api/needs", {
       buyerEmail: "buyer@example.com",
@@ -2004,7 +2094,7 @@ describe("marketplace core routes", () => {
       }
     );
     assert.equal(started.status, 200);
-    assert.equal(started.body.deployment.progressPercentage, 0);
+    assert.equal(started.body.deployment.progressPercentage, 13);
 
     const completedMilestone = await patchJson(
       `/api/engagements/${selected.body.engagement.id}/deployment/milestones/${firstMilestone.id}`,
@@ -2032,6 +2122,271 @@ describe("marketplace core routes", () => {
 
     const stillSecured = await getJson(`/api/engagements/${selected.body.engagement.id}`);
     assert.equal(stillSecured.body.engagement.securedAt, secured.body.engagement.securedAt);
+  });
+
+  test("funds only the next milestone with disclosed fee and per-milestone evidence", async () => {
+    const created = await postJson("/api/needs", {
+      buyerEmail: "buyer@example.com",
+      profile: automationNeed()
+    });
+    const token = created.body.need.invitations[0].token;
+    await approveOutreachAndClaim(created.body.need.id, token);
+    const submitted = await postJson(
+      `/api/supplier-invitations/${token}/responses`,
+      {
+        canHelp: true,
+        earliestAvailability: "2026-07-28",
+        indicativePriceAud: 18500,
+        relevantExperience:
+          "Completed staged PLC recovery and validation for a packaging line.",
+        conditions: "Milestone scope requires buyer acceptance."
+      }
+    );
+    const selected = await postJson(
+      `/api/need-profiles/${created.body.need.id}/engagements`,
+      { supplierResponseId: submitted.body.response.id }
+    );
+    const engagementId = selected.body.engagement.id;
+    const commitmentLink = await postJson(
+      `/api/engagements/${engagementId}/payment-link`,
+      {}
+    );
+    const commitment = commitmentLink.body.commitmentMilestone;
+    assert.equal(commitmentLink.body.serviceFeeMinor, 92_500);
+    assert.equal(commitmentLink.body.serviceFeeDisclosed, true);
+
+    await postSignedWebhook({
+      Id: "evt_milestone_commitment",
+      Type: "realtime-payment",
+      Data: {
+        Payment: {
+          Id: "pmt_milestone_commitment",
+          Amount: 1_850_000,
+          Currency: "AUD",
+          Status: "approved",
+          Payer: { Id: commitment.pinchPayerId },
+          Metadata: JSON.stringify({
+            engagementId,
+            needId: created.body.need.id,
+            supplierId: selected.body.engagement.supplierId,
+            milestoneId: commitment.id,
+            commitmentType: "commercial_commitment",
+            commitmentAmountMinor: "1850000",
+            commitmentCurrency: "AUD",
+            serviceFeeMinor: "92500",
+            serviceFeeDisclosed: "true"
+          })
+        }
+      }
+    });
+    await patchJson(
+      `/api/engagements/${engagementId}/deployment/milestones/${commitment.id}`,
+      {
+        status: "in_progress",
+        latestUpdate: "Diagnosis is underway."
+      }
+    );
+    const completed = await patchJson(
+      `/api/engagements/${engagementId}/deployment/milestones/${commitment.id}`,
+      {
+        status: "completed",
+        latestUpdate: "Diagnosis evidence accepted."
+      }
+    );
+    const second = completed.body.deployment.milestones[1];
+    const third = completed.body.deployment.milestones[2];
+
+    const skipped = await postJson(
+      `/api/engagements/${engagementId}/milestones/${third.id}/payment-link`,
+      {}
+    );
+    assert.equal(skipped.status, 409);
+    assert.match(skipped.body.message, /next incomplete milestone/i);
+
+    const secondLink = await postJson(
+      `/api/engagements/${engagementId}/milestones/${second.id}/payment-link`,
+      {}
+    );
+    assert.equal(secondLink.status, 201);
+    assert.equal(secondLink.body.milestone.status, "awaiting_payment");
+    assert.equal(secondLink.body.milestone.serviceFeeMinor, 92_500);
+    assert.equal(secondLink.body.serviceFeeDisclosed, true);
+    const secondInput = createdPaymentLinkInputs.at(-1);
+    assert.equal(secondInput?.metadata?.milestoneId, second.id);
+    assert.equal(secondInput?.metadata?.serviceFeeMinor, "92500");
+    assert.equal(secondInput?.metadata?.serviceFeeDisclosed, "true");
+
+    const cancelled = await postJson(
+      `/api/engagements/${engagementId}/milestones/${second.id}/payment-link/cancel`,
+      {}
+    );
+    assert.equal(cancelled.status, 200);
+    assert.equal(cancelled.body.milestone.status, "not_started");
+    assert.equal(cancelled.body.milestone.paymentStatus, "cancelled");
+    assert.equal(cancelledPaymentLinkIds.length, 1);
+
+    const recreated = await postJson(
+      `/api/engagements/${engagementId}/milestones/${second.id}/payment-link`,
+      {}
+    );
+    assert.equal(recreated.status, 201);
+    const pendingSecond = recreated.body.milestone;
+    const mismatched = await postSignedWebhook({
+      Id: "evt_milestone_wrong_amount",
+      Type: "realtime-payment",
+      Data: {
+        Payment: {
+          Id: "pmt_milestone_wrong_amount",
+          Amount: 1_850_001,
+          Currency: "AUD",
+          Status: "approved",
+          Payer: { Id: pendingSecond.pinchPayerId },
+          Metadata: JSON.stringify({
+            engagementId,
+            needId: created.body.need.id,
+            supplierId: selected.body.engagement.supplierId,
+            milestoneId: second.id,
+            commitmentType: "commercial_commitment",
+            commitmentAmountMinor: "1850001",
+            commitmentCurrency: "AUD"
+          })
+        }
+      }
+    });
+    assert.equal(mismatched.body.processed, false);
+    assert.equal(mismatched.body.reason, "commitment_mismatch");
+    const stillPending = await getJson(
+      `/api/engagements/${engagementId}/deployment`
+    );
+    assert.equal(
+      stillPending.body.deployment.milestones[1].status,
+      "awaiting_payment"
+    );
+
+    const funded = await postSignedWebhook({
+      Id: "evt_milestone_recovery_funded",
+      Type: "realtime-payment",
+      Data: {
+        Payment: {
+          Id: "pmt_milestone_recovery_funded",
+          Amount: 1_850_000,
+          Currency: "AUD",
+          Status: "approved",
+          Payer: { Id: pendingSecond.pinchPayerId },
+          Metadata: JSON.stringify({
+            engagementId,
+            needId: created.body.need.id,
+            supplierId: selected.body.engagement.supplierId,
+            milestoneId: second.id,
+            commitmentType: "commercial_commitment",
+            commitmentAmountMinor: "1850000",
+            commitmentCurrency: "AUD",
+            serviceFeeMinor: "92500",
+            serviceFeeDisclosed: "true"
+          })
+        }
+      }
+    });
+    assert.equal(funded.body.processed, true);
+    const deployment = await getJson(
+      `/api/engagements/${engagementId}/deployment`
+    );
+    const fundedSecond = deployment.body.deployment.milestones[1];
+    assert.equal(fundedSecond.status, "funded");
+    assert.equal(fundedSecond.paymentStatus, "paid");
+    assert.equal(fundedSecond.paymentEvidenceProvider, "pinch");
+    assert.equal(fundedSecond.paymentEvidenceSource, "pinch_webhook");
+    assert.equal(fundedSecond.paymentEvidenceAuthoritative, true);
+    assert.equal(fundedSecond.paymentEvidenceEventId, funded.body.event.id);
+    assert.equal(deployment.body.deployment.milestones[2].status, "not_started");
+  });
+
+  test("deduplicates one Pinch payment across reconciliation and webhook evidence", async () => {
+    const created = await postJson("/api/needs", {
+      buyerEmail: "buyer@example.com",
+      profile: automationNeed()
+    });
+    const token = created.body.need.invitations[0].token;
+    await approveOutreachAndClaim(created.body.need.id, token);
+    const submitted = await postJson(`/api/supplier-invitations/${token}/responses`, {
+      canHelp: true,
+      earliestAvailability: "2026-07-28",
+      indicativePriceAud: 18500,
+      relevantExperience: "Completed urgent PLC recovery for a packaging line.",
+      conditions: "Remote diagnostics required before site attendance."
+    });
+    const selected = await postJson(
+      `/api/need-profiles/${created.body.need.id}/engagements`,
+      {
+        supplierResponseId: submitted.body.response.id
+      }
+    );
+    const paymentLink = await postJson(
+      `/api/engagements/${selected.body.engagement.id}/payment-link`,
+      {}
+    );
+    const pendingEngagement = paymentLink.body.engagement;
+    const paymentId = `pmt_${pendingEngagement.paymentLinkId}`;
+
+    const reconciled = await getJson(
+      `/api/engagements/${pendingEngagement.id}`
+    );
+    assert.equal(reconciled.status, 200);
+    assert.equal(reconciled.body.engagement.status, "supplier_secured");
+    assert.equal(
+      reconciled.body.engagement.paymentEvidenceSource,
+      "pinch_reconciliation"
+    );
+    assert.equal(listPinchWebhookEvidence().length, 1);
+    const firstEvidence = listPinchWebhookEvidence()[0];
+    const firstSecuredAt = reconciled.body.engagement.securedAt;
+
+    const webhook = await postSignedWebhook({
+      Id: "evt_reconciled_payment_webhook",
+      Type: "realtime-payment",
+      EventDate: new Date().toISOString(),
+      Data: {
+        Payment: {
+          Id: paymentId,
+          Amount: 1_850_000,
+          Currency: "AUD",
+          Status: "approved",
+          Payer: {
+            Id: pendingEngagement.pinchPayerId
+          },
+          Metadata: JSON.stringify({
+            engagementId: pendingEngagement.id,
+            needId: created.body.need.id,
+            supplierId: pendingEngagement.supplierId,
+            milestoneId: `${pendingEngagement.id}-m1-diagnosis`,
+            commitmentType: "commercial_commitment",
+            commitmentAmountMinor: "1850000",
+            commitmentCurrency: "AUD"
+          })
+        }
+      }
+    });
+
+    assert.equal(webhook.status, 200);
+    assert.equal(webhook.body.processed, true);
+    assert.equal(webhook.body.reason, "duplicate");
+    assert.equal(listPinchWebhookEvidence().length, 1);
+    assert.equal(listPinchWebhookEvidence()[0]?.eventId, firstEvidence?.eventId);
+
+    const stillSecured = await getJson(
+      `/api/engagements/${pendingEngagement.id}`
+    );
+    assert.equal(stillSecured.body.engagement.securedAt, firstSecuredAt);
+    assert.equal(
+      stillSecured.body.engagement.paymentEvidenceSource,
+      "pinch_reconciliation"
+    );
+    assert.equal(
+      listMarketplaceAuditEvents().filter(
+        (event) => event.eventType === "payment.secured"
+      ).length,
+      1
+    );
   });
 
   test("completes the local demo through the secured state without an external payment", async () => {
@@ -2123,6 +2478,244 @@ describe("marketplace core routes", () => {
     );
     assert.equal(duplicate.status, 409);
     assert.equal(listLocalDemoPaymentEvidence().length, 1);
+  });
+
+  test("funds the next delivery milestone with labelled local demo evidence", async () => {
+    env.PAYMENT_PROVIDER = "local_demo";
+    setPaymentProviderForTest(localDemoPaymentProvider);
+    const created = await postJson("/api/needs", {
+      buyerEmail: "buyer@example.com",
+      profile: automationNeed()
+    });
+    const token = created.body.need.invitations[0].token;
+    await approveOutreachAndClaim(created.body.need.id, token);
+    const submitted = await postJson(
+      `/api/supplier-invitations/${token}/responses`,
+      {
+        canHelp: true,
+        earliestAvailability: "2026-07-28",
+        indicativePriceAud: 18500,
+        relevantExperience:
+          "Completed staged PLC recovery and validation for a packaging line.",
+        conditions: "Each release requires buyer acceptance."
+      }
+    );
+    const selected = await postJson(
+      `/api/need-profiles/${created.body.need.id}/engagements`,
+      { supplierResponseId: submitted.body.response.id }
+    );
+    const engagementId = selected.body.engagement.id;
+    await postJson(`/api/engagements/${engagementId}/payment-link`, {});
+    const commitment = await postJson(
+      `/api/engagements/${engagementId}/demo-payment`,
+      {}
+    );
+    const first = commitment.body.deployment.milestones[0];
+    await patchJson(
+      `/api/engagements/${engagementId}/deployment/milestones/${first.id}`,
+      {
+        status: "in_progress",
+        latestUpdate: "Diagnosis is underway."
+      }
+    );
+    const completed = await patchJson(
+      `/api/engagements/${engagementId}/deployment/milestones/${first.id}`,
+      {
+        status: "completed",
+        latestUpdate: "Diagnosis evidence accepted."
+      }
+    );
+    const second = completed.body.deployment.milestones[1];
+
+    const paymentLink = await postJson(
+      `/api/engagements/${engagementId}/milestones/${second.id}/payment-link`,
+      {}
+    );
+    assert.equal(paymentLink.status, 201);
+    assert.equal(paymentLink.body.milestone.status, "awaiting_payment");
+    assert.match(
+      paymentLink.body.milestone.paymentLinkId,
+      /^local_demo_link_/
+    );
+    assert.equal(paymentLink.body.serviceFeeMinor, 92_500);
+    assert.equal(paymentLink.body.serviceFeeDisclosed, true);
+
+    const funded = await postJson(
+      `/api/engagements/${engagementId}/milestones/${second.id}/demo-payment`,
+      {}
+    );
+    assert.equal(funded.status, 200);
+    assert.equal(funded.body.milestone.status, "funded");
+    assert.equal(funded.body.milestone.paymentStatus, "paid");
+    assert.equal(funded.body.milestone.paymentEvidenceProvider, "local_demo");
+    assert.equal(funded.body.milestone.paymentEvidenceSource, "local_demo");
+    assert.equal(
+      funded.body.milestone.paymentEvidenceAuthoritative,
+      false
+    );
+    assert.match(funded.body.milestone.paymentEvidenceEventId, /^demo-payment:/);
+    assert.equal(funded.body.paymentEvidence.authoritative, false);
+    assert.equal(funded.body.paymentEvidence.milestoneId, second.id);
+    assert.equal(listLocalDemoPaymentEvidence().length, 2);
+    assert.equal(
+      listMarketplaceAuditEvents().filter(
+        (event) => event.eventType === "payment.local_demo_secured"
+      ).length,
+      1
+    );
+  });
+
+  test("assembles an ordered and truthful engagement speed receipt", async (context) => {
+    const originalResearchProvider = env.VELTACT_RESEARCH_PROVIDER;
+    const originalBuyerProtection = env.BUYER_CAPABILITY_AUTH_REQUIRED;
+    env.VELTACT_RESEARCH_PROVIDER = "fixture";
+    context.after(() => {
+      env.VELTACT_RESEARCH_PROVIDER = originalResearchProvider;
+      env.BUYER_CAPABILITY_AUTH_REQUIRED = originalBuyerProtection;
+    });
+    env.PAYMENT_PROVIDER = "local_demo";
+    setPaymentProviderForTest(localDemoPaymentProvider);
+    const created = await postJson("/api/needs", {
+      buyerEmail: "buyer@example.com",
+      profile: automationNeed()
+    });
+    await postJson(
+      `/api/need-profiles/${created.body.need.id}/research`,
+      {}
+    );
+    const firstToken = created.body.need.invitations[0].token;
+    const secondToken = created.body.need.invitations[1].token;
+    await approveOutreachAndClaim(created.body.need.id, firstToken);
+    await claimInvitation(secondToken);
+    const firstResponse = await postJson(
+      `/api/supplier-invitations/${firstToken}/responses`,
+      {
+        canHelp: true,
+        earliestAvailability: "2026-08-01",
+        indicativePriceAud: 18500,
+        relevantExperience:
+          "Completed staged PLC recovery and validation for a packaging line.",
+        proposedApproach: "Assess, isolate, recover and validate.",
+        assumptions: ["Controlled site access is available."],
+        conditions: ["Final scope follows diagnosis."]
+      }
+    );
+    await postJson(
+      `/api/supplier-invitations/${secondToken}/responses`,
+      {
+        canHelp: true,
+        earliestAvailability: "2026-08-03",
+        indicativePriceAud: 21400,
+        relevantExperience:
+          "Delivered controls recovery and documented commissioning.",
+        proposedApproach: "Review evidence, attend site and prove the restart.",
+        assumptions: ["Current drawings can be supplied."],
+        conditions: ["Travel is charged at cost."]
+      }
+    );
+    const selected = await postJson(
+      `/api/need-profiles/${created.body.need.id}/engagements`,
+      { supplierResponseId: firstResponse.body.response.id }
+    );
+    const engagementId = selected.body.engagement.id;
+
+    const pending = await getJson(
+      `/api/engagements/${engagementId}/receipt`
+    );
+    assert.equal(pending.status, 200);
+    const pendingReceipt = engagementSpeedReceiptSchema.parse(
+      pending.body.receipt
+    );
+    assert.equal(pendingReceipt.status, "in_progress");
+    assert.equal(pendingReceipt.elapsedMilliseconds, undefined);
+    assert.equal(
+      pendingReceipt.events.filter(
+        (event) => event.stage === "supplier_response_received"
+      ).length,
+      2
+    );
+    assert.equal(
+      pendingReceipt.events.find(
+        (event) => event.stage === "payment_verified"
+      )?.status,
+      "pending"
+    );
+    assert.ok(
+      pendingReceipt.events.some(
+        (event) =>
+          event.stage === "outreach_delivery" &&
+          event.label.includes("invitation prepared") &&
+          event.detail?.includes("no external delivery")
+      )
+    );
+
+    await postJson(`/api/engagements/${engagementId}/payment-link`, {});
+    await postJson(`/api/engagements/${engagementId}/demo-payment`, {});
+    const secured = await getJson(
+      `/api/engagements/${engagementId}/receipt`
+    );
+    const receipt = engagementSpeedReceiptSchema.parse(secured.body.receipt);
+    assert.equal(receipt.status, "secured");
+    assert.equal(
+      receipt.elapsedMilliseconds,
+      Date.parse(receipt.securedAt as string) - Date.parse(receipt.startedAt)
+    );
+    assert.deepEqual(
+      receipt.events.map((event) => event.sequence),
+      receipt.events.map((_, index) => index + 1)
+    );
+    const stageOrder = [
+      "requirement_created",
+      "analysis_completed",
+      "outreach_delivery",
+      "supplier_response_received",
+      "supplier_selected",
+      "payment_link_created",
+      "payment_verified",
+      "milestone_funded"
+    ];
+    assert.deepEqual(
+      receipt.events
+        .map((event) => stageOrder.indexOf(event.stage))
+        .sort((left, right) => left - right),
+      receipt.events.map((event) => stageOrder.indexOf(event.stage))
+    );
+    const paymentRecorded = receipt.events.find(
+      (event) => event.stage === "payment_verified"
+    );
+    assert.equal(paymentRecorded?.label, "Local demo commitment recorded");
+    assert.equal(paymentRecorded?.evidenceSource, "local_demo");
+    assert.equal(paymentRecorded?.authoritative, false);
+    assert.ok(
+      receipt.events.some(
+        (event) =>
+          event.stage === "milestone_funded" &&
+          event.status === "complete"
+      )
+    );
+    assert.ok(
+      receipt.events.some(
+        (event) =>
+          event.stage === "milestone_funded" &&
+          event.status === "pending"
+      )
+    );
+    assert.equal(receipt.baseline.label, "Industry norm: days to weeks");
+    assert.equal(receipt.baseline.kind, "general_claim");
+
+    env.BUYER_CAPABILITY_AUTH_REQUIRED = true;
+    const unscoped = await getJson(
+      `/api/engagements/${engagementId}/receipt`
+    );
+    assert.equal(unscoped.status, 401);
+    const scoped = await getJson(
+      `/api/engagements/${engagementId}/receipt`,
+      { "x-veltact-buyer-token": created.body.buyerAccessToken }
+    );
+    assert.equal(scoped.status, 200);
+    assert.doesNotThrow(() =>
+      engagementSpeedReceiptSchema.parse(scoped.body.receipt)
+    );
   });
 
   test("rejects demo evidence for a Pinch configuration and for a non-local link", async () => {

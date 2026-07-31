@@ -15,7 +15,7 @@ import {
   emitPaymentStatusUpdated
 } from "../realtime.js";
 import { env } from "../env.js";
-import { v2Service } from "../v2/service.js";
+import { V2ServiceError, v2Service } from "../v2/service.js";
 import { veltactV2SocketEvent } from "@veltact/contracts";
 import { emitV2Update } from "../realtime.js";
 import {
@@ -237,48 +237,75 @@ pinchRouter.post("/webhooks", async (request, response) => {
       rawBody: request.rawBody
     });
 
-    const event = recordWebhookEvent(request.body);
     const rapidMatchPayment = extractApprovedPinchPaymentEvent(request.body);
     const paymentEvent = extractSuccessfulPaymentEvent(request.body);
+    let processed = false;
+    let reason: string | undefined;
     const engagement = rapidMatchPayment
       ? getEngagement(rapidMatchPayment.engagementId)
       : undefined;
     const deployment = engagement
       ? getDeployment(engagement.id)
       : undefined;
-    const commitment = deployment?.milestones[0];
+    const milestone = rapidMatchPayment
+      ? deployment?.milestones.find(
+          (candidate) => candidate.id === rapidMatchPayment.milestoneId
+        )
+      : undefined;
+    const milestonePayerId =
+      milestone?.pinchPayerId ??
+      (milestone?.sequence === 1 ? engagement?.pinchPayerId : undefined);
+    const milestonePaymentLinkId =
+      milestone?.paymentLinkId ??
+      (milestone?.sequence === 1 ? engagement?.paymentLinkId : undefined);
+    const milestoneHostedCheckoutUrl =
+      milestone?.hostedCheckoutUrl ??
+      (milestone?.sequence === 1
+        ? engagement?.hostedCheckoutUrl
+        : undefined);
     const matchesCommitment = Boolean(
       rapidMatchPayment &&
-      engagement?.paymentLinkId &&
-      engagement.pinchPayerId &&
-      engagement.hostedCheckoutUrl &&
-      commitment?.amount &&
+      engagement &&
+      milestonePaymentLinkId &&
+      milestonePayerId &&
+      milestoneHostedCheckoutUrl &&
+      milestone?.amount &&
       matchesExpectedPinchCommitment(rapidMatchPayment, {
         engagementId: engagement.id,
         needProfileId: engagement.needId,
         supplierId: engagement.supplierId,
-        milestoneId: commitment.id,
-        payerId: engagement.pinchPayerId,
-        amountMinor: commitment.amount.amount,
-        currency: commitment.amount.currency
+        milestoneId: milestone.id,
+        payerId: milestonePayerId,
+        amountMinor: milestone.amount.amount,
+        currency: milestone.amount.currency
       })
     );
-    if (
+    if (rapidMatchPayment && !engagement) {
+      reason = "no_matching_engagement";
+    } else if (rapidMatchPayment && !matchesCommitment) {
+      reason = "commitment_mismatch";
+    } else if (
       rapidMatchPayment &&
+      engagement &&
+      milestone &&
       matchesCommitment &&
-      engagement?.paymentStatus === "awaiting_payment"
+      (milestone.paymentStatus === "awaiting_payment" ||
+        milestone.pinchPaymentId === rapidMatchPayment.paymentId)
     ) {
       const result = recordAuthoritativePinchPayment({
         eventId: rapidMatchPayment.eventId,
         eventType: rapidMatchPayment.eventType,
         engagementId: rapidMatchPayment.engagementId,
+        milestoneId: rapidMatchPayment.milestoneId,
         paymentId: rapidMatchPayment.paymentId,
         payload: request.body
       });
+      processed = result.milestoneFunded;
+      reason = result.duplicate ? "duplicate" : undefined;
 
       if (result.engagement && !result.duplicate) {
-        emitPaymentStatusUpdated(result.engagement);
-        if (result.engagement.status === "supplier_secured") {
+        if (milestone.sequence === 1) {
+          emitPaymentStatusUpdated(result.engagement);
           emitEngagementSecured(result.engagement);
         }
         const updatedDeployment = getDeployment(result.engagement.id);
@@ -290,26 +317,56 @@ pinchRouter.post("/webhooks", async (request, response) => {
           });
         }
       }
+    } else if (rapidMatchPayment) {
+      reason = "engagement_not_awaiting_payment";
     }
     if (paymentEvent?.projectId && paymentEvent.milestoneId) {
-      const result = await v2Service.recordPinchWebhookPayment({
-        eventId: paymentEvent.eventId,
-        eventType: paymentEvent.eventType,
-        projectId: paymentEvent.projectId,
-        milestoneId: paymentEvent.milestoneId,
-        paymentId: paymentEvent.paymentId
-      });
-      if (!result.duplicate) {
-        emitV2Update(
-          result.needProfileId,
-          veltactV2SocketEvent.milestonePaymentUpdated,
-          result
-        );
+      try {
+        const result = await v2Service.recordPinchWebhookPayment({
+          eventId: paymentEvent.eventId,
+          eventType: paymentEvent.eventType,
+          projectId: paymentEvent.projectId,
+          milestoneId: paymentEvent.milestoneId,
+          paymentId: paymentEvent.paymentId
+        });
+        processed = true;
+        reason = result.duplicate ? "duplicate" : undefined;
+        if (!result.duplicate) {
+          emitV2Update(
+            result.needProfileId,
+            veltactV2SocketEvent.milestonePaymentUpdated,
+            result
+          );
+        }
+      } catch (error) {
+        if (error instanceof V2ServiceError && error.statusCode === 404) {
+          if (!processed) {
+            reason = "no_matching_engagement";
+          }
+        } else {
+          throw error;
+        }
       }
+    }
+    if (!rapidMatchPayment && !(paymentEvent?.projectId && paymentEvent.milestoneId)) {
+      reason = "unsupported_event";
+    }
+
+    const event = recordWebhookEvent(request.body, {
+      processed,
+      ...(reason ? { reason } : {})
+    });
+    if (!processed && reason === "no_matching_engagement") {
+      console.warn("[pinch-webhook] Verified event has no matching engagement", {
+        eventId: event.id,
+        eventType: event.type
+      });
     }
 
     response.json({
       received: true,
+      processed,
+      ...(reason ? { reason } : {}),
       event
     });
   } catch (error) {

@@ -28,7 +28,7 @@ describe("marketplace persistence", () => {
     temporaryDirectories.push(directory);
     const filePath = path.join(directory, "marketplace.json");
     const snapshot: MarketplaceSnapshot = {
-      version: 2,
+      version: 3,
       needs: [],
       researchResults: [],
       solutionDecisions: [],
@@ -83,6 +83,7 @@ describe("marketplace persistence", () => {
           updatedAt: "2026-07-26T00:00:00.000Z"
         }
       ],
+      supplierRegistryEntries: [],
       processedPinchEventIds: ["evt_123"],
       pinchWebhookEvidence: [],
       localDemoPaymentEvidence: [
@@ -117,7 +118,7 @@ describe("marketplace persistence", () => {
     saveMarketplaceSnapshot(filePath, snapshot);
 
     assert.deepEqual(loadMarketplaceSnapshot(filePath), snapshot);
-    assert.equal(JSON.parse(readFileSync(filePath, "utf8")).version, 2);
+    assert.equal(JSON.parse(readFileSync(filePath, "utf8")).version, 3);
   });
 
   test("loads version 1 snapshots with empty canonical Find collections", () => {
@@ -142,7 +143,7 @@ describe("marketplace persistence", () => {
 
     const loaded = loadMarketplaceSnapshot(filePath);
 
-    assert.equal(loaded?.version, 2);
+    assert.equal(loaded?.version, 3);
     assert.deepEqual(loaded?.researchResults, []);
     assert.deepEqual(loaded?.solutionDecisions, []);
     assert.deepEqual(loaded?.needReports, []);
@@ -150,6 +151,7 @@ describe("marketplace persistence", () => {
     assert.deepEqual(loaded?.supplierClaims, []);
     assert.deepEqual(loaded?.commitmentNotifications, []);
     assert.deepEqual(loaded?.deployments, []);
+    assert.deepEqual(loaded?.supplierRegistryEntries, []);
     assert.deepEqual(loaded?.localDemoPaymentEvidence, []);
   });
 });

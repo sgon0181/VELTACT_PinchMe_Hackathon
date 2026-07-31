@@ -87,6 +87,13 @@ export class PinchClient implements PaymentProvider {
     });
   }
 
+  async cancelHostedPaymentLink(paymentLinkId: string) {
+    await this.request<unknown>(
+      `/payment-links/${encodeURIComponent(paymentLinkId)}`,
+      { method: "DELETE" }
+    );
+  }
+
   async getPaymentsForPayer(payerId: string) {
     return this.request<unknown>(
       `/payments/payer/${encodeURIComponent(payerId)}`,
@@ -235,7 +242,7 @@ export class PinchClient implements PaymentProvider {
 
   private async request<T>(
     path: string,
-    options: { method: "GET" | "POST"; body?: unknown }
+    options: { method: "GET" | "POST" | "DELETE"; body?: unknown }
   ): Promise<T> {
     const token = await this.getAccessToken();
     const url = new URL(`${trimTrailingSlash(env.PINCH_API_BASE_URL)}${path}`);

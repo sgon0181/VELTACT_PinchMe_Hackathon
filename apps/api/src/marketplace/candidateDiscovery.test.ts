@@ -284,6 +284,197 @@ describe("selected-pathway supplier discovery", () => {
       /confirm commissioning and training/
     );
   });
+
+  test("ranks a capability-matched prior supplier above an equivalent cold candidate", () => {
+    const profile = roboticsNeed();
+    const research = createMarketplaceFixtureResearch(
+      "need-registry-ranking",
+      profile,
+      generatedAt
+    );
+    const selectedApproach = research.approaches.find((approach) =>
+      approach.id.endsWith(":integration")
+    );
+    assert.ok(selectedApproach);
+    const [base] = createMarketplaceFixtureSupplierLeads(
+      "need-registry-ranking",
+      profile,
+      generatedAt
+    );
+    const registryCandidate = {
+      ...base,
+      id: "registry-candidate",
+      companyName: "Prior Robotics Supplier",
+      website: "https://prior-robotics.example",
+      matchReasons: [
+        ...base.matchReasons,
+        "In your supplier bench: responded to 1 previous requirement."
+      ]
+    };
+    const coldCandidate = {
+      ...base,
+      id: "cold-candidate",
+      companyName: "Cold Robotics Supplier",
+      website: "https://cold-robotics.example"
+    };
+
+    const ranked = rankDiscoveredSupplierLeads({
+      profile,
+      selectedApproach,
+      candidates: [coldCandidate, registryCandidate],
+      publicBaseUrl,
+      recommendationHistoryBySupplierId: new Map([
+        [
+          registryCandidate.id,
+          {
+            respondedEngagements: 1,
+            securedEngagements: 0,
+            deliveredEngagements: 0
+          }
+        ]
+      ])
+    });
+
+    assert.equal(ranked[0].id, registryCandidate.id);
+    assert.match(ranked[0].matchReasons[0], /In your supplier bench:/);
+  });
+
+  test("applies deterministic bounded boosts for responded, secured and delivered history", () => {
+    const profile = roboticsNeed();
+    const research = createMarketplaceFixtureResearch(
+      "need-registry-tiers",
+      profile,
+      generatedAt
+    );
+    const selectedApproach = research.approaches.find((approach) =>
+      approach.id.endsWith(":integration")
+    );
+    assert.ok(selectedApproach);
+    const [base] = createMarketplaceFixtureSupplierLeads(
+      "need-registry-tiers",
+      profile,
+      generatedAt
+    );
+    const candidates = [
+      ["responded", "Responded Supplier"],
+      ["secured", "Secured Supplier"],
+      ["delivered", "Delivered Supplier"]
+    ].map(([id, companyName]) => ({
+      ...base,
+      id,
+      companyName,
+      website: `https://${id}.example`
+    }));
+    const recommendationHistoryBySupplierId = new Map([
+      [
+        "responded",
+        {
+          respondedEngagements: 9,
+          securedEngagements: 0,
+          deliveredEngagements: 0
+        }
+      ],
+      [
+        "secured",
+        {
+          respondedEngagements: 1,
+          securedEngagements: 1,
+          deliveredEngagements: 0
+        }
+      ],
+      [
+        "delivered",
+        {
+          respondedEngagements: 1,
+          securedEngagements: 1,
+          deliveredEngagements: 1
+        }
+      ]
+    ]);
+
+    const rank = () =>
+      rankDiscoveredSupplierLeads({
+        profile,
+        selectedApproach,
+        candidates,
+        publicBaseUrl,
+        recommendationHistoryBySupplierId
+      });
+    const first = rank();
+    const second = rank();
+
+    assert.deepEqual(
+      first.map((candidate) => candidate.id),
+      ["delivered", "secured", "responded"]
+    );
+    assert.deepEqual(second, first);
+    assert.equal(first[0].matchScore - first[1].matchScore, 4);
+    assert.equal(first[1].matchScore - first[2].matchScore, 4);
+    assert.equal(
+      first[0].matchReasons[0],
+      "Delivered for you before — 1 engagement completed."
+    );
+    assert.equal(
+      first[1].matchReasons[0],
+      "Secured by you before — 1 engagement funded."
+    );
+    assert.equal(
+      first[2].matchReasons[0],
+      "In your supplier bench: responded to 9 previous requirements."
+    );
+  });
+
+  test("does not let registry history override a capability mismatch", () => {
+    const profile = roboticsNeed();
+    const research = createMarketplaceFixtureResearch(
+      "need-registry-mismatch",
+      profile,
+      generatedAt
+    );
+    const selectedApproach = research.approaches.find((approach) =>
+      approach.id.endsWith(":integration")
+    );
+    assert.ok(selectedApproach);
+    const candidates = createMarketplaceFixtureSupplierLeads(
+      "need-registry-mismatch",
+      profile,
+      generatedAt
+    );
+    const registryMismatch = {
+      ...candidates[0],
+      id: "registry-mismatch",
+      companyName: "Prior General Supplier",
+      website: "https://prior-general.example",
+      capabilities: ["general fabrication"],
+      matchReasons: [
+        "In your supplier bench: delivered 3 previous requirements."
+      ]
+    };
+
+    const ranked = rankDiscoveredSupplierLeads({
+      profile,
+      selectedApproach,
+      candidates: [registryMismatch, candidates[1]],
+      publicBaseUrl,
+      recommendationHistoryBySupplierId: new Map([
+        [
+          registryMismatch.id,
+          {
+            respondedEngagements: 3,
+            securedEngagements: 3,
+            deliveredEngagements: 3
+          }
+        ]
+      ])
+    });
+
+    assert.equal(ranked[0].id, candidates[1].id);
+    assert.doesNotMatch(
+      ranked.find((candidate) => candidate.id === registryMismatch.id)
+        ?.matchReasons[0] ?? "",
+      /Delivered for you before/
+    );
+  });
 });
 
 function plcNeed(): MarketplaceNeedProfile {

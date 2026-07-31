@@ -1,5 +1,16 @@
 import {
+  AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH,
+  AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE,
   aiIntakeResultSchema,
+  detectIntakeBudget,
+  detectIntakeCapabilities,
+  detectIntakeEquipment,
+  detectIntakeLocation,
+  detectIntakeUrgency,
+  intakeCategoryFromEquipment,
+  intakeTitleFromRequirement,
+  isIntakeRecoveryRequirement,
+  isIntakeUrgent,
   rapidMatchApiRoute,
   type AiIntakeEvidence,
   type AiIntakeResult
@@ -30,6 +41,7 @@ export class BackendAiIntakeService implements AiIntakeAdapter {
   }
 
   async structureRequirement(input: StructureRequirementInput): Promise<AiIntakeResult> {
+    assertRawRequirementWithinLimit(input.rawRequirement);
     try {
       const response = await fetch(canonicalApiUrl(rapidMatchApiRoute.structureRequirement), {
         method: "POST",
@@ -38,7 +50,8 @@ export class BackendAiIntakeService implements AiIntakeAdapter {
         },
         body: JSON.stringify(input)
       });
-      const payload = (await response.json()) as {
+      const responseText = await response.text();
+      const payload = parseJsonObject(responseText) as {
         aiIntakeResult?: AiIntakeResult;
         result?: AiIntakeResult;
         message?: string;
@@ -46,7 +59,10 @@ export class BackendAiIntakeService implements AiIntakeAdapter {
       };
 
       if (!response.ok) {
-        throw new Error(payload.message ?? "Unable to structure the requirement.");
+        throw new Error(
+          payload.message ??
+            `Unable to structure the requirement (HTTP ${response.status}). Check the factory context and try again.`
+        );
       }
 
       const parsedResult = aiIntakeResultSchema.safeParse(
@@ -77,6 +93,7 @@ export class DemoAiIntakeService implements AiIntakeAdapter {
 
   async structureRequirement(input: StructureRequirementInput): Promise<AiIntakeResult> {
     // Local-only fallback for demo environments where the API server is not running.
+    assertRawRequirementWithinLimit(input.rawRequirement);
     await delay(320);
     const evidenceText = (input.evidence ?? [])
       .map((item) => item.extractedText)
@@ -93,36 +110,29 @@ export class DemoAiIntakeService implements AiIntakeAdapter {
     }
 
     const normalised = rawRequirement.toLowerCase();
-    const isUrgent =
-      /\b(?:today|urgent|immediate|stopped|down|line stop|fault)\b/.test(
-        normalised
-      );
-    const requiresRecovery =
-      isUrgent ||
-      /\b(?:alarm|dead|failed|failure|not working)\b|(?:is not|isn't|isnt)\s+(?:heating|melting|working)/.test(
-        normalised
-      );
-    const equipmentOrTechnology = detectEquipment(normalised);
-    const requiredCapabilities = detectCapabilities(
+    const isUrgent = isIntakeUrgent(normalised);
+    const requiresRecovery = isIntakeRecoveryRequirement(normalised);
+    const equipmentOrTechnology = detectIntakeEquipment(normalised);
+    const requiredCapabilities = detectIntakeCapabilities(
       normalised,
       equipmentOrTechnology,
       requiresRecovery
     );
-    const location = detectLocation(normalised);
-    const urgency = detectUrgency(rawRequirement, isUrgent);
-    const budgetRange = detectBudget(rawRequirement);
+    const location = detectIntakeLocation(rawRequirement);
+    const urgency = detectIntakeUrgency(rawRequirement, isUrgent);
+    const budgetRange = detectIntakeBudget(rawRequirement);
     const constraints = detectConstraints(normalised, isUrgent, input.evidence ?? []);
 
     return aiIntakeResultSchema.parse({
       rawRequirement,
       generatedProfile: {
-        title: titleFromRequirement(
+        title: intakeTitleFromRequirement(
           rawRequirement,
           equipmentOrTechnology,
           requiresRecovery
         ),
         problemSummary: rawRequirement,
-        category: categoryFromEquipment(equipmentOrTechnology),
+        category: intakeCategoryFromEquipment(equipmentOrTechnology),
         equipmentOrTechnology,
         requiredCapabilities,
         location,
@@ -149,181 +159,55 @@ function canonicalApiUrl(route: string) {
   return base.endsWith("/api") ? `${base}${route.slice(4)}` : `${base}${route}`;
 }
 
+function assertRawRequirementWithinLimit(value: string) {
+  if (value.trim().length > AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH) {
+    throw new Error(AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE);
+  }
+}
+
+function parseJsonObject(value: string): Record<string, unknown> {
+  if (!value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function detectEquipment(normalised: string) {
-  const equipment = new Set<string>();
-  if (isProcessHeatingRequirement(normalised)) {
-    equipment.add("Plastics extrusion machine");
-  }
-  if (
-    isProcessHeatingRequirement(normalised) &&
-    /heater band|barrel|temperature zone|zone \d+/.test(normalised)
-  ) {
-    equipment.add("Extruder barrel heating zone");
-  }
-  if (
-    isProcessHeatingRequirement(normalised) &&
-    /\bscrew\b|torque/.test(normalised)
-  ) {
-    equipment.add("Extruder screw drive");
-  }
-  if (normalised.includes("abb")) equipment.add("ABB robotic arm");
-  if (normalised.includes("robot")) equipment.add("Robotic cell");
-  if (/palletis|palletiz|pallet(?:\s+|-)?load/.test(normalised)) {
-    equipment.add("Palletising cell");
-  }
-  if (normalised.includes("vision")) equipment.add("Machine vision");
-  if (normalised.includes("siemens")) equipment.add("Siemens PLC");
-  if (normalised.includes("plc")) equipment.add("PLC");
-  if (normalised.includes("conveyor")) equipment.add("Packaging conveyor");
-  if (normalised.includes("packaging line")) equipment.add("Packaging line");
-  if (normalised.includes("hmi")) equipment.add("HMI");
-  if (normalised.includes("scada")) equipment.add("SCADA");
-  return [...equipment];
-}
-
-function detectCapabilities(
-  normalised: string,
-  equipmentOrTechnology: string[],
-  requiresRecovery: boolean
-) {
-  const capabilities = new Set<string>();
-  if (isProcessHeatingRequirement(normalised)) {
-    capabilities.add(
-      requiresRecovery
-        ? "Plastics extrusion equipment diagnostics"
-        : "Plastics extrusion process engineering"
-    );
-  }
-  if (/heater band|barrel|process heating|temperature zone/.test(normalised)) {
-    capabilities.add("Industrial process heating diagnostics");
-    capabilities.add("Temperature control and instrumentation");
-  }
-  if (
-    isProcessHeatingRequirement(normalised) &&
-    /\b(?:dead|failed|failure|alarm)\b|(?:is not|isn't|isnt)\s+(?:heating|melting|working)/.test(
-      normalised
-    )
-  ) {
-    capabilities.add("Industrial electrical fault finding");
-  }
-  if (
-    isProcessHeatingRequirement(normalised) &&
-    /\bscrew\b|torque/.test(normalised)
-  ) {
-    capabilities.add("Extruder screw-drive assessment");
-  }
-  if (normalised.includes("robot")) {
-    capabilities.add(
-      requiresRecovery ? "Robotic cell fault recovery" : "Robotic systems integration"
-    );
-  }
-  if (normalised.includes("abb")) {
-    capabilities.add(
-      requiresRecovery ? "ABB robot diagnostics" : "ABB robot programming"
-    );
-  }
-  if (/palletis|palletiz|pallet(?:\s+|-)?load/.test(normalised)) {
-    capabilities.add(
-      requiresRecovery ? "Palletising cell recovery" : "Palletising cell integration"
-    );
-  }
-  if (normalised.includes("vision")) {
-    capabilities.add("Machine vision integration");
-  }
-  if (normalised.includes("siemens")) {
-    capabilities.add(
-      requiresRecovery ? "Siemens PLC diagnostics" : "Siemens controls integration"
-    );
-  }
-  if (normalised.includes("plc")) {
-    capabilities.add(requiresRecovery ? "PLC fault finding" : "PLC integration");
-  }
-  if (normalised.includes("conveyor")) {
-    capabilities.add(
-      requiresRecovery ? "Conveyor fault recovery" : "Conveyor integration"
-    );
-  }
-  if (
-    normalised.includes("safety") ||
-    /\bsafe\s*guard|\bsafeguard|\bguarding/.test(normalised)
-  ) {
-    capabilities.add(
-      requiresRecovery ? "Safety circuit diagnostics" : "Machinery safety"
-    );
-  }
-  if (/end[- ]of[- ]arm|tooling/.test(normalised)) {
-    capabilities.add("End-of-arm tooling");
-  }
-  if (/operator training|\btraining\b/.test(normalised)) {
-    capabilities.add("Operator training");
-  }
-  if (!requiresRecovery && /commission|integration|integrated/.test(normalised)) {
-    capabilities.add("Site commissioning");
-  }
-  if (normalised.includes("today") || normalised.includes("urgent") || normalised.includes("stopped")) {
-    capabilities.add("Same-day onsite support");
-  }
-  if (equipmentOrTechnology.length && !capabilities.size) {
-    capabilities.add("Industrial equipment diagnostics");
-  }
-  return [...capabilities];
-}
-
-function detectLocation(normalised: string) {
-  if (normalised.includes("western sydney")) return "Western Sydney, NSW";
-  if (normalised.includes("sydney")) return "Sydney, NSW";
-  if (normalised.includes("melbourne")) return "Melbourne, VIC";
-  if (normalised.includes("brisbane")) return "Brisbane, QLD";
-  return undefined;
-}
-
-function detectUrgency(rawRequirement: string, isUrgent: boolean) {
-  if (isUrgent) return "Required today";
-  const relative = rawRequirement.match(
-    /\bwithin\s+(\d{1,3})\s+(business\s+)?(day|week)s?\b/i
-  );
-  if (!relative) return undefined;
-  const count = Number(relative[1]);
-  const unit = relative[3]?.toLowerCase() ?? "day";
-  const business = relative[2] ? "business " : "";
-  return `Within ${count} ${business}${unit}${count === 1 ? "" : "s"}`;
-}
-
-function detectBudget(rawRequirement: string) {
-  const numberPattern = String.raw`\d{1,3}(?:,\d{3})+|\d{3,7}`;
-  const range = rawRequirement.match(
-    new RegExp(
-      String.raw`(?:aud\s*|\$\s*)(${numberPattern})\s*(?:to|[-–])\s*(?:aud\s*|\$\s*)?(${numberPattern})`,
-      "i"
-    )
-  );
-  if (range) {
-    return `AUD ${formatAmount(range[1])} to AUD ${formatAmount(range[2])}`;
-  }
-  const explicit = rawRequirement.match(
-    new RegExp(
-      String.raw`(?:aud\s*|\$\s*)(${numberPattern})|(${numberPattern})\s*aud\b`,
-      "i"
-    )
-  );
-  const contextual = rawRequirement.match(
-    new RegExp(
-      String.raw`\b(?:budget|callout tolerance)\D{0,16}(${numberPattern})`,
-      "i"
-    )
-  );
-  const amount = explicit?.[1] ?? explicit?.[2] ?? contextual?.[1];
-  return amount ? `Up to AUD ${formatAmount(amount)}` : undefined;
 }
 
 function detectConstraints(normalised: string, isUrgent: boolean, evidence: IntakeEvidence[]) {
   const constraints = new Set<string>();
   if (normalised.includes("factory") || normalised.includes("line")) constraints.add("Production environment");
-  if (normalised.includes("food") || normalised.includes("packaging")) constraints.add("Packaging/food manufacturing context");
+  if (normalised.includes("packaging")) {
+    constraints.add("Packaging manufacturing context");
+  } else if (/\bfood\b|\bseafood\b|\bdairy\b/.test(normalised)) {
+    constraints.add("Food handling environment");
+  }
+  if (
+    /\bgrain\b/.test(normalised) &&
+    /\bcontaminat(?:e|ed|es|ing|ion)\b/.test(normalised)
+  ) {
+    constraints.add("Grain handling contamination controls");
+  }
+  if (/\bcold store\b|\bcold-storage\b|\bfreezer\b|-\d+\s*°?c\b/.test(normalised)) {
+    constraints.add("Temperature-critical cold storage");
+  }
+  if (/\bwastewater\b|\bsewage\b|\bsludge\b/.test(normalised)) {
+    constraints.add("Wastewater treatment environment");
+  }
+  if (
+    /\bbypass pumping\b|keep(?:s|ing)? (?:the )?process stable|maintain(?:ing)? (?:the )?process/.test(
+      normalised
+    )
+  ) {
+    constraints.add("Maintain wastewater process continuity");
+  }
   if (isUrgent) constraints.add("Minimal downtime");
   if (
     /adjacent production|avoid(?:s|ing)? disrupting|maintain(?:ing)? production|staged installation/.test(
@@ -338,72 +222,6 @@ function detectConstraints(normalised: string, isUrgent: boolean, evidence: Inta
   if (evidence.some((item) => item.kind === "pdf")) constraints.add("PDF evidence attached for supplier review");
   if (evidence.some((item) => item.kind === "photo")) constraints.add("Photo evidence attached; visual details require OCR/vision service confirmation");
   return [...constraints];
-}
-
-function titleFromRequirement(
-  rawRequirement: string,
-  equipmentOrTechnology: string[],
-  requiresRecovery: boolean
-) {
-  if (
-    equipmentOrTechnology.some((item) =>
-      item.includes("Plastics extrusion machine")
-    )
-  ) {
-    return requiresRecovery
-      ? "Extruder barrel heating fault with high-torque alarm"
-      : "Plastics extrusion process-heating support";
-  }
-  if (equipmentOrTechnology.some((item) => item.includes("ABB robotic arm"))) {
-    return requiresRecovery
-      ? "Urgent robotic palletiser recovery"
-      : "Robotic palletiser integration for dispatch line";
-  }
-  if (
-    !requiresRecovery &&
-    equipmentOrTechnology.some((item) => item.includes("Palletising cell"))
-  ) {
-    return "Robotic palletising cell integration";
-  }
-  if (equipmentOrTechnology.some((item) => item.includes("Siemens PLC"))) {
-    return requiresRecovery
-      ? "Urgent Siemens PLC fault on packaging line"
-      : "Siemens PLC integration for packaging line";
-  }
-  const firstSentence = rawRequirement.split(/[.!?]/)[0]?.trim();
-  return firstSentence ? firstSentence.slice(0, 90) : "Industrial supplier requirement";
-}
-
-function categoryFromEquipment(equipmentOrTechnology: string[]) {
-  if (
-    equipmentOrTechnology.some((item) =>
-      /extrusion|barrel heating|screw drive/i.test(item)
-    )
-  ) {
-    return "Plastics processing maintenance";
-  }
-  if (
-    equipmentOrTechnology.some((item) =>
-      /robot|palletis|machine vision/i.test(item)
-    )
-  ) {
-    return "Robotics integration";
-  }
-  return equipmentOrTechnology.some((item) =>
-    /plc|scada|hmi|conveyor/i.test(item)
-  )
-    ? "Industrial automation"
-    : "Industrial services";
-}
-
-function isProcessHeatingRequirement(normalised: string) {
-  return /extrud|heater band|barrel heating|plastic processing|polymer processing|(?:plastic|polymer).{0,40}(?:melt|barrel|screw)|(?:screw|barrel).{0,40}(?:torque|heater|plastic|polymer)/.test(
-    normalised
-  );
-}
-
-function formatAmount(value: string) {
-  return Number(value.replaceAll(",", "")).toLocaleString("en-AU");
 }
 
 function confidenceScore(input: {

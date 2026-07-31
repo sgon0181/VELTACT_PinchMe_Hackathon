@@ -1,4 +1,4 @@
-import { deploymentSummarySchema, rapidMatchApiRoute, rapidMatchBuyerWorkspaceSchema, solutionDecisionSchema, solutionResearchResultSchema, supplierResponseSchema } from "@veltact/contracts";
+import { detectIntakeLocation, deploymentSummarySchema, engagementSpeedReceiptSchema, parseIntakeBudgetAmount, rapidMatchApiRoute, rapidMatchBuyerWorkspaceSchema, supplierRegistryResponseSchema, solutionDecisionSchema, solutionResearchResultSchema, supplierResponseSchema } from "@veltact/contracts";
 import { apiBaseUrl } from "./apiBase.js";
 import { parseUrgencyDays } from "./urgency.js";
 const runtimeWindow = window;
@@ -14,6 +14,13 @@ export class RapidMatchService {
     }
     buyerAccessTokenForNeed(needProfileId) {
         return this.buyerAccessTokens.get(needProfileId);
+    }
+    async loadSupplierRegistry(needProfileId) {
+        const payload = await requestJson(`${rapidMatchApiRoute.supplierRegistry}?needProfileId=${encodeURIComponent(needProfileId)}`, {
+            method: "GET",
+            buyerAccessToken: this.buyerAccessTokens.get(needProfileId)
+        });
+        return supplierRegistryResponseSchema.parse(payload);
     }
     async createNeedProfile(input, priority, evidence) {
         const profile = requirementToMarketplaceProfile(input, priority);
@@ -73,8 +80,12 @@ export class RapidMatchService {
                     : current?.intakeEvidence ?? [],
                 researchResult: canonical.researchResult ?? current?.researchResult,
                 solutionDecision: canonical.solutionDecision ?? current?.solutionDecision,
+                agentActivityEvents: canonical.agentActivityEvents.length > 0
+                    ? canonical.agentActivityEvents
+                    : current?.agentActivityEvents ?? [],
                 engagement: canonical.engagement ?? current?.engagement,
-                deployment: canonical.deployment ?? current?.deployment
+                deployment: canonical.deployment ?? current?.deployment,
+                speedReceipt: canonical.speedReceipt ?? current?.speedReceipt
             }
             : need
                 ? legacyWorkspace(need, current)
@@ -255,13 +266,13 @@ export class RapidMatchService {
         if (!engagement) {
             throw new Error("The API did not create a supplier engagement.");
         }
-        return {
+        return this.loadDeployment({
             ...(canonical ?? workspace),
             phase: "deploy",
             status: "commitment_pending",
             nextAction: "open_pinch_checkout",
             engagement
-        };
+        });
     }
     async createPaymentLink(workspace) {
         const needProfile = requiredNeedProfile(workspace);
@@ -289,6 +300,72 @@ export class RapidMatchService {
         next = await this.loadDeployment(next);
         return next;
     }
+    async createMilestonePaymentLink(workspace, milestoneId) {
+        const needProfile = requiredNeedProfile(workspace);
+        const engagement = requiredEngagement(workspace);
+        const payload = await requestJson(routeFor(rapidMatchApiRoute.milestonePaymentLink, {
+            engagementId: engagement.id,
+            milestoneId
+        }), {
+            method: "POST",
+            body: {},
+            buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
+        });
+        const deployment = parseDeployment(payload.deployment);
+        if (!deployment) {
+            throw new Error("The API did not return the funded delivery plan.");
+        }
+        return this.loadSpeedReceipt(reconcileWorkspace({
+            ...workspace,
+            phase: "deploy",
+            status: "delivery_active",
+            nextAction: "track_delivery",
+            deployment
+        }));
+    }
+    async cancelMilestonePaymentLink(workspace, milestoneId) {
+        const needProfile = requiredNeedProfile(workspace);
+        const engagement = requiredEngagement(workspace);
+        const payload = await requestJson(routeFor(rapidMatchApiRoute.milestonePaymentLinkCancellation, {
+            engagementId: engagement.id,
+            milestoneId
+        }), {
+            method: "POST",
+            body: {},
+            buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
+        });
+        const deployment = parseDeployment(payload.deployment);
+        if (!deployment) {
+            throw new Error("The API did not return the updated delivery plan.");
+        }
+        return this.loadSpeedReceipt(reconcileWorkspace({
+            ...workspace,
+            deployment
+        }));
+    }
+    async completeDemoMilestonePayment(workspace, milestoneId) {
+        const needProfile = requiredNeedProfile(workspace);
+        const engagement = requiredEngagement(workspace);
+        const payload = await requestJson(routeFor(rapidMatchApiRoute.milestoneDemoPayment, {
+            engagementId: engagement.id,
+            milestoneId
+        }), {
+            method: "POST",
+            body: {},
+            buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
+        });
+        const deployment = parseDeployment(payload.deployment);
+        if (!deployment) {
+            throw new Error("The local demo did not return milestone evidence.");
+        }
+        return this.loadSpeedReceipt(reconcileWorkspace({
+            ...workspace,
+            phase: "deploy",
+            status: "delivery_active",
+            nextAction: "track_delivery",
+            deployment
+        }));
+    }
     async refreshEngagement(workspace) {
         const engagement = requiredEngagement(workspace);
         return this.loadEngagement(workspace, engagement.id);
@@ -311,10 +388,10 @@ export class RapidMatchService {
         if (!deployment) {
             throw new Error("The API did not return the updated deployment.");
         }
-        return reconcileWorkspace({
+        return this.loadSpeedReceipt(reconcileWorkspace({
             ...(canonical ?? workspace),
             deployment
-        });
+        }));
     }
     async completeDemoPayment(workspace) {
         const needProfile = requiredNeedProfile(workspace);
@@ -392,18 +469,45 @@ export class RapidMatchService {
             const deployment = canonical?.deployment ??
                 parseDeployment(isRecord(payload) ? payload.deployment : undefined) ??
                 parseDeployment(payload);
-            return {
+            return this.loadSpeedReceipt({
                 ...(canonical ?? workspace),
                 deployment
-            };
+            });
         }
         catch (error) {
             if (!isUnavailableRoute(error))
                 throw error;
-            return {
+            return this.loadSpeedReceipt({
                 ...workspace,
                 deployment: fixtureDeployment(workspace)
+            });
+        }
+    }
+    async loadSpeedReceipt(workspace) {
+        const engagement = workspace.engagement;
+        if (!engagement)
+            return workspace;
+        const needProfile = requiredNeedProfile(workspace);
+        try {
+            const payload = await requestJson(routeFor(rapidMatchApiRoute.engagementReceipt, {
+                engagementId: engagement.id
+            }), {
+                method: "GET",
+                buyerAccessToken: this.buyerAccessTokens.get(needProfile.id)
+            });
+            const parsed = engagementSpeedReceiptSchema.safeParse(payload.receipt ?? payload);
+            if (!parsed.success) {
+                throw new Error("The API returned an invalid engagement receipt.");
+            }
+            return {
+                ...workspace,
+                speedReceipt: parsed.data
             };
+        }
+        catch (error) {
+            // Receipt rendering is an additive artifact and must never block the
+            // underlying supplier, payment or deployment workflow.
+            return workspace;
         }
     }
 }
@@ -512,6 +616,7 @@ function legacyWorkspace(need, current = {}) {
         intakeEvidence: current.intakeEvidence ?? [],
         researchResult: current.researchResult,
         solutionDecision: current.solutionDecision,
+        agentActivityEvents: current.agentActivityEvents ?? [],
         discoveredSuppliers: current.discoveredSuppliers ?? [],
         suppliers: need.suppliers ?? current.suppliers ?? [],
         matches: need.supplierMatches ?? current.matches ?? [],
@@ -525,7 +630,8 @@ function legacyWorkspace(need, current = {}) {
             [],
         responses,
         engagement: current.engagement,
-        deployment: current.deployment
+        deployment: current.deployment,
+        speedReceipt: current.speedReceipt
     };
 }
 function legacyNeedProfile(need) {
@@ -540,7 +646,7 @@ function legacyNeedProfile(need) {
         category: profile.category,
         location: profile.location,
         priority: contractNeedPriority(profile),
-        requiredBy: availabilityLabel(profile.urgencyDays),
+        requiredBy: profile.requiredBy ?? availabilityLabel(profile.urgencyDays),
         budget: profile.budgetAud === undefined
             ? undefined
             : { amount: profile.budgetAud * 100, currency: "AUD" },
@@ -640,11 +746,12 @@ function requirementToMarketplaceProfile(input, priority) {
         description: input.description,
         problemSummary: input.description,
         category: input.category || inferCategory(input.description),
-        industry: "Manufacturing",
+        industry: inferBuyerIndustry(input.description),
         equipmentOrTechnology: input.equipmentOrTechnology,
-        location: input.location,
+        location: detectIntakeLocation(input.location) ?? input.location,
+        requiredBy: input.requiredBy || undefined,
         urgencyDays: parseUrgencyDays(input.requiredBy),
-        budgetAud: input.budgetAmount || parseBudgetAmount(input.budgetRange),
+        budgetAud: input.budgetAmount || parseIntakeBudgetAmount(input.budgetRange),
         constraints: input.constraints,
         buyerPriority: priority,
         requiredCapabilities: input.requiredCapabilities.length
@@ -658,11 +765,12 @@ function marketplaceProfileFromNeed(needProfile) {
         description: needProfile.description,
         problemSummary: needProfile.description,
         category: needProfile.category,
-        industry: "Manufacturing",
+        industry: inferBuyerIndustry(needProfile.description),
         equipmentOrTechnology: needProfile.mustHaves
             .filter((item) => item.startsWith("Equipment: "))
             .map((item) => item.slice("Equipment: ".length)),
         location: needProfile.location,
+        requiredBy: needProfile.requiredBy,
         urgencyDays: needProfile.priority === "urgent" ? 1 : undefined,
         budgetAud: needProfile.budget
             ? Math.round(needProfile.budget.amount / 100)
@@ -890,6 +998,7 @@ function fixtureDeployment(workspace) {
     const engagement = requiredEngagement(workspace);
     const needProfile = requiredNeedProfile(workspace);
     const robotics = /robot|palletis/i.test(`${needProfile.title} ${needProfile.description} ${needProfile.category}`);
+    const plcRecovery = /\bplc\b|siemens|programmable logic|control system/i.test(`${needProfile.title} ${needProfile.description} ${needProfile.category}`);
     const titles = robotics
         ? [
             "Site Assessment / Scoping Visit",
@@ -897,7 +1006,9 @@ function fixtureDeployment(workspace) {
             "Installation",
             "Commissioning"
         ]
-        : ["Diagnosis", "Recovery", "Validation", "Handover"];
+        : plcRecovery
+            ? ["Diagnosis", "Recovery", "Validation", "Handover"]
+            : ["Site Assessment", "Approved Work", "Validation", "Handover"];
     const secured = engagement.status === "supplier_secured";
     const paymentPending = engagement.paymentStatus !== "not_started";
     const updatedAt = engagement.updatedAt;
@@ -905,7 +1016,9 @@ function fixtureDeployment(workspace) {
         engagementId: engagement.id,
         title: robotics
             ? "Robotic integration delivery"
-            : "PLC recovery delivery",
+            : plcRecovery
+                ? "PLC recovery delivery"
+                : "Industrial response delivery",
         status: secured ? "active" : paymentPending ? "commitment_pending" : "not_started",
         progressPercentage: 0,
         currentMilestoneId: `${engagement.id}-fixture-milestone-1`,
@@ -943,6 +1056,18 @@ function isRobotics(profile) {
         ...(profile.equipmentOrTechnology ?? [])
     ].join(" "));
 }
+export function inferBuyerIndustry(description) {
+    if (/\bwastewater\b|\bwater treatment\b|\bsewage\b|\bsludge\b/i.test(description)) {
+        return "Water and wastewater utilities";
+    }
+    if (/\bcold store\b|\bcold-storage\b|\bcold logistics\b|\brefrigerat(?:ion|ed)\b/i.test(description)) {
+        return "Cold storage and logistics";
+    }
+    if (/\bgrain terminal\b|\bgrain handling\b|\bshiploader\b/i.test(description)) {
+        return "Bulk materials and grain handling";
+    }
+    return "Manufacturing";
+}
 function inferCategory(description) {
     return /robot|plc|automation|conveyor/i.test(description)
         ? "Industrial automation"
@@ -963,10 +1088,6 @@ function inferCapabilities(description) {
         capabilities.add("Machinery safety");
     capabilities.add("Industrial onsite support");
     return [...capabilities];
-}
-function parseBudgetAmount(value) {
-    const match = value.match(/(\d[\d,]*)/);
-    return match ? Number(match[1].replaceAll(",", "")) : undefined;
 }
 function availabilityLabel(days) {
     if (!days)

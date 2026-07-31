@@ -38,13 +38,27 @@ assert.notEqual(
   "deployment payment-evidence helper should be bounded"
 );
 
-const evidenceSandbox = {};
+const evidenceSandbox = {
+  escapeHtml: (value) => String(value),
+  fact: (label, value) => `<div><dt>${label}</dt><dd>${value}</dd></div>`,
+  shortId: (value) => (value.length > 10 ? `${value.slice(0, 8)}...` : value),
+  money: (amount) => `$${(amount / 100).toLocaleString("en-AU")}`,
+  formatTime: (value) => value ?? "Not yet"
+};
 vm.runInNewContext(
   `${mainBundle.slice(evidenceHelperStart, evidenceHelperEnd)}
-this.deploymentPaymentEvidence = deploymentPaymentEvidence;`,
+this.paymentEvidenceHelpers = {
+  deploymentPaymentEvidence,
+  paymentEvidenceSourceLabel,
+  renderAuthoritativePaymentEvidence
+};`,
   evidenceSandbox
 );
-const { deploymentPaymentEvidence } = evidenceSandbox;
+const {
+  deploymentPaymentEvidence,
+  paymentEvidenceSourceLabel,
+  renderAuthoritativePaymentEvidence
+} = evidenceSandbox.paymentEvidenceHelpers;
 
 test("requires both exact local-demo markers before showing synthetic-return copy", () => {
   const localUrl =
@@ -148,6 +162,41 @@ test("uses authoritative Pinch provenance even if an old ID resembles demo data"
   assert.equal(evidence.provider, "pinch");
   assert.equal(evidence.authoritative, true);
   assert.equal(evidence.legacyFallback, false);
+});
+
+test("renders authoritative payment evidence with its verified source and commitment", () => {
+  const engagement = {
+    pinchPaymentId: "pmt_authoritative-123456",
+    paymentEvidenceProvider: "pinch",
+    paymentEvidenceSource: "pinch_webhook",
+    paymentEvidenceAuthoritative: true,
+    securedAt: "2026-07-30T09:30:00.000Z"
+  };
+  const rendered = renderAuthoritativePaymentEvidence(engagement, {
+    amount: 1_850_000,
+    currency: "AUD"
+  });
+
+  assert.equal(
+    paymentEvidenceSourceLabel("pinch_webhook"),
+    "Pinch webhook (signature verified)"
+  );
+  assert.equal(
+    paymentEvidenceSourceLabel("pinch_reconciliation"),
+    "Pinch API reconciliation"
+  );
+  assert.match(rendered, /Payment evidence/);
+  assert.match(rendered, /Pinch webhook \(signature verified\)/);
+  assert.match(rendered, /pmt_auth\.\.\./);
+  assert.match(rendered, /\$18,500 AUD/);
+  assert.match(rendered, /2026-07-30T09:30:00.000Z/);
+});
+
+test("states that browser return never secures an awaiting payment", () => {
+  assert.match(
+    mainBundle,
+    /Secured only by verified Pinch webhook or API reconciliation — never by browser return\./
+  );
 });
 
 test("retains the legacy demo-ID fallback only when explicit provenance is absent", () => {

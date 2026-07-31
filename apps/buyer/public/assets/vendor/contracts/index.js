@@ -1,4 +1,6 @@
 import { z } from "zod";
+export { formatSupplierAvailability } from "./dateFormatting.js";
+export { detectIntakeBudget, detectIntakeCapabilities, detectIntakeEquipment, detectIntakeLocation, detectIntakeUrgency, intakeCategoryFromEquipment, intakeTitleFromRequirement, isIntakeRecoveryRequirement, isIntakeUrgent, parseIntakeBudgetAmount, truncateIntakeTitle } from "./intakeExtraction.js";
 export const needPrioritySchema = z.enum(["urgent", "soon", "planned"]);
 export const buyerPrioritySchema = z.enum([
     "speed",
@@ -7,6 +9,9 @@ export const buyerPrioritySchema = z.enum([
     "trust",
     "price"
 ]);
+export const AI_INTAKE_RAW_REQUIREMENT_MIN_LENGTH = 24;
+export const AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH = 8_000;
+export const AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE = "Factory context is too long. Keep it to 8,000 characters or fewer.";
 export const needProfileStatusSchema = z.enum([
     "draft",
     "submitted",
@@ -77,6 +82,7 @@ export const marketplaceNeedProfileSchema = z.object({
     equipmentOrTechnology: z.array(z.string().trim().min(1)).optional(),
     equipmentTechnology: z.array(z.string().trim().min(1)).optional(),
     location: z.string().trim().min(1),
+    requiredBy: z.string().trim().min(1).optional(),
     urgencyDays: z.coerce.number().int().positive().optional(),
     budgetAud: z.coerce.number().int().positive().optional(),
     constraints: z.array(z.string().trim().min(1)).optional(),
@@ -251,7 +257,11 @@ export const aiIntakeProfileSchema = z.object({
     buyerPriority: buyerPrioritySchema.optional()
 });
 export const aiIntakeResultSchema = z.object({
-    rawRequirement: z.string().trim().min(1),
+    rawRequirement: z
+        .string()
+        .trim()
+        .min(1)
+        .max(AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH, AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE),
     generatedProfile: aiIntakeProfileSchema,
     confidence: z.number().min(0).max(1).optional(),
     missingFields: z.array(z.string().trim().min(1)).default([])
@@ -281,10 +291,12 @@ export const rapidMatchSocketEvent = {
     paymentStatusUpdated: "rapidmatch:payment.status_updated",
     engagementSecured: "rapidmatch:engagement.secured",
     commitmentNotificationUpdated: "rapidmatch:commitment.notification_updated",
+    agentActivityUpdated: "rapidmatch:agent.activity_updated",
     deploymentUpdated: "rapidmatch:deployment.updated"
 };
 export const evidenceProviderSchema = z.enum([
     "openai_web_search",
+    "perplexity",
     "firecrawl",
     "fixture",
     "manual"
@@ -321,6 +333,31 @@ export const solutionApproachSchema = z.object({
     confidence: z.number().min(0).max(1),
     citationIds: z.array(z.string().min(1)).min(1)
 });
+export const agentActivityOperationSchema = z.enum([
+    "research",
+    "discovery"
+]);
+export const agentActivityStageSchema = z.enum([
+    "query_formulation",
+    "source_read",
+    "candidate_considered",
+    "candidate_accepted",
+    "candidate_rejected",
+    "fallback",
+    "completed"
+]);
+export const agentActivityEventSchema = z.object({
+    id: z.string().min(1),
+    needProfileId: z.string().min(1),
+    sequence: z.number().int().nonnegative(),
+    operation: agentActivityOperationSchema,
+    stage: agentActivityStageSchema,
+    message: z.string().trim().min(1),
+    detail: z.string().trim().min(1).optional(),
+    sourceMode: z.enum(["live", "fixture"]),
+    sourceUrl: z.string().url().optional(),
+    occurredAt: isoDateTimeSchema
+});
 export const solutionResearchResultSchema = z.object({
     id: z.string().min(1),
     needProfileId: z.string().min(1),
@@ -329,6 +366,7 @@ export const solutionResearchResultSchema = z.object({
     approaches: z.array(solutionApproachSchema).min(1),
     citations: z.array(researchCitationSchema).min(1),
     missingInformation: z.array(z.string().trim().min(1)).default([]),
+    activityEvents: z.array(agentActivityEventSchema).default([]),
     safetyNotice: z.string().trim().min(1),
     generatedAt: isoDateTimeSchema
 });
@@ -385,6 +423,64 @@ export const supplierLeadSchema = z.object({
     activatedSupplierId: z.string().min(1).optional(),
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema
+});
+export const supplierRegistryProvenanceStateSchema = z.enum([
+    "discovered",
+    "contacted",
+    "responded",
+    "secured",
+    "delivered"
+]);
+export const supplierRegistrySourceSchema = z.enum([
+    "catalog",
+    "live_discovery",
+    "fixture"
+]);
+export const supplierRegistryEvidenceSchema = z.object({
+    url: z.string().url(),
+    title: z.string().trim().min(1),
+    retrievedAt: isoDateTimeSchema
+});
+export const supplierRegistryEngagementSchema = z.object({
+    needProfileId: z.string().min(1),
+    engagementId: z.string().min(1).optional(),
+    responsePrice: moneySchema.optional(),
+    secured: z.boolean().default(false),
+    delivered: z.boolean().default(false),
+    discoveredAt: isoDateTimeSchema,
+    contactedAt: isoDateTimeSchema.optional(),
+    respondedAt: isoDateTimeSchema.optional(),
+    securedAt: isoDateTimeSchema.optional(),
+    deliveredAt: isoDateTimeSchema.optional(),
+    lastActivityAt: isoDateTimeSchema
+});
+export const supplierRegistryEntrySchema = z.object({
+    schemaVersion: z.literal(1),
+    id: z.string().min(1),
+    accountScopeKey: z.string().min(1),
+    supplierName: z.string().trim().min(1),
+    normalizedDomain: z.string().trim().min(1).optional(),
+    location: z.string().trim().min(1),
+    capabilities: z.array(z.string().trim().min(1)).default([]),
+    provenanceState: supplierRegistryProvenanceStateSchema,
+    source: supplierRegistrySourceSchema,
+    evidence: z.array(supplierRegistryEvidenceSchema).default([]),
+    engagementHistory: z.array(supplierRegistryEngagementSchema).default([]),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema
+});
+export const supplierRegistrySummarySchema = z.object({
+    total: z.number().int().nonnegative(),
+    discovered: z.number().int().nonnegative(),
+    contacted: z.number().int().nonnegative(),
+    responded: z.number().int().nonnegative(),
+    secured: z.number().int().nonnegative(),
+    delivered: z.number().int().nonnegative()
+});
+export const supplierRegistryResponseSchema = z.object({
+    schemaVersion: z.literal(1),
+    entries: z.array(supplierRegistryEntrySchema),
+    summary: supplierRegistrySummarySchema
 });
 export const supplierClaimStatusSchema = z.enum([
     "pending",
@@ -650,6 +746,14 @@ export const aiIntakeEvidenceSchema = z.object({
     extractedText: z.string().trim().optional(),
     dataUrl: z.string().trim().startsWith("data:").max(5_600_000).optional()
 });
+export const aiIntakeStructureRequestSchema = z.object({
+    rawRequirement: z
+        .string()
+        .trim()
+        .max(AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH, AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE)
+        .default(""),
+    evidence: z.array(aiIntakeEvidenceSchema).max(6).default([])
+});
 export const intakeEvidenceStatusSchema = z.enum([
     "provided",
     "processed",
@@ -712,8 +816,22 @@ export const deploymentMilestoneSummarySchema = z.object({
     sequence: z.number().int().positive(),
     title: z.string().trim().min(1),
     amount: moneySchema.optional(),
+    serviceFeeMinor: z.number().int().nonnegative().optional(),
+    serviceFeeDisclosed: z.literal(true).optional(),
     status: deploymentMilestoneStatusSchema,
     paymentStatus: paymentStatusSchema,
+    paymentLinkId: z.string().min(1).optional(),
+    hostedCheckoutUrl: z.string().url().optional(),
+    pinchPayerId: z.string().min(1).optional(),
+    pinchPaymentId: z.string().min(1).optional(),
+    localDemoPaymentId: z.string().min(1).optional(),
+    paymentEvidenceProvider: z.enum(["pinch", "local_demo"]).optional(),
+    paymentEvidenceSource: z
+        .enum(["pinch_webhook", "pinch_reconciliation", "local_demo"])
+        .optional(),
+    paymentEvidenceAuthoritative: z.boolean().optional(),
+    paymentEvidenceEventId: z.string().min(1).optional(),
+    fundedAt: isoDateTimeSchema.optional(),
     progressPercentage: z.number().int().min(0).max(100),
     latestUpdate: z.string().trim().min(1).optional(),
     updatedAt: isoDateTimeSchema
@@ -729,6 +847,52 @@ export const deploymentSummarySchema = z.object({
     latestUpdate: z.string().trim().min(1).optional(),
     updatedAt: isoDateTimeSchema
 });
+export const engagementReceiptStageSchema = z.enum([
+    "requirement_created",
+    "analysis_completed",
+    "outreach_delivery",
+    "supplier_response_received",
+    "supplier_selected",
+    "payment_link_created",
+    "payment_verified",
+    "milestone_funded"
+]);
+export const engagementReceiptEventStatusSchema = z.enum([
+    "complete",
+    "pending",
+    "failed"
+]);
+export const engagementReceiptEventSchema = z.object({
+    id: z.string().min(1),
+    sequence: z.number().int().positive(),
+    stage: engagementReceiptStageSchema,
+    status: engagementReceiptEventStatusSchema,
+    label: z.string().trim().min(1),
+    detail: z.string().trim().min(1).optional(),
+    occurredAt: isoDateTimeSchema.optional(),
+    channel: outreachChannelSchema.optional(),
+    supplierId: z.string().min(1).optional(),
+    supplierName: z.string().trim().min(1).optional(),
+    milestoneId: z.string().min(1).optional(),
+    evidenceSource: z.string().trim().min(1).optional(),
+    authoritative: z.boolean().optional()
+});
+export const engagementSpeedReceiptSchema = z.object({
+    schemaVersion: z.literal(1),
+    engagementId: z.string().min(1),
+    needProfileId: z.string().min(1),
+    requirementTitle: z.string().trim().min(1),
+    status: z.enum(["in_progress", "secured"]),
+    startedAt: isoDateTimeSchema,
+    securedAt: isoDateTimeSchema.optional(),
+    elapsedMilliseconds: z.number().int().nonnegative().optional(),
+    baseline: z.object({
+        label: z.literal("Industry norm: days to weeks"),
+        kind: z.literal("general_claim")
+    }),
+    events: z.array(engagementReceiptEventSchema).min(1),
+    generatedAt: isoDateTimeSchema
+});
 export const rapidMatchBuyerWorkspaceSchema = z.object({
     phase: rapidMatchJourneyPhaseSchema,
     status: rapidMatchJourneyStatusSchema,
@@ -737,6 +901,7 @@ export const rapidMatchBuyerWorkspaceSchema = z.object({
     intakeEvidence: z.array(intakeEvidenceSummarySchema).default([]),
     researchResult: solutionResearchResultSchema.optional(),
     solutionDecision: solutionDecisionSchema.optional(),
+    agentActivityEvents: z.array(agentActivityEventSchema).default([]),
     discoveredSuppliers: z.array(supplierLeadSchema).default([]),
     suppliers: z.array(supplierSchema).default([]),
     matches: z.array(supplierMatchSchema).default([]),
@@ -745,7 +910,8 @@ export const rapidMatchBuyerWorkspaceSchema = z.object({
     responses: z.array(supplierResponseSchema).default([]),
     engagement: engagementSchema.optional(),
     commitmentNotification: supplierCommitmentNotificationSchema.optional(),
-    deployment: deploymentSummarySchema.optional()
+    deployment: deploymentSummarySchema.optional(),
+    speedReceipt: engagementSpeedReceiptSchema.optional()
 });
 export const rapidMatchApiRoute = {
     structureRequirement: "/api/ai-intake/structure",
@@ -759,10 +925,15 @@ export const rapidMatchApiRoute = {
     responses: "/api/need-profiles/:needProfileId/responses",
     createEngagement: "/api/need-profiles/:needProfileId/engagements",
     engagement: "/api/engagements/:engagementId",
+    engagementReceipt: "/api/engagements/:engagementId/receipt",
     paymentLink: "/api/engagements/:engagementId/payment-link",
+    milestonePaymentLink: "/api/engagements/:engagementId/milestones/:milestoneId/payment-link",
+    milestonePaymentLinkCancellation: "/api/engagements/:engagementId/milestones/:milestoneId/payment-link/cancel",
+    milestoneDemoPayment: "/api/engagements/:engagementId/milestones/:milestoneId/demo-payment",
     commitmentNotification: "/api/engagements/:engagementId/commitment-notification",
     deployment: "/api/engagements/:engagementId/deployment",
     deploymentMilestone: "/api/engagements/:engagementId/deployment/milestones/:milestoneId",
+    supplierRegistry: "/api/registry",
     supplierInvitation: "/api/supplier-invitations/:token",
     supplierClaim: "/api/supplier-invitations/:token/claim",
     supplierResponse: "/api/supplier-invitations/:token/responses",

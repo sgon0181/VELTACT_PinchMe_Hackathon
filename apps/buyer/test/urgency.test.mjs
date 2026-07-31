@@ -13,6 +13,13 @@ describe("buyer urgency parsing", () => {
 
   test("preserves explicit day counts", () => {
     assert.equal(parseUrgencyDays("Required within 10 days"), 10);
+    assert.equal(parseUrgencyDays("Within 3 business days"), 3);
+    assert.equal(parseUrgencyDays("Within 5 calendar days"), 5);
+  });
+
+  test("converts hour-based deadlines to whole days", () => {
+    assert.equal(parseUrgencyDays("Within 24 hours"), 1);
+    assert.equal(parseUrgencyDays("Within 48 hours"), 2);
   });
 
   test("maps urgent language to one day", () => {

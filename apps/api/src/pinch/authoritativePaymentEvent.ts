@@ -54,6 +54,7 @@ export class PinchWebhookPaymentProcessor {
       eventId: event.eventId,
       eventType: event.eventType,
       engagementId: event.engagementId,
+      milestoneId: event.milestoneId,
       paymentId: event.paymentId,
       providerStatus: event.status,
       payload

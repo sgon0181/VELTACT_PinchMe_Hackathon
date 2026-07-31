@@ -2,12 +2,10 @@ document.documentElement.classList.add("js");
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const loader = document.querySelector<HTMLElement>("[data-landing-loader]");
-const story = document.querySelector<HTMLElement>("[data-story]");
-const loaderDwellMs = reducedMotion ? 0 : 620;
+const loaderDwellMs = reducedMotion ? 0 : 520;
 
 function revealLanding() {
   document.body.classList.add("landing-ready");
-  document.body.classList.remove("story-locked");
   loader?.setAttribute("aria-hidden", "true");
 
   if (reducedMotion) {
@@ -19,6 +17,50 @@ function revealLanding() {
   window.setTimeout(() => loader?.remove(), 500);
 }
 
+function scheduleLandingReveal() {
+  if (loaderDwellMs === 0) {
+    revealLanding();
+    return;
+  }
+
+  window.setTimeout(revealLanding, loaderDwellMs);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", scheduleLandingReveal, { once: true });
+} else {
+  scheduleLandingReveal();
+}
+
+const revealElements = document.querySelectorAll<HTMLElement>("[data-reveal]");
+
+if (reducedMotion || !("IntersectionObserver" in window)) {
+  revealElements.forEach((element) => element.classList.add("is-visible"));
+} else {
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) {
+          return;
+        }
+
+        entry.target.classList.add("is-visible");
+        observer.unobserve(entry.target);
+      });
+    },
+    { rootMargin: "0px 0px -8% 0px", threshold: 0.08 },
+  );
+
+  revealElements.forEach((element) => observer.observe(element));
+}
+
+const year = document.querySelector<HTMLElement>("#year");
+if (year) {
+  year.textContent = String(new Date().getFullYear());
+}
+
+const factoryStory = document.querySelector<HTMLElement>("[data-factory-story]");
+
 function supportsWebGL() {
   try {
     const canvas = document.createElement("canvas");
@@ -28,31 +70,17 @@ function supportsWebGL() {
   }
 }
 
-async function prepareStory() {
-  if (!story || reducedMotion || !supportsWebGL()) {
-    if (story) {
-      story.dataset.storyState = "fallback";
-    }
-    return;
-  }
-
-  try {
-    const { createLumenStory } = await import("./landingScene.js");
-    const controller = createLumenStory(story);
-    window.addEventListener("pagehide", () => controller.destroy(), { once: true });
-  } catch (error) {
-    console.error("Unable to initialise the landing animation", error);
-    story.dataset.storyState = "fallback";
+if (factoryStory && !reducedMotion) {
+  if (!supportsWebGL()) {
+    factoryStory.dataset.storyState = "fallback";
+  } else {
+    void import("./landingScene.js")
+      .then(({ createFactoryStory }) => {
+        const controller = createFactoryStory(factoryStory);
+        window.addEventListener("pagehide", () => controller.destroy(), { once: true });
+      })
+      .catch(() => {
+        factoryStory.dataset.storyState = "fallback";
+      });
   }
 }
-
-document.body.classList.add("story-locked");
-
-void prepareStory().finally(() => {
-  if (loaderDwellMs === 0) {
-    revealLanding();
-    return;
-  }
-
-  window.setTimeout(revealLanding, loaderDwellMs);
-});

@@ -90,6 +90,13 @@ describe("canonical Marketplace Find persistence", { concurrency: false }, () =>
 
       const persisted = JSON.parse(readFileSync(filePath, "utf8")) as {
         version: number;
+        needs: Array<{
+          agentActivityEvents?: Array<{
+            sequence: number;
+            operation: string;
+            sourceMode: string;
+          }>;
+        }>;
         researchResults: unknown[];
         solutionDecisions: unknown[];
         needReports: Array<{
@@ -106,7 +113,14 @@ describe("canonical Marketplace Find persistence", { concurrency: false }, () =>
         supplierLeads: unknown[];
         supplierClaims: unknown[];
       };
-      assert.equal(persisted.version, 2);
+      assert.equal(persisted.version, 3);
+      assert.ok((persisted.needs[0].agentActivityEvents?.length ?? 0) >= 8);
+      assert.deepEqual(
+        persisted.needs[0].agentActivityEvents?.map(
+          (event) => event.sequence
+        ),
+        persisted.needs[0].agentActivityEvents?.map((_, index) => index)
+      );
       assert.equal(persisted.researchResults.length, 1);
       assert.equal(persisted.solutionDecisions.length, 1);
       assert.equal(persisted.needReports.length, 1);

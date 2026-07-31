@@ -2,6 +2,7 @@ import type { Server as HttpServer } from "node:http";
 import {
   rapidMatchSocketEvent,
   veltactV2SocketEvent,
+  type AgentActivityEvent,
   type SupplierCommitmentNotification,
   type VeltactV2SocketEvent
 } from "@veltact/contracts";
@@ -154,6 +155,18 @@ export function emitDeploymentUpdated(event: DeploymentUpdatedEvent) {
   io
     ?.to(needProfileRoom(event.needProfileId))
     .emit(rapidMatchSocketEvent.deploymentUpdated, event);
+}
+
+export function emitAgentActivityUpdated(
+  needProfileId: string,
+  agentActivityEvent: AgentActivityEvent
+) {
+  io
+    ?.to(needProfileRoom(needProfileId))
+    .emit(rapidMatchSocketEvent.agentActivityUpdated, {
+      needProfileId,
+      agentActivityEvent
+    });
 }
 
 export function emitV2Update(

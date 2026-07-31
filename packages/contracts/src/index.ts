@@ -1,5 +1,21 @@
 import { z } from "zod";
 
+export { formatSupplierAvailability } from "./dateFormatting.js";
+
+export {
+  detectIntakeBudget,
+  detectIntakeCapabilities,
+  detectIntakeEquipment,
+  detectIntakeLocation,
+  detectIntakeUrgency,
+  intakeCategoryFromEquipment,
+  intakeTitleFromRequirement,
+  isIntakeRecoveryRequirement,
+  isIntakeUrgent,
+  parseIntakeBudgetAmount,
+  truncateIntakeTitle
+} from "./intakeExtraction.js";
+
 export const needPrioritySchema = z.enum(["urgent", "soon", "planned"]);
 export type NeedPriority = z.infer<typeof needPrioritySchema>;
 
@@ -11,6 +27,11 @@ export const buyerPrioritySchema = z.enum([
   "price"
 ]);
 export type BuyerPriority = z.infer<typeof buyerPrioritySchema>;
+
+export const AI_INTAKE_RAW_REQUIREMENT_MIN_LENGTH = 24;
+export const AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH = 8_000;
+export const AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE =
+  "Factory context is too long. Keep it to 8,000 characters or fewer.";
 
 export const needProfileStatusSchema = z.enum([
   "draft",
@@ -103,6 +124,7 @@ export const marketplaceNeedProfileSchema = z.object({
   equipmentOrTechnology: z.array(z.string().trim().min(1)).optional(),
   equipmentTechnology: z.array(z.string().trim().min(1)).optional(),
   location: z.string().trim().min(1),
+  requiredBy: z.string().trim().min(1).optional(),
   urgencyDays: z.coerce.number().int().positive().optional(),
   budgetAud: z.coerce.number().int().positive().optional(),
   constraints: z.array(z.string().trim().min(1)).optional(),
@@ -307,7 +329,14 @@ export const aiIntakeProfileSchema = z.object({
 export type AiIntakeProfile = z.infer<typeof aiIntakeProfileSchema>;
 
 export const aiIntakeResultSchema = z.object({
-  rawRequirement: z.string().trim().min(1),
+  rawRequirement: z
+    .string()
+    .trim()
+    .min(1)
+    .max(
+      AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH,
+      AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE
+    ),
   generatedProfile: aiIntakeProfileSchema,
   confidence: z.number().min(0).max(1).optional(),
   missingFields: z.array(z.string().trim().min(1)).default([])
@@ -342,6 +371,7 @@ export const rapidMatchSocketEvent = {
   engagementSecured: "rapidmatch:engagement.secured",
   commitmentNotificationUpdated:
     "rapidmatch:commitment.notification_updated",
+  agentActivityUpdated: "rapidmatch:agent.activity_updated",
   deploymentUpdated: "rapidmatch:deployment.updated"
 } as const;
 
@@ -350,6 +380,7 @@ export type RapidMatchSocketEvent =
 
 export const evidenceProviderSchema = z.enum([
   "openai_web_search",
+  "perplexity",
   "firecrawl",
   "fixture",
   "manual"
@@ -394,6 +425,43 @@ export const solutionApproachSchema = z.object({
 });
 export type SolutionApproach = z.infer<typeof solutionApproachSchema>;
 
+export const agentActivityOperationSchema = z.enum([
+  "research",
+  "discovery"
+]);
+export type AgentActivityOperation = z.infer<
+  typeof agentActivityOperationSchema
+>;
+
+export const agentActivityStageSchema = z.enum([
+  "query_formulation",
+  "source_read",
+  "candidate_considered",
+  "candidate_accepted",
+  "candidate_rejected",
+  "fallback",
+  "completed"
+]);
+export type AgentActivityStage = z.infer<
+  typeof agentActivityStageSchema
+>;
+
+export const agentActivityEventSchema = z.object({
+  id: z.string().min(1),
+  needProfileId: z.string().min(1),
+  sequence: z.number().int().nonnegative(),
+  operation: agentActivityOperationSchema,
+  stage: agentActivityStageSchema,
+  message: z.string().trim().min(1),
+  detail: z.string().trim().min(1).optional(),
+  sourceMode: z.enum(["live", "fixture"]),
+  sourceUrl: z.string().url().optional(),
+  occurredAt: isoDateTimeSchema
+});
+export type AgentActivityEvent = z.infer<
+  typeof agentActivityEventSchema
+>;
+
 export const solutionResearchResultSchema = z.object({
   id: z.string().min(1),
   needProfileId: z.string().min(1),
@@ -402,6 +470,7 @@ export const solutionResearchResultSchema = z.object({
   approaches: z.array(solutionApproachSchema).min(1),
   citations: z.array(researchCitationSchema).min(1),
   missingInformation: z.array(z.string().trim().min(1)).default([]),
+  activityEvents: z.array(agentActivityEventSchema).default([]),
   safetyNotice: z.string().trim().min(1),
   generatedAt: isoDateTimeSchema
 });
@@ -470,6 +539,92 @@ export const supplierLeadSchema = z.object({
   updatedAt: isoDateTimeSchema
 });
 export type SupplierLead = z.infer<typeof supplierLeadSchema>;
+
+export const supplierRegistryProvenanceStateSchema = z.enum([
+  "discovered",
+  "contacted",
+  "responded",
+  "secured",
+  "delivered"
+]);
+export type SupplierRegistryProvenanceState = z.infer<
+  typeof supplierRegistryProvenanceStateSchema
+>;
+
+export const supplierRegistrySourceSchema = z.enum([
+  "catalog",
+  "live_discovery",
+  "fixture"
+]);
+export type SupplierRegistrySource = z.infer<
+  typeof supplierRegistrySourceSchema
+>;
+
+export const supplierRegistryEvidenceSchema = z.object({
+  url: z.string().url(),
+  title: z.string().trim().min(1),
+  retrievedAt: isoDateTimeSchema
+});
+export type SupplierRegistryEvidence = z.infer<
+  typeof supplierRegistryEvidenceSchema
+>;
+
+export const supplierRegistryEngagementSchema = z.object({
+  needProfileId: z.string().min(1),
+  engagementId: z.string().min(1).optional(),
+  responsePrice: moneySchema.optional(),
+  secured: z.boolean().default(false),
+  delivered: z.boolean().default(false),
+  discoveredAt: isoDateTimeSchema,
+  contactedAt: isoDateTimeSchema.optional(),
+  respondedAt: isoDateTimeSchema.optional(),
+  securedAt: isoDateTimeSchema.optional(),
+  deliveredAt: isoDateTimeSchema.optional(),
+  lastActivityAt: isoDateTimeSchema
+});
+export type SupplierRegistryEngagement = z.infer<
+  typeof supplierRegistryEngagementSchema
+>;
+
+export const supplierRegistryEntrySchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().min(1),
+  accountScopeKey: z.string().min(1),
+  supplierName: z.string().trim().min(1),
+  normalizedDomain: z.string().trim().min(1).optional(),
+  location: z.string().trim().min(1),
+  capabilities: z.array(z.string().trim().min(1)).default([]),
+  provenanceState: supplierRegistryProvenanceStateSchema,
+  source: supplierRegistrySourceSchema,
+  evidence: z.array(supplierRegistryEvidenceSchema).default([]),
+  engagementHistory: z.array(supplierRegistryEngagementSchema).default([]),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema
+});
+export type SupplierRegistryEntry = z.infer<
+  typeof supplierRegistryEntrySchema
+>;
+
+export const supplierRegistrySummarySchema = z.object({
+  total: z.number().int().nonnegative(),
+  discovered: z.number().int().nonnegative(),
+  contacted: z.number().int().nonnegative(),
+  responded: z.number().int().nonnegative(),
+  secured: z.number().int().nonnegative(),
+  delivered: z.number().int().nonnegative()
+});
+export type SupplierRegistrySummary = z.infer<
+  typeof supplierRegistrySummarySchema
+>;
+
+export const supplierRegistryResponseSchema = z.object({
+  schemaVersion: z.literal(1),
+  entries: z.array(supplierRegistryEntrySchema),
+  summary: supplierRegistrySummarySchema
+});
+export type SupplierRegistryResponse = z.infer<
+  typeof supplierRegistryResponseSchema
+>;
 
 export const supplierClaimStatusSchema = z.enum([
   "pending",
@@ -794,6 +949,21 @@ export const aiIntakeEvidenceSchema = z.object({
 });
 export type AiIntakeEvidence = z.infer<typeof aiIntakeEvidenceSchema>;
 
+export const aiIntakeStructureRequestSchema = z.object({
+  rawRequirement: z
+    .string()
+    .trim()
+    .max(
+      AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH,
+      AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE
+    )
+    .default(""),
+  evidence: z.array(aiIntakeEvidenceSchema).max(6).default([])
+});
+export type AiIntakeStructureRequest = z.infer<
+  typeof aiIntakeStructureRequestSchema
+>;
+
 export const intakeEvidenceStatusSchema = z.enum([
   "provided",
   "processed",
@@ -876,8 +1046,22 @@ export const deploymentMilestoneSummarySchema = z.object({
   sequence: z.number().int().positive(),
   title: z.string().trim().min(1),
   amount: moneySchema.optional(),
+  serviceFeeMinor: z.number().int().nonnegative().optional(),
+  serviceFeeDisclosed: z.literal(true).optional(),
   status: deploymentMilestoneStatusSchema,
   paymentStatus: paymentStatusSchema,
+  paymentLinkId: z.string().min(1).optional(),
+  hostedCheckoutUrl: z.string().url().optional(),
+  pinchPayerId: z.string().min(1).optional(),
+  pinchPaymentId: z.string().min(1).optional(),
+  localDemoPaymentId: z.string().min(1).optional(),
+  paymentEvidenceProvider: z.enum(["pinch", "local_demo"]).optional(),
+  paymentEvidenceSource: z
+    .enum(["pinch_webhook", "pinch_reconciliation", "local_demo"])
+    .optional(),
+  paymentEvidenceAuthoritative: z.boolean().optional(),
+  paymentEvidenceEventId: z.string().min(1).optional(),
+  fundedAt: isoDateTimeSchema.optional(),
   progressPercentage: z.number().int().min(0).max(100),
   latestUpdate: z.string().trim().min(1).optional(),
   updatedAt: isoDateTimeSchema
@@ -899,6 +1083,68 @@ export const deploymentSummarySchema = z.object({
 });
 export type DeploymentSummary = z.infer<typeof deploymentSummarySchema>;
 
+export const engagementReceiptStageSchema = z.enum([
+  "requirement_created",
+  "analysis_completed",
+  "outreach_delivery",
+  "supplier_response_received",
+  "supplier_selected",
+  "payment_link_created",
+  "payment_verified",
+  "milestone_funded"
+]);
+export type EngagementReceiptStage = z.infer<
+  typeof engagementReceiptStageSchema
+>;
+
+export const engagementReceiptEventStatusSchema = z.enum([
+  "complete",
+  "pending",
+  "failed"
+]);
+export type EngagementReceiptEventStatus = z.infer<
+  typeof engagementReceiptEventStatusSchema
+>;
+
+export const engagementReceiptEventSchema = z.object({
+  id: z.string().min(1),
+  sequence: z.number().int().positive(),
+  stage: engagementReceiptStageSchema,
+  status: engagementReceiptEventStatusSchema,
+  label: z.string().trim().min(1),
+  detail: z.string().trim().min(1).optional(),
+  occurredAt: isoDateTimeSchema.optional(),
+  channel: outreachChannelSchema.optional(),
+  supplierId: z.string().min(1).optional(),
+  supplierName: z.string().trim().min(1).optional(),
+  milestoneId: z.string().min(1).optional(),
+  evidenceSource: z.string().trim().min(1).optional(),
+  authoritative: z.boolean().optional()
+});
+export type EngagementReceiptEvent = z.infer<
+  typeof engagementReceiptEventSchema
+>;
+
+export const engagementSpeedReceiptSchema = z.object({
+  schemaVersion: z.literal(1),
+  engagementId: z.string().min(1),
+  needProfileId: z.string().min(1),
+  requirementTitle: z.string().trim().min(1),
+  status: z.enum(["in_progress", "secured"]),
+  startedAt: isoDateTimeSchema,
+  securedAt: isoDateTimeSchema.optional(),
+  elapsedMilliseconds: z.number().int().nonnegative().optional(),
+  baseline: z.object({
+    label: z.literal("Industry norm: days to weeks"),
+    kind: z.literal("general_claim")
+  }),
+  events: z.array(engagementReceiptEventSchema).min(1),
+  generatedAt: isoDateTimeSchema
+});
+export type EngagementSpeedReceipt = z.infer<
+  typeof engagementSpeedReceiptSchema
+>;
+
 export const rapidMatchBuyerWorkspaceSchema = z.object({
   phase: rapidMatchJourneyPhaseSchema,
   status: rapidMatchJourneyStatusSchema,
@@ -907,6 +1153,7 @@ export const rapidMatchBuyerWorkspaceSchema = z.object({
   intakeEvidence: z.array(intakeEvidenceSummarySchema).default([]),
   researchResult: solutionResearchResultSchema.optional(),
   solutionDecision: solutionDecisionSchema.optional(),
+  agentActivityEvents: z.array(agentActivityEventSchema).default([]),
   discoveredSuppliers: z.array(supplierLeadSchema).default([]),
   suppliers: z.array(supplierSchema).default([]),
   matches: z.array(supplierMatchSchema).default([]),
@@ -915,7 +1162,8 @@ export const rapidMatchBuyerWorkspaceSchema = z.object({
   responses: z.array(supplierResponseSchema).default([]),
   engagement: engagementSchema.optional(),
   commitmentNotification: supplierCommitmentNotificationSchema.optional(),
-  deployment: deploymentSummarySchema.optional()
+  deployment: deploymentSummarySchema.optional(),
+  speedReceipt: engagementSpeedReceiptSchema.optional()
 });
 export type RapidMatchBuyerWorkspace = z.infer<
   typeof rapidMatchBuyerWorkspaceSchema
@@ -933,12 +1181,20 @@ export const rapidMatchApiRoute = {
   responses: "/api/need-profiles/:needProfileId/responses",
   createEngagement: "/api/need-profiles/:needProfileId/engagements",
   engagement: "/api/engagements/:engagementId",
+  engagementReceipt: "/api/engagements/:engagementId/receipt",
   paymentLink: "/api/engagements/:engagementId/payment-link",
+  milestonePaymentLink:
+    "/api/engagements/:engagementId/milestones/:milestoneId/payment-link",
+  milestonePaymentLinkCancellation:
+    "/api/engagements/:engagementId/milestones/:milestoneId/payment-link/cancel",
+  milestoneDemoPayment:
+    "/api/engagements/:engagementId/milestones/:milestoneId/demo-payment",
   commitmentNotification:
     "/api/engagements/:engagementId/commitment-notification",
   deployment: "/api/engagements/:engagementId/deployment",
   deploymentMilestone:
     "/api/engagements/:engagementId/deployment/milestones/:milestoneId",
+  supplierRegistry: "/api/registry",
   supplierInvitation: "/api/supplier-invitations/:token",
   supplierClaim: "/api/supplier-invitations/:token/claim",
   supplierResponse: "/api/supplier-invitations/:token/responses",

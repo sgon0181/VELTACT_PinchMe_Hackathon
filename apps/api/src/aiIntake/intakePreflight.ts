@@ -1,3 +1,4 @@
+import { AI_INTAKE_RAW_REQUIREMENT_MIN_LENGTH } from "@veltact/contracts";
 import type { StructureRequirementRequest } from "./localAiIntakeAdapter.js";
 
 export type IntakePreflightResult =
@@ -16,6 +17,8 @@ const industrialTerms = [
   "equipment",
   "factory",
   "fault",
+  "gearbox",
+  "heater band",
   "hmi",
   "hydraulic",
   "heater band",
@@ -78,7 +81,10 @@ export function preflightAiIntake(input: StructureRequirementRequest): IntakePre
     };
   }
 
-  if (normalizedText.length < 24 || normalizedText.split(/\s+/).length < 5) {
+  if (
+    normalizedText.length < AI_INTAKE_RAW_REQUIREMENT_MIN_LENGTH ||
+    normalizedText.split(/\s+/).length < 5
+  ) {
     return {
       allowed: false,
       reason: "Add a little more context, such as the equipment, fault, location, or timing."

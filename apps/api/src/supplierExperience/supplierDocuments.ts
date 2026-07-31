@@ -1,4 +1,7 @@
-import type { SupplierClaim } from "@veltact/contracts";
+import {
+  formatSupplierAvailability,
+  type SupplierClaim
+} from "@veltact/contracts";
 import type {
   NeedRecord,
   SupplierInvitation,
@@ -118,7 +121,9 @@ export function buildSupplierQuotePdf(
           heading: "Commercial summary",
           lines: canHelp
             ? [
-                `Earliest availability: ${response.earliestAvailability}`,
+                `Earliest availability: ${formatSupplierAvailability(
+                  response.earliestAvailability
+                )}`,
                 `Indicative price: ${money(response.indicativePriceAud)}`
               ]
             : ["Availability: Not applicable", "Indicative price: Not supplied"]
