@@ -1,9 +1,16 @@
 import { demoControlsEnabled } from "./assets/apiBase.js";
 import { companyLogoFor } from "./assets/companyLogos.js";
+import { formatSupplierAvailability } from "./assets/vendor/contracts/dateFormatting.js";
 import {
   supplierClaimComplete,
   supplierDocumentUrl
 } from "./supplierFlow.js";
+import {
+  clearSupplierResponseDraft,
+  readSupplierResponseDraft,
+  supplierResponseDraftFields,
+  writeSupplierResponseDraft
+} from "./supplierDraft.js";
 
 const isFrontendDevServer =
   ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
@@ -41,7 +48,9 @@ form.addEventListener("change", (event) => {
   if (event.target instanceof HTMLInputElement && event.target.name === "canHelp") {
     updateDecisionFields();
   }
+  persistResponseDraftFromEvent(event);
 });
+form.addEventListener("input", persistResponseDraftFromEvent);
 void configureDemoControls();
 
 if (!token) {
@@ -125,6 +134,9 @@ async function loadOpportunity(invitationToken) {
         : "",
       claimComplete ? "success" : undefined
     );
+    restoreResponseDraft();
+    updateDecisionFields();
+    focusHeading("#response-form-title");
   } catch {
     showTerminalState(
       "error",
@@ -347,6 +359,7 @@ function fillDemoResponse() {
   setFormValue("assumptions", selected.assumptions.join("\n"));
   setFormValue("conditions", selected.conditions.join("\n"));
   updateDecisionFields();
+  persistResponseDraft();
   setFormStatus(`${selected.label} loaded. Review before submitting.`, "success");
 }
 
@@ -570,7 +583,11 @@ function showSubmittedReceipt(supplierResponse, alreadySubmitted) {
   text("#receipt-decision", canHelp ? "Can help" : "Cannot help");
   text(
     "#receipt-availability",
-    canHelp ? availability || "Not supplied" : "Not applicable"
+    canHelp
+      ? availability
+        ? formatSupplierAvailability(availability)
+        : "Not supplied"
+      : "Not applicable"
   );
   text(
     "#receipt-price",
@@ -587,7 +604,9 @@ function showSubmittedReceipt(supplierResponse, alreadySubmitted) {
   );
   receipt.hidden = false;
   quoteDownload.hidden = false;
+  clearResponseDraft();
   setFormStatus("");
+  focusHeading("#receipt-title");
 }
 
 function handleLoadFailure(status, payload) {
@@ -626,6 +645,7 @@ function showTerminalState(kind, title, copy, keepSummary = false) {
   text("#page-state-copy", copy);
   panel.hidden = false;
   setFormStatus("");
+  focusHeading("#page-state-title");
 }
 
 function flowError(status, message) {
@@ -704,6 +724,74 @@ function setFormValueIfEmpty(name, value) {
   if (field && "value" in field && !String(field.value).trim()) {
     field.value = value;
   }
+}
+
+function responseDraftValues() {
+  const values = new FormData(form);
+  return {
+    canHelp: String(values.get("canHelp") || ""),
+    earliestAvailability: String(values.get("earliestAvailability") || ""),
+    indicativePriceAud: String(values.get("indicativePriceAud") || ""),
+    relevantExperience: String(values.get("relevantExperience") || ""),
+    proposedApproach: String(values.get("proposedApproach") || ""),
+    assumptions: String(values.get("assumptions") || ""),
+    conditions: String(values.get("conditions") || ""),
+    declineReason: String(values.get("declineReason") || "")
+  };
+}
+
+function persistResponseDraft() {
+  writeSupplierResponseDraft(safeSessionStorage(), token, responseDraftValues());
+}
+
+function persistResponseDraftFromEvent(event) {
+  const field = event.target;
+  if (
+    !(
+      field instanceof HTMLInputElement ||
+      field instanceof HTMLTextAreaElement
+    ) ||
+    !supplierResponseDraftFields.includes(field.name)
+  ) {
+    return;
+  }
+  persistResponseDraft();
+}
+
+function restoreResponseDraft() {
+  const draft = readSupplierResponseDraft(safeSessionStorage(), token);
+  if (!draft) return;
+  for (const [name, value] of Object.entries(draft)) {
+    if (name === "canHelp") {
+      const decision = form.querySelector(
+        `input[name="canHelp"][value="${value === "false" ? "false" : "true"}"]`
+      );
+      if (decision instanceof HTMLInputElement) decision.checked = true;
+      continue;
+    }
+    setFormValue(name, value);
+  }
+  setFormStatus(
+    "Your unsent response draft was restored in this tab. Review it before submitting.",
+    "success"
+  );
+}
+
+function clearResponseDraft() {
+  clearSupplierResponseDraft(safeSessionStorage(), token);
+}
+
+function safeSessionStorage() {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function focusHeading(selector) {
+  const heading = document.querySelector(selector);
+  if (heading instanceof HTMLElement) heading.focus();
 }
 
 function formatMoney(amount) {

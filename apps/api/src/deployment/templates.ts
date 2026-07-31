@@ -16,6 +16,12 @@ const MILESTONE_TITLES: Record<DeploymentScenario, readonly string[]> = {
     "Design",
     "Installation",
     "Commissioning"
+  ],
+  industrial_response: [
+    "Site Assessment",
+    "Approved Work",
+    "Validation",
+    "Handover"
   ]
 };
 
@@ -130,11 +136,11 @@ export function deriveDeploymentSummary(
   const milestones = [...deployment.milestones].sort(
     (left, right) => left.sequence - right.sequence
   );
-  const completedCount = milestones.filter(
-    (milestone) => milestone.status === "completed"
-  ).length;
   const progressPercentage = Math.round(
-    (completedCount / milestones.length) * 100
+    milestones.reduce(
+      (total, milestone) => total + milestone.progressPercentage,
+      0
+    ) / milestones.length
   );
   const currentIndex = milestones.findIndex(
     (milestone) => milestone.status !== "completed"
@@ -219,7 +225,9 @@ function deploymentTitle(engagement: DeploymentEngagementContext) {
   const work =
     engagement.scenario === "robotic_integration"
       ? "Robotic integration"
-      : "PLC recovery";
+      : engagement.scenario === "plc_recovery"
+        ? "PLC recovery"
+        : "Industrial response";
   return `${work} deployment with ${engagement.supplierName}`;
 }
 

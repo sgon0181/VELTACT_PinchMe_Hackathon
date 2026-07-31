@@ -646,7 +646,7 @@ function legacyNeedProfile(need) {
         category: profile.category,
         location: profile.location,
         priority: contractNeedPriority(profile),
-        requiredBy: availabilityLabel(profile.urgencyDays),
+        requiredBy: profile.requiredBy ?? availabilityLabel(profile.urgencyDays),
         budget: profile.budgetAud === undefined
             ? undefined
             : { amount: profile.budgetAud * 100, currency: "AUD" },
@@ -746,9 +746,10 @@ function requirementToMarketplaceProfile(input, priority) {
         description: input.description,
         problemSummary: input.description,
         category: input.category || inferCategory(input.description),
-        industry: "Manufacturing",
+        industry: inferBuyerIndustry(input.description),
         equipmentOrTechnology: input.equipmentOrTechnology,
         location: detectIntakeLocation(input.location) ?? input.location,
+        requiredBy: input.requiredBy || undefined,
         urgencyDays: parseUrgencyDays(input.requiredBy),
         budgetAud: input.budgetAmount || parseIntakeBudgetAmount(input.budgetRange),
         constraints: input.constraints,
@@ -764,11 +765,12 @@ function marketplaceProfileFromNeed(needProfile) {
         description: needProfile.description,
         problemSummary: needProfile.description,
         category: needProfile.category,
-        industry: "Manufacturing",
+        industry: inferBuyerIndustry(needProfile.description),
         equipmentOrTechnology: needProfile.mustHaves
             .filter((item) => item.startsWith("Equipment: "))
             .map((item) => item.slice("Equipment: ".length)),
         location: needProfile.location,
+        requiredBy: needProfile.requiredBy,
         urgencyDays: needProfile.priority === "urgent" ? 1 : undefined,
         budgetAud: needProfile.budget
             ? Math.round(needProfile.budget.amount / 100)
@@ -996,6 +998,7 @@ function fixtureDeployment(workspace) {
     const engagement = requiredEngagement(workspace);
     const needProfile = requiredNeedProfile(workspace);
     const robotics = /robot|palletis/i.test(`${needProfile.title} ${needProfile.description} ${needProfile.category}`);
+    const plcRecovery = /\bplc\b|siemens|programmable logic|control system/i.test(`${needProfile.title} ${needProfile.description} ${needProfile.category}`);
     const titles = robotics
         ? [
             "Site Assessment / Scoping Visit",
@@ -1003,7 +1006,9 @@ function fixtureDeployment(workspace) {
             "Installation",
             "Commissioning"
         ]
-        : ["Diagnosis", "Recovery", "Validation", "Handover"];
+        : plcRecovery
+            ? ["Diagnosis", "Recovery", "Validation", "Handover"]
+            : ["Site Assessment", "Approved Work", "Validation", "Handover"];
     const secured = engagement.status === "supplier_secured";
     const paymentPending = engagement.paymentStatus !== "not_started";
     const updatedAt = engagement.updatedAt;
@@ -1011,7 +1016,9 @@ function fixtureDeployment(workspace) {
         engagementId: engagement.id,
         title: robotics
             ? "Robotic integration delivery"
-            : "PLC recovery delivery",
+            : plcRecovery
+                ? "PLC recovery delivery"
+                : "Industrial response delivery",
         status: secured ? "active" : paymentPending ? "commitment_pending" : "not_started",
         progressPercentage: 0,
         currentMilestoneId: `${engagement.id}-fixture-milestone-1`,
@@ -1048,6 +1055,18 @@ function isRobotics(profile) {
         profile.category,
         ...(profile.equipmentOrTechnology ?? [])
     ].join(" "));
+}
+export function inferBuyerIndustry(description) {
+    if (/\bwastewater\b|\bwater treatment\b|\bsewage\b|\bsludge\b/i.test(description)) {
+        return "Water and wastewater utilities";
+    }
+    if (/\bcold store\b|\bcold-storage\b|\bcold logistics\b|\brefrigerat(?:ion|ed)\b/i.test(description)) {
+        return "Cold storage and logistics";
+    }
+    if (/\bgrain terminal\b|\bgrain handling\b|\bshiploader\b/i.test(description)) {
+        return "Bulk materials and grain handling";
+    }
+    return "Manufacturing";
 }
 function inferCategory(description) {
     return /robot|plc|automation|conveyor/i.test(description)

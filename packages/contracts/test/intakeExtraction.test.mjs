@@ -6,6 +6,7 @@ import {
   detectIntakeEquipment,
   detectIntakeLocation,
   detectIntakeUrgency,
+  intakeCategoryFromEquipment,
   intakeTitleFromRequirement,
   isIntakeRecoveryRequirement,
   isIntakeUrgent,
@@ -44,6 +45,73 @@ describe("shared deterministic intake extraction", () => {
     assert.ok(title.endsWith("…"));
     assert.ok(title.length <= 88);
     assert.doesNotMatch(title, /\stripping t…$/);
+  });
+
+  test("retains calendar-day and business-day timing qualifiers", () => {
+    assert.equal(
+      detectIntakeUrgency("Complete the repair within 5 calendar days.", false),
+      "Within 5 calendar days"
+    );
+    assert.equal(
+      detectIntakeUrgency("Complete the repair within 3 business days.", false),
+      "Within 3 business days"
+    );
+  });
+
+  test("extracts an urgent ammonia cold-store requirement without buyer re-entry", () => {
+    const requirement =
+      "An ammonia refrigeration compressor at our seafood cold store in Darwin NT has severe vibration and low oil-pressure alarms. We need a licensed industrial refrigeration contractor tonight, within 12 hours, for an emergency repair. Budget is AUD 28,000.";
+    const normalised = requirement.toLowerCase();
+    const equipment = detectIntakeEquipment(normalised);
+    const capabilities = detectIntakeCapabilities(
+      normalised,
+      equipment,
+      isIntakeRecoveryRequirement(normalised)
+    );
+
+    assert.ok(equipment.includes("Ammonia refrigeration system"));
+    assert.ok(equipment.includes("Industrial refrigeration compressor"));
+    assert.ok(capabilities.includes("Industrial refrigeration diagnostics"));
+    assert.ok(capabilities.includes("Ammonia refrigeration service"));
+    assert.ok(capabilities.includes("Refrigeration compressor maintenance"));
+    assert.ok(capabilities.includes("Licensed refrigeration contractor"));
+    assert.ok(capabilities.includes("Same-day onsite support"));
+    assert.equal(
+      intakeCategoryFromEquipment([
+        ...equipment,
+        "Industrial motor"
+      ]),
+      "Industrial refrigeration maintenance"
+    );
+    assert.equal(isIntakeUrgent(normalised), true);
+  });
+
+  test("retains grain-terminal repair and electrical scope in a concise title", () => {
+    const requirement =
+      "At our bulk grain export terminal in Port Lincoln SA, the main shiploader feed conveyor motor and gearbox are overheating and tripping. We need a mechanical and electrical industrial maintenance team within 24 hours to diagnose and complete an authorised repair without contaminating grain handling areas. Our callout and initial repair tolerance is $14,500, with any additional parts subject to approval.";
+    const normalised = requirement.toLowerCase();
+    const equipment = detectIntakeEquipment(normalised);
+    const capabilities = detectIntakeCapabilities(
+      normalised,
+      equipment,
+      isIntakeRecoveryRequirement(normalised)
+    );
+
+    assert.equal(
+      intakeTitleFromRequirement(requirement, equipment, true),
+      "Urgent grain conveyor motor and gearbox repair"
+    );
+    assert.equal(isIntakeUrgent(normalised), true);
+    assert.ok(equipment.includes("Industrial conveyor"));
+    assert.ok(!equipment.includes("Packaging conveyor"));
+    assert.ok(capabilities.includes("Industrial gearbox repair"));
+    assert.ok(capabilities.includes("Industrial motor repair"));
+    assert.ok(capabilities.includes("Industrial mechanical maintenance"));
+    assert.ok(capabilities.includes("Industrial electrical maintenance"));
+    assert.equal(
+      intakeCategoryFromEquipment(equipment),
+      "Industrial mechanical maintenance"
+    );
   });
 
   test("supports compact Australian-dollar amounts and existing forms", () => {

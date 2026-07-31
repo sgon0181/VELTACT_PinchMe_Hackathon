@@ -9,16 +9,9 @@ import {
   intakeTitleFromRequirement,
   isIntakeRecoveryRequirement,
   isIntakeUrgent,
+  type AiIntakeEvidence,
   type AiIntakeResult
 } from "@veltact/contracts";
-
-export type AiIntakeEvidence = {
-  kind: "written" | "pdf" | "photo";
-  name: string;
-  mimeType?: string;
-  extractedText?: string;
-  dataUrl?: string;
-};
 
 export type StructureRequirementRequest = {
   rawRequirement: string;
@@ -88,7 +81,30 @@ export function structureRequirementLocally(input: StructureRequirementRequest):
 function detectConstraints(normalised: string, isUrgent: boolean, evidence: AiIntakeEvidence[]) {
   const constraints = new Set<string>();
   if (normalised.includes("factory") || normalised.includes("line")) constraints.add("Production environment");
-  if (normalised.includes("food") || normalised.includes("packaging")) constraints.add("Packaging/food manufacturing context");
+  if (normalised.includes("packaging")) {
+    constraints.add("Packaging manufacturing context");
+  } else if (/\bfood\b|\bseafood\b|\bdairy\b/.test(normalised)) {
+    constraints.add("Food handling environment");
+  }
+  if (
+    /\bgrain\b/.test(normalised) &&
+    /\bcontaminat(?:e|ed|es|ing|ion)\b/.test(normalised)
+  ) {
+    constraints.add("Grain handling contamination controls");
+  }
+  if (/\bcold store\b|\bcold-storage\b|\bfreezer\b|-\d+\s*°?c\b/.test(normalised)) {
+    constraints.add("Temperature-critical cold storage");
+  }
+  if (/\bwastewater\b|\bsewage\b|\bsludge\b/.test(normalised)) {
+    constraints.add("Wastewater treatment environment");
+  }
+  if (
+    /\bbypass pumping\b|keep(?:s|ing)? (?:the )?process stable|maintain(?:ing)? (?:the )?process/.test(
+      normalised
+    )
+  ) {
+    constraints.add("Maintain wastewater process continuity");
+  }
   if (isUrgent) constraints.add("Minimal downtime");
   if (
     /adjacent production|avoid(?:s|ing)? disrupting|maintain(?:ing)? production|staged installation/.test(

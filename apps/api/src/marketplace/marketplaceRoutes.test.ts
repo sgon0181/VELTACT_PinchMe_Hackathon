@@ -4,6 +4,8 @@ import crypto from "node:crypto";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import {
+  AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH,
+  AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE,
   aiIntakeResultSchema,
   deploymentSummarySchema,
   engagementSpeedReceiptSchema,
@@ -206,6 +208,20 @@ describe("marketplace core routes", () => {
 
     assert.equal(rejected.status, 400);
     assert.equal(rejected.body.error, "low_signal_ai_intake_request");
+  });
+
+  test("rejects oversized AI intake with friendly JSON before provider selection", async () => {
+    const rejected = await postJson("/api/ai-intake/structure", {
+      rawRequirement: "x".repeat(
+        AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH + 1
+      )
+    });
+
+    assert.equal(rejected.status, 400);
+    assert.equal(rejected.body.error, "invalid_ai_intake_request");
+    assert.equal(rejected.body.message, AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE);
+    assert.equal(rejected.body.source, undefined);
+    assert.equal(rejected.body.aiIntakeResult, undefined);
   });
 
   test("does not fabricate local intake facts from a binary evidence filename", async () => {
@@ -2044,7 +2060,7 @@ describe("marketplace core routes", () => {
       }
     );
     assert.equal(started.status, 200);
-    assert.equal(started.body.deployment.progressPercentage, 0);
+    assert.equal(started.body.deployment.progressPercentage, 13);
 
     const completedMilestone = await patchJson(
       `/api/engagements/${selected.body.engagement.id}/deployment/milestones/${firstMilestone.id}`,

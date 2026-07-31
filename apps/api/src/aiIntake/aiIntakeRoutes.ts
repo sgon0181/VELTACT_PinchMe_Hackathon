@@ -1,27 +1,14 @@
 import { Router } from "express";
-import { z } from "zod";
+import { aiIntakeStructureRequestSchema } from "@veltact/contracts";
 import { env } from "../env.js";
 import { preflightAiIntake } from "./intakePreflight.js";
 import { structureRequirementLocally } from "./localAiIntakeAdapter.js";
 import { structureRequirementWithOpenAi } from "./openAiIntakeClient.js";
 
-const evidenceSchema = z.object({
-  kind: z.enum(["written", "pdf", "photo"]),
-  name: z.string().trim().min(1),
-  mimeType: z.string().trim().min(1).optional(),
-  extractedText: z.string().trim().optional(),
-  dataUrl: z.string().trim().startsWith("data:").max(5_600_000).optional()
-});
-
-const structureRequirementSchema = z.object({
-  rawRequirement: z.string().trim().default(""),
-  evidence: z.array(evidenceSchema).max(6).default([])
-});
-
 export const aiIntakeRouter = Router();
 
 aiIntakeRouter.post("/structure", async (request, response) => {
-  const parsed = structureRequirementSchema.safeParse(request.body);
+  const parsed = aiIntakeStructureRequestSchema.safeParse(request.body);
   if (!parsed.success) {
     response.status(400).json({
       error: "invalid_ai_intake_request",

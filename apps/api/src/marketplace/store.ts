@@ -1237,6 +1237,15 @@ export function markInvitationViewed(
     invitation.status = "opened";
     invitation.openedAt = openedAt;
     invitation.updatedAt = openedAt;
+    const need = needs.get(invitation.needId);
+    if (need) {
+      recordRegistryStageForSupplier(
+        need,
+        invitation.supplierId,
+        "contacted",
+        { occurredAt: openedAt }
+      );
+    }
     commitMarketplaceMutation({
       eventType: "invitation.opened",
       actorType: "supplier",
@@ -1324,6 +1333,12 @@ export function claimSupplierInvitation(
     invitation.status = "opened";
     invitation.openedAt = invitation.openedAt ?? claimedAt;
     invitation.updatedAt = claimedAt;
+    recordRegistryStageForSupplier(
+      need,
+      invitation.supplierId,
+      "contacted",
+      { occurredAt: invitation.openedAt }
+    );
   }
 
   const lead = supplierLeads.get(invitation.supplierId);

@@ -1,4 +1,9 @@
-import { aiIntakeResultSchema, type AiIntakeResult } from "@veltact/contracts";
+import {
+  AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH,
+  AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE,
+  aiIntakeResultSchema,
+  type AiIntakeResult
+} from "@veltact/contracts";
 import { env } from "../env.js";
 import type { StructureRequirementRequest } from "./localAiIntakeAdapter.js";
 
@@ -25,7 +30,10 @@ const responseSchema = {
   additionalProperties: false,
   required: ["rawRequirement", "generatedProfile", "confidence", "missingFields"],
   properties: {
-    rawRequirement: { type: "string" },
+    rawRequirement: {
+      type: "string",
+      maxLength: AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH
+    },
     generatedProfile: {
       type: "object",
       additionalProperties: false,
@@ -63,6 +71,12 @@ const responseSchema = {
 } as const;
 
 export async function structureRequirementWithOpenAi(input: StructureRequirementRequest): Promise<AiIntakeResult> {
+  if (
+    input.rawRequirement.trim().length >
+    AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH
+  ) {
+    throw new Error(AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE);
+  }
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {

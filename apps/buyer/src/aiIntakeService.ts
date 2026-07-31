@@ -1,4 +1,6 @@
 import {
+  AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH,
+  AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE,
   aiIntakeResultSchema,
   detectIntakeBudget,
   detectIntakeCapabilities,
@@ -39,6 +41,7 @@ export class BackendAiIntakeService implements AiIntakeAdapter {
   }
 
   async structureRequirement(input: StructureRequirementInput): Promise<AiIntakeResult> {
+    assertRawRequirementWithinLimit(input.rawRequirement);
     try {
       const response = await fetch(canonicalApiUrl(rapidMatchApiRoute.structureRequirement), {
         method: "POST",
@@ -47,7 +50,8 @@ export class BackendAiIntakeService implements AiIntakeAdapter {
         },
         body: JSON.stringify(input)
       });
-      const payload = (await response.json()) as {
+      const responseText = await response.text();
+      const payload = parseJsonObject(responseText) as {
         aiIntakeResult?: AiIntakeResult;
         result?: AiIntakeResult;
         message?: string;
@@ -55,7 +59,10 @@ export class BackendAiIntakeService implements AiIntakeAdapter {
       };
 
       if (!response.ok) {
-        throw new Error(payload.message ?? "Unable to structure the requirement.");
+        throw new Error(
+          payload.message ??
+            `Unable to structure the requirement (HTTP ${response.status}). Check the factory context and try again.`
+        );
       }
 
       const parsedResult = aiIntakeResultSchema.safeParse(
@@ -86,6 +93,7 @@ export class DemoAiIntakeService implements AiIntakeAdapter {
 
   async structureRequirement(input: StructureRequirementInput): Promise<AiIntakeResult> {
     // Local-only fallback for demo environments where the API server is not running.
+    assertRawRequirementWithinLimit(input.rawRequirement);
     await delay(320);
     const evidenceText = (input.evidence ?? [])
       .map((item) => item.extractedText)
@@ -151,6 +159,24 @@ function canonicalApiUrl(route: string) {
   return base.endsWith("/api") ? `${base}${route.slice(4)}` : `${base}${route}`;
 }
 
+function assertRawRequirementWithinLimit(value: string) {
+  if (value.trim().length > AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH) {
+    throw new Error(AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE);
+  }
+}
+
+function parseJsonObject(value: string): Record<string, unknown> {
+  if (!value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -158,7 +184,30 @@ function delay(ms: number) {
 function detectConstraints(normalised: string, isUrgent: boolean, evidence: IntakeEvidence[]) {
   const constraints = new Set<string>();
   if (normalised.includes("factory") || normalised.includes("line")) constraints.add("Production environment");
-  if (normalised.includes("food") || normalised.includes("packaging")) constraints.add("Packaging/food manufacturing context");
+  if (normalised.includes("packaging")) {
+    constraints.add("Packaging manufacturing context");
+  } else if (/\bfood\b|\bseafood\b|\bdairy\b/.test(normalised)) {
+    constraints.add("Food handling environment");
+  }
+  if (
+    /\bgrain\b/.test(normalised) &&
+    /\bcontaminat(?:e|ed|es|ing|ion)\b/.test(normalised)
+  ) {
+    constraints.add("Grain handling contamination controls");
+  }
+  if (/\bcold store\b|\bcold-storage\b|\bfreezer\b|-\d+\s*°?c\b/.test(normalised)) {
+    constraints.add("Temperature-critical cold storage");
+  }
+  if (/\bwastewater\b|\bsewage\b|\bsludge\b/.test(normalised)) {
+    constraints.add("Wastewater treatment environment");
+  }
+  if (
+    /\bbypass pumping\b|keep(?:s|ing)? (?:the )?process stable|maintain(?:ing)? (?:the )?process/.test(
+      normalised
+    )
+  ) {
+    constraints.add("Maintain wastewater process continuity");
+  }
   if (isUrgent) constraints.add("Minimal downtime");
   if (
     /adjacent production|avoid(?:s|ing)? disrupting|maintain(?:ing)? production|staged installation/.test(

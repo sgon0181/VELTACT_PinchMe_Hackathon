@@ -97,7 +97,7 @@ describe("deployment router", () => {
     const updatedBody = (await updated.json()) as {
       deployment: DeploymentSummary;
     };
-    assert.equal(updatedBody.deployment.progressPercentage, 0);
+    assert.equal(updatedBody.deployment.progressPercentage, 13);
     assert.equal(updatedBody.deployment.milestones[0]?.status, "in_progress");
     assert.equal(events.length, 1);
     assert.equal(events[0]?.engagementId, "eng-route");

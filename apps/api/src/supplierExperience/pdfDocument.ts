@@ -24,6 +24,9 @@ const pageHeight = 842;
 const marginX = 48;
 const firstLineY = 760;
 const bottomMargin = 58;
+const printableWidth = pageWidth - marginX * 2;
+// Helvetica's widest printable ASCII glyph is slightly wider than one em.
+const widestAsciiGlyphEm = 1.02;
 
 export function renderTextPdf(input: PdfDocumentInput): Buffer {
   const lines = documentLines(input);
@@ -171,15 +174,22 @@ function wrappedLines(
   spacingAfter: number,
   maxCharacters: number
 ) {
-  const wrapped = wrapText(value, maxCharacters);
+  const wrapped = wrapText(value, maxCharacters, size);
   return wrapped.map((text, index) =>
     line(font, size, text, index === wrapped.length - 1 ? spacingAfter : 2)
   );
 }
 
-function wrapText(value: string, maxCharacters: number) {
+function wrapText(value: string, maxCharacters: number, fontSize: number) {
   const paragraphs = ascii(value).split(/\r?\n/);
   const output: string[] = [];
+  const maxUnbrokenCharacters = Math.max(
+    1,
+    Math.min(
+      maxCharacters,
+      Math.floor(printableWidth / (fontSize * widestAsciiGlyphEm))
+    )
+  );
 
   for (const paragraph of paragraphs) {
     const words = paragraph.trim().split(/\s+/).filter(Boolean);
@@ -189,6 +199,14 @@ function wrapText(value: string, maxCharacters: number) {
     }
     let current = "";
     for (const word of words) {
+      const tokenChunks = splitLongToken(word, maxUnbrokenCharacters);
+      if (tokenChunks.length > 1) {
+        if (current) output.push(current);
+        output.push(...tokenChunks);
+        current = "";
+        continue;
+      }
+
       const candidate = current ? `${current} ${word}` : word;
       if (candidate.length <= maxCharacters) {
         current = candidate;
@@ -200,6 +218,16 @@ function wrapText(value: string, maxCharacters: number) {
     if (current) output.push(current);
   }
   return output;
+}
+
+function splitLongToken(value: string, maxCharacters: number): string[] {
+  if (value.length <= maxCharacters) return [value];
+
+  const chunks: string[] = [];
+  for (let index = 0; index < value.length; index += maxCharacters) {
+    chunks.push(value.slice(index, index + maxCharacters));
+  }
+  return chunks;
 }
 
 function line(

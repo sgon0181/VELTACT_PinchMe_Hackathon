@@ -1,6 +1,9 @@
 export function isIntakeUrgent(normalised: string): boolean {
-  return /\b(?:today|urgent|immediate|stopped|down|line stop|fault)\b/.test(
-    normalised
+  return (
+    /\b(?:today|tonight|urgent|emergency|immediate|stopped|down|line stop|fault)\b/.test(
+      normalised
+    ) ||
+    /\bwithin\s+(?:[1-9]|1\d|2[0-4])\s*hours?\b/.test(normalised)
   );
 }
 
@@ -44,11 +47,30 @@ export function detectIntakeEquipment(normalised: string): string[] {
   if (normalised.includes("vision")) equipment.add("Machine vision");
   if (normalised.includes("siemens")) equipment.add("Siemens PLC");
   if (normalised.includes("plc")) equipment.add("PLC");
-  if (normalised.includes("conveyor")) equipment.add("Packaging conveyor");
+  if (normalised.includes("conveyor")) {
+    equipment.add(
+      /packaging|bottling/.test(normalised)
+        ? "Packaging conveyor"
+        : "Industrial conveyor"
+    );
+  }
   if (normalised.includes("packaging line")) equipment.add("Packaging line");
   if (normalised.includes("bottling line")) equipment.add("Bottling line");
   if (normalised.includes("hmi")) equipment.add("HMI");
   if (normalised.includes("scada")) equipment.add("SCADA");
+  if (isIndustrialRefrigerationRequirement(normalised)) {
+    equipment.add(
+      normalised.includes("ammonia")
+        ? "Ammonia refrigeration system"
+        : "Industrial refrigeration system"
+    );
+  }
+  if (
+    isIndustrialRefrigerationRequirement(normalised) &&
+    /\bcompressor\b/.test(normalised)
+  ) {
+    equipment.add("Industrial refrigeration compressor");
+  }
 
   return [...equipment];
 }
@@ -87,12 +109,29 @@ export function detectIntakeCapabilities(
   }
   if (normalised.includes("gearbox")) {
     capabilities.add("Industrial gearbox diagnostics");
+    if (requiresRecovery && /\brepair\b/.test(normalised)) {
+      capabilities.add("Industrial gearbox repair");
+    }
   }
   if (/\bmotor\b/.test(normalised)) {
     capabilities.add("Industrial motor diagnostics");
+    if (requiresRecovery && /\brepair\b/.test(normalised)) {
+      capabilities.add("Industrial motor repair");
+    }
   }
-  if (/mechanical contractor|mechanical maintenance/.test(normalised)) {
+  if (
+    /mechanical contractor|mechanical(?:\s+and\s+electrical(?:\s+industrial)?)?\s+maintenance/.test(
+      normalised
+    )
+  ) {
     capabilities.add("Industrial mechanical maintenance");
+  }
+  if (
+    /\belectrical(?:\s+industrial)?\s+maintenance\b|\bmechanical\s+and\s+electrical\b/.test(
+      normalised
+    )
+  ) {
+    capabilities.add("Industrial electrical maintenance");
   }
   if (/overheat|thermal protection|tripping/.test(normalised)) {
     capabilities.add("Mechanical condition assessment");
@@ -153,10 +192,29 @@ export function detectIntakeCapabilities(
   if (!requiresRecovery && /commission|integration|integrated/.test(normalised)) {
     capabilities.add("Site commissioning");
   }
+  if (isIndustrialRefrigerationRequirement(normalised)) {
+    capabilities.add(
+      requiresRecovery
+        ? "Industrial refrigeration diagnostics"
+        : "Industrial refrigeration maintenance"
+    );
+    if (normalised.includes("ammonia")) {
+      capabilities.add("Ammonia refrigeration service");
+    }
+    if (/\bcompressor\b/.test(normalised)) {
+      capabilities.add("Refrigeration compressor maintenance");
+    }
+    if (/\blicen[cs]ed\b/.test(normalised)) {
+      capabilities.add("Licensed refrigeration contractor");
+    }
+  }
   if (
     normalised.includes("today") ||
+    normalised.includes("tonight") ||
     normalised.includes("urgent") ||
-    normalised.includes("stopped")
+    normalised.includes("emergency") ||
+    normalised.includes("stopped") ||
+    /\bwithin\s+(?:[1-9]|1\d|2[0-4])\s*hours?\b/.test(normalised)
   ) {
     capabilities.add("Same-day onsite support");
   }
@@ -199,13 +257,13 @@ export function detectIntakeUrgency(
   }
 
   const relative = rawRequirement.match(
-    /\bwithin\s+(\d{1,3})\s+(business\s+)?(day|week)s?\b/i
+    /\bwithin\s+(\d{1,3})\s+(?:(business|calendar)\s+)?(day|week)s?\b/i
   );
   if (relative) {
     const count = Number(relative[1]);
     const unit = relative[3]?.toLowerCase() ?? "day";
-    const business = relative[2] ? "business " : "";
-    return `Within ${count} ${business}${unit}${count === 1 ? "" : "s"}`;
+    const qualifier = relative[2] ? `${relative[2].toLowerCase()} ` : "";
+    return `Within ${count} ${qualifier}${unit}${count === 1 ? "" : "s"}`;
   }
 
   return isUrgent ? "Required today" : undefined;
@@ -258,6 +316,8 @@ export function intakeTitleFromRequirement(
   equipmentOrTechnology: string[],
   requiresRecovery: boolean
 ): string {
+  const normalised = rawRequirement.toLowerCase();
+
   if (
     equipmentOrTechnology.some((item) =>
       item.includes("Plastics extrusion machine")
@@ -283,6 +343,28 @@ export function intakeTitleFromRequirement(
       ? "Urgent Siemens PLC fault on packaging line"
       : "Siemens PLC integration for packaging line";
   }
+  if (
+    equipmentOrTechnology.some((item) =>
+      /refrigeration|compressor/i.test(item)
+    )
+  ) {
+    return requiresRecovery
+      ? rawRequirement.toLowerCase().includes("ammonia")
+        ? "Urgent ammonia refrigeration compressor repair"
+        : "Urgent industrial refrigeration repair"
+      : "Industrial refrigeration maintenance";
+  }
+  if (
+    requiresRecovery &&
+    /\bgrain\b/.test(normalised) &&
+    equipmentOrTechnology.some((item) => /conveyor/i.test(item)) &&
+    equipmentOrTechnology.includes("Industrial gearbox") &&
+    equipmentOrTechnology.includes("Industrial motor")
+  ) {
+    return /\bwithin\s+(?:[1-9]|1\d|2[0-4])\s*hours?\b/.test(normalised)
+      ? "Urgent grain conveyor motor and gearbox repair"
+      : "Grain conveyor motor and gearbox repair";
+  }
 
   const firstSentence = rawRequirement.split(/[.!?]/)[0]?.trim();
   return firstSentence
@@ -306,6 +388,13 @@ export function intakeCategoryFromEquipment(
     )
   ) {
     return "Robotics integration";
+  }
+  if (
+    equipmentOrTechnology.some((item) =>
+      /refrigeration|compressor/i.test(item)
+    )
+  ) {
+    return "Industrial refrigeration maintenance";
   }
   if (
     equipmentOrTechnology.some((item) =>
@@ -342,6 +431,12 @@ function formatIntakeAmount(value: string): string {
 
 function isProcessHeatingRequirement(normalised: string): boolean {
   return /extrud|heater band|barrel heating|plastic processing|polymer processing|(?:plastic|polymer).{0,40}(?:melt|barrel|screw)|(?:screw|barrel).{0,40}(?:torque|heater|plastic|polymer)/.test(
+    normalised
+  );
+}
+
+function isIndustrialRefrigerationRequirement(normalised: string): boolean {
+  return /\bammonia\b|\brefrigerat(?:ion|ed|or)\b|\bcold store\b|\bcold-storage\b|\bfreezer\b|\bindustrial chiller\b/.test(
     normalised
   );
 }

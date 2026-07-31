@@ -59,8 +59,16 @@ export function marketplaceDeploymentContext(
   };
 }
 
-function inferDeploymentScenario(
-  profile: NonNullable<ReturnType<typeof getNeed>>["profile"]
+export function inferDeploymentScenario(
+  profile: Pick<
+    NonNullable<ReturnType<typeof getNeed>>["profile"],
+    | "title"
+    | "description"
+    | "problemSummary"
+    | "category"
+    | "equipmentOrTechnology"
+    | "equipmentTechnology"
+  >
 ): DeploymentScenario {
   const requirement = [
     profile.title,
@@ -73,7 +81,11 @@ function inferDeploymentScenario(
     .filter(Boolean)
     .join(" ");
 
-  return /robot|pallet|cobot|abb|fanuc/i.test(requirement)
-    ? "robotic_integration"
-    : "plc_recovery";
+  if (/robot|pallet|cobot|abb|fanuc/i.test(requirement)) {
+    return "robotic_integration";
+  }
+  if (/\bplc\b|siemens|programmable logic|control system/i.test(requirement)) {
+    return "plc_recovery";
+  }
+  return "industrial_response";
 }

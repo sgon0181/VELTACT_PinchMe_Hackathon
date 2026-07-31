@@ -15,7 +15,7 @@ import type {
 } from "./types.js";
 
 describe("DeploymentService", () => {
-  test("creates the four-stage PLC and robotics projections", async () => {
+  test("creates truthful four-stage PLC, robotics and general industrial projections", async () => {
     const plcAdapter = new MemoryDeploymentAdapter(plcEngagement());
     const plc = await new DeploymentService(plcAdapter).getDeployment(
       "eng-plc",
@@ -50,6 +50,21 @@ describe("DeploymentService", () => {
     assert.equal(robotics.milestones[0]?.status, "awaiting_payment");
     assert.equal(robotics.status, "commitment_pending");
     assert.doesNotThrow(() => deploymentSummarySchema.parse(robotics));
+
+    const industrialAdapter = new MemoryDeploymentAdapter(
+      industrialEngagement()
+    );
+    const industrial = await new DeploymentService(
+      industrialAdapter
+    ).getDeployment("eng-industrial", "buyer-token");
+    assert.equal(
+      industrial.title,
+      "Industrial response deployment with Refrigeration Response Group"
+    );
+    assert.deepEqual(
+      industrial.milestones.map((milestone) => milestone.title),
+      ["Site Assessment", "Approved Work", "Validation", "Handover"]
+    );
   });
 
   test("funding activates the commitment without completing engineering work", async () => {
@@ -79,7 +94,7 @@ describe("DeploymentService", () => {
     assert.match(deployment.latestUpdate ?? "", /not yet complete/);
   });
 
-  test("derives progress only from ordered milestone completion", async () => {
+  test("derives overall progress from the ordered milestone progress values", async () => {
     const adapter = new MemoryDeploymentAdapter({
       ...plcEngagement(),
       paymentStatus: "paid"
@@ -125,7 +140,7 @@ describe("DeploymentService", () => {
       status: "in_progress",
       latestUpdate: "Controlled diagnosis has started."
     });
-    assert.equal(inProgress.progressPercentage, 0);
+    assert.equal(inProgress.progressPercentage, 13);
     assert.equal(inProgress.milestones[0]?.progressPercentage, 50);
 
     const completed = await service.updateMilestone({
@@ -231,6 +246,20 @@ function roboticsEngagement(): DeploymentEngagementContext {
       currency: "AUD"
     },
     paymentStatus: "awaiting_payment"
+  };
+}
+
+function industrialEngagement(): DeploymentEngagementContext {
+  return {
+    engagementId: "eng-industrial",
+    needProfileId: "need-industrial",
+    supplierName: "Refrigeration Response Group",
+    scenario: "industrial_response",
+    commitmentAmount: {
+      amount: 280_000,
+      currency: "AUD"
+    },
+    paymentStatus: "not_started"
   };
 }
 
