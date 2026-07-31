@@ -73,7 +73,10 @@ li,
 dd,
 small,
 code,
-span {
+span,
+h1,
+h2,
+h3 {
   overflow-wrap: anywhere;
 }
 

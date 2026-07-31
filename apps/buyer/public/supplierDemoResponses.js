@@ -4,7 +4,7 @@ const presets = {
   plc: [
     {
       id: "plc-fast-response",
-      label: "PLC / fastest response (Fixture)",
+      label: "Fastest response · Fixture",
       company: {
         companyName: "Metro Controls Response",
         contactName: "Alex Chen",
@@ -29,7 +29,7 @@ const presets = {
     },
     {
       id: "plc-value-response",
-      label: "PLC / lower price (Fixture)",
+      label: "Lower price · Fixture",
       company: {
         companyName: "Western Automation Response",
         contactName: "Priya Nair",
@@ -56,7 +56,7 @@ const presets = {
   robotics: [
     {
       id: "robotics-fast-assessment",
-      label: "Robotics / earliest assessment (Fixture)",
+      label: "Earliest assessment · Fixture",
       company: {
         companyName: "Precision Robotics Response",
         contactName: "Mia Williams",
@@ -81,7 +81,7 @@ const presets = {
     },
     {
       id: "robotics-value-design",
-      label: "Robotics / lower price (Fixture)",
+      label: "Lower price · Fixture",
       company: {
         companyName: "Applied Automation Response",
         contactName: "Jordan Lee",
@@ -148,7 +148,7 @@ function generalResponses(requirementText) {
   return [
     {
       id: "general-fast-response",
-      label: "Industrial maintenance / fastest response (Fixture)",
+      label: "Fastest response · Fixture",
       company: {
         companyName: "Regional Industrial Response",
         contactName: "Casey Morgan",
@@ -173,7 +173,7 @@ function generalResponses(requirementText) {
     },
     {
       id: "general-value-response",
-      label: "Industrial maintenance / lower price (Fixture)",
+      label: "Lower price · Fixture",
       company: {
         companyName: "Industrial Service Network",
         contactName: "Taylor Singh",

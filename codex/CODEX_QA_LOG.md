@@ -243,3 +243,23 @@ accessibility, console, or responsive-layout defects.
   no `$0`, no overflow and no console warning/error.
 - **Result:** not clean because a comparison defect interrupted the journey. The
   clean-streak cycle restarts after the second verification pass.
+
+### Mobile viewport pass M0 — 320px buyer and supplier surfaces
+
+- Audited the buyer intake/workspace, private supplier opportunity, claim terminal,
+  account pages and the responsive rules shared through 375px. Existing grids,
+  focus order and content stayed within the 320px document with no console
+  warning/error.
+- **Defects:** the fixture disclosure's clickable `summary` measured only 16px high;
+  its long native-select option was visibly truncated; and buyer-generated Need
+  Profile headings had no defensive wrapping for an unbroken serial or title.
+- **Fixes:** the disclosure now has a 44px minimum touch target, fixture preset
+  labels retain their fixture provenance in compact copy, and buyer headings use
+  `overflow-wrap: anywhere`. Focused regressions cover all three guarantees.
+- **Verification:** an intentionally unbroken industrial-repair title and a pending
+  supplier invitation kept `scrollWidth` equal to 320px. The disclosure measured
+  44px, the selected option's scroll width fell from 301px to 232px, and both
+  consoles stayed clean. Two consecutive 307-test gates, typecheck and production
+  builds passed.
+- The documented PLC demo reset restored deterministic fixture state after the
+  read-only audit opened one demo invitation.
