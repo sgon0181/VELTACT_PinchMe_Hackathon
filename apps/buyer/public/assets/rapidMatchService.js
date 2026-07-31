@@ -646,7 +646,7 @@ function legacyNeedProfile(need) {
         category: profile.category,
         location: profile.location,
         priority: contractNeedPriority(profile),
-        requiredBy: availabilityLabel(profile.urgencyDays),
+        requiredBy: profile.requiredBy ?? availabilityLabel(profile.urgencyDays),
         budget: profile.budgetAud === undefined
             ? undefined
             : { amount: profile.budgetAud * 100, currency: "AUD" },
@@ -749,6 +749,7 @@ function requirementToMarketplaceProfile(input, priority) {
         industry: "Manufacturing",
         equipmentOrTechnology: input.equipmentOrTechnology,
         location: detectIntakeLocation(input.location) ?? input.location,
+        requiredBy: input.requiredBy || undefined,
         urgencyDays: parseUrgencyDays(input.requiredBy),
         budgetAud: input.budgetAmount || parseIntakeBudgetAmount(input.budgetRange),
         constraints: input.constraints,
@@ -769,6 +770,7 @@ function marketplaceProfileFromNeed(needProfile) {
             .filter((item) => item.startsWith("Equipment: "))
             .map((item) => item.slice("Equipment: ".length)),
         location: needProfile.location,
+        requiredBy: needProfile.requiredBy,
         urgencyDays: needProfile.priority === "urgent" ? 1 : undefined,
         budgetAud: needProfile.budget
             ? Math.round(needProfile.budget.amount / 100)

@@ -80,6 +80,11 @@ test(
 
     assert.ok(created.buyerAccessToken);
     assert.ok(created.workspace.needProfile?.id);
+    assert.equal(
+      created.workspace.needProfile?.requiredBy,
+      generated.urgency ?? "Within 8 weeks",
+      "the API should retain the buyer-reviewed timing phrase"
+    );
     await assert.rejects(
       service.downloadNeedReport(
         created.workspace,

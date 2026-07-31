@@ -9,7 +9,7 @@ export function parseUrgencyDays(requiredBy) {
     if (/\b(today|tonight|immediate(?:ly)?|urgent(?:ly)?)\b/.test(normalised)) {
         return 1;
     }
-    const dayMatch = normalised.match(/(\d+(?:\.\d+)?)\s*days?\b/);
+    const dayMatch = normalised.match(/(\d+(?:\.\d+)?)\s*(?:business\s+|calendar\s+)?days?\b/);
     if (dayMatch) {
         return Math.ceil(Number(dayMatch[1]));
     }

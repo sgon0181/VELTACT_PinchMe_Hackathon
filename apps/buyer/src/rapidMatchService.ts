@@ -959,7 +959,7 @@ function legacyNeedProfile(need: LegacyNeedRecord): NeedProfile {
     category: profile.category,
     location: profile.location,
     priority: contractNeedPriority(profile),
-    requiredBy: availabilityLabel(profile.urgencyDays),
+    requiredBy: profile.requiredBy ?? availabilityLabel(profile.urgencyDays),
     budget:
       profile.budgetAud === undefined
         ? undefined
@@ -1081,6 +1081,7 @@ function requirementToMarketplaceProfile(
     industry: "Manufacturing",
     equipmentOrTechnology: input.equipmentOrTechnology,
     location: detectIntakeLocation(input.location) ?? input.location,
+    requiredBy: input.requiredBy || undefined,
     urgencyDays: parseUrgencyDays(input.requiredBy),
     budgetAud:
       input.budgetAmount || parseIntakeBudgetAmount(input.budgetRange),
@@ -1105,6 +1106,7 @@ function marketplaceProfileFromNeed(
       .filter((item) => item.startsWith("Equipment: "))
       .map((item) => item.slice("Equipment: ".length)),
     location: needProfile.location,
+    requiredBy: needProfile.requiredBy,
     urgencyDays: needProfile.priority === "urgent" ? 1 : undefined,
     budgetAud: needProfile.budget
       ? Math.round(needProfile.budget.amount / 100)

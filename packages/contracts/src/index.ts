@@ -124,6 +124,7 @@ export const marketplaceNeedProfileSchema = z.object({
   equipmentOrTechnology: z.array(z.string().trim().min(1)).optional(),
   equipmentTechnology: z.array(z.string().trim().min(1)).optional(),
   location: z.string().trim().min(1),
+  requiredBy: z.string().trim().min(1).optional(),
   urgencyDays: z.coerce.number().int().positive().optional(),
   budgetAud: z.coerce.number().int().positive().optional(),
   constraints: z.array(z.string().trim().min(1)).optional(),

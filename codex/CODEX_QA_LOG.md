@@ -263,3 +263,25 @@ accessibility, console, or responsive-layout defects.
   builds passed.
 - The documented PLC demo reset restored deterministic fixture state after the
   read-only audit opened one demo invitation.
+
+### Cycle C2 — Hobart cold-logistics compressor repair (restart required)
+
+- **Scenario:** a Hobart, TAS cold-storage distribution site needed a licensed
+  refrigeration contractor within three business days for an ammonia screw
+  compressor drive motor that was vibrating and tripping; the buyer described an
+  approval cap of about `AUD 60k` and selected quality as the priority.
+- Intake correctly structured the refrigeration category, equipment, licence,
+  location, budget and temperature-critical constraint at 375×812.
+- **Defect:** the reviewed `Within 3 business days` field became `Required by: Not
+  provided` in the created Need Profile because the buyer-to-marketplace adapter
+  discarded the exact phrase and its day parser did not recognise the word
+  `business`.
+- **Fix:** marketplace profiles now persist the buyer-reviewed timing phrase while
+  retaining a parsed numeric urgency for ranking. Business-day and calendar-day
+  phrases are parsed, and the API returns the exact phrase in the Need Profile.
+- **Verification:** the served 375×812 report now displays `Within 3 business days`
+  with no overflow or console warning/error. The API-backed journey asserts
+  end-to-end persistence, and two consecutive 307-test gates, typecheck and
+  production builds passed.
+- **Result:** not clean because the report defect interrupted the journey. The
+  clean-streak cycle restarts after verification.

@@ -1565,7 +1565,11 @@ function serialiseNeedProfile(need: NonNullable<ReturnType<typeof getNeed>>) {
     category: need.profile.category,
     location: need.profile.location,
     priority: toContractPriority(need.profile.buyerPriority, need.profile.urgencyDays),
-    requiredBy: need.profile.urgencyDays === undefined ? undefined : requiredByLabel(need.profile.urgencyDays),
+    requiredBy:
+      need.profile.requiredBy ??
+      (need.profile.urgencyDays === undefined
+        ? undefined
+        : requiredByLabel(need.profile.urgencyDays)),
     budget:
       need.profile.budgetAud === undefined
         ? undefined
@@ -1580,7 +1584,7 @@ function serialiseNeedProfile(need: NonNullable<ReturnType<typeof getNeed>>) {
     niceToHaves: ["Comparable supplier response", "Clear availability and commercial conditions"],
     constraints: [
       need.profile.industry,
-      requiredByLabel(need.profile.urgencyDays),
+      need.profile.requiredBy ?? requiredByLabel(need.profile.urgencyDays),
       ...(need.profile.constraints ?? [])
     ].filter(
       (item): item is string => Boolean(item)
