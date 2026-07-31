@@ -1786,12 +1786,7 @@ function renderResponseCard(
         )}
         ${comparisonFact(
           "Price",
-          response.indicativePrice
-            ? money(
-                response.indicativePrice.amount,
-                response.indicativePrice.currency
-              )
-            : "Not provided",
+          supplierResponsePriceLabel(response),
           !validPrice
         )}
         ${comparisonFact(
@@ -1825,6 +1820,20 @@ function renderResponseCard(
       </dl>
     </article>
   `;
+}
+
+function supplierResponsePriceLabel(response: SupplierResponse) {
+  if (
+    response.decision !== "can_help" ||
+    !response.indicativePrice ||
+    response.indicativePrice.amount <= 0
+  ) {
+    return "Not provided";
+  }
+  return money(
+    response.indicativePrice.amount,
+    response.indicativePrice.currency
+  );
 }
 
 function renderSelected(data: BuyerWorkspace) {

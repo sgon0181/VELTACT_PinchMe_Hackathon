@@ -220,3 +220,26 @@ accessibility, console, or responsive-layout defects.
   values.
 - **Result:** not clean because a classification defect interrupted the journey. The
   clean-streak cycle restarts after the second verification pass.
+
+### Cycle C1R — Launceston cold-store compressor motor (restart required)
+
+- Restarted the corrected refrigeration intake at 375×812, selected quality as the
+  buyer priority, reviewed three labelled-fixture pathways and sent exactly two
+  link-only invitations. Intake, plan, supplier cards and supplier forms retained zero
+  horizontal overflow and moved focus to the newly revealed heading.
+- PlantBridge submitted a complete can-help response for AUD 44,500 and 5 August;
+  Regional Maintenance Partners explicitly declined because no licensed ammonia crew
+  was available within three business days. Both private supplier pages preserved
+  truthful fixture disclosures and human-formatted dates.
+- **Defect:** the declined comparison card was correctly disabled and labelled
+  `Cannot help`, but rendered its schema placeholder as a `$0` price, which could be
+  mistaken for a zero-cost quote.
+- **Fix:** declined and invalid-price responses now display `Not provided`; only a
+  selectable can-help response formats an indicative amount. A unit-level rendered
+  bundle regression covers both declined and valid can-help values.
+- **Verification:** two consecutive 304-test gates, typecheck and production builds
+  passed.
+  The served mobile comparison retest shows the disabled decline with `Not provided`,
+  no `$0`, no overflow and no console warning/error.
+- **Result:** not clean because a comparison defect interrupted the journey. The
+  clean-streak cycle restarts after the second verification pass.

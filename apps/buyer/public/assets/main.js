@@ -1339,9 +1339,7 @@ function renderResponseCard(data, response, readOnly = false, activeResponseId =
       </label>
       <dl class="comparison-facts">
         ${comparisonFact("Availability", formatSupplierAvailability(response.availability ?? "Not provided"), !response.availability)}
-        ${comparisonFact("Price", response.indicativePrice
-        ? money(response.indicativePrice.amount, response.indicativePrice.currency)
-        : "Not provided", !validPrice)}
+        ${comparisonFact("Price", supplierResponsePriceLabel(response), !validPrice)}
         ${comparisonFact("Technical fit", match?.reasons.slice(0, 3).join("; ") ??
         "No match rationale returned", !match)}
         ${comparisonFact("Experience", response.relevantExperience ?? "Not provided", !response.relevantExperience)}
@@ -1353,6 +1351,14 @@ function renderResponseCard(data, response, readOnly = false, activeResponseId =
       </dl>
     </article>
   `;
+}
+function supplierResponsePriceLabel(response) {
+    if (response.decision !== "can_help" ||
+        !response.indicativePrice ||
+        response.indicativePrice.amount <= 0) {
+        return "Not provided";
+    }
+    return money(response.indicativePrice.amount, response.indicativePrice.currency);
 }
 function renderSelected(data) {
     const selection = selectedSupplier(data);
