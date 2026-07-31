@@ -350,3 +350,50 @@ accessibility, console, or responsive-layout defects.
   production builds passed.
 - **Result:** not clean because the registry defect was found at the final check. The
   two-cycle clean streak restarts after this fix.
+
+### Cycle C5 — Ballarat no-show journey (clean 1 of 2)
+
+- **Scenario:** fresh Ballarat wastewater Need Profile, five calendar days,
+  `AUD 28,000-36,000`, price priority and the corrected water-utilities/process
+  continuity context.
+- Selected two fixture suppliers for link-only outreach. PlantBridge submitted one
+  complete AUD 31,800 response with 4 August availability; Regional Maintenance
+  Partners opened its private page and did not respond.
+- The explicit `1 of 2` recovery action and one-response warning preceded selection.
+  Local-demo payment remained pending until explicit non-authoritative evidence was
+  recorded. All four milestones were funded, started and completed with
+  buyer-authored updates, ending at 100%.
+- **Final evidence:** speed receipt complete; PlantBridge `Delivered`; no-show
+  supplier `Contacted` with no response claimed; 31 ordered fixture-activity events;
+  no invalid values, horizontal overflow or console warnings/errors.
+- **Result:** fully clean. Consecutive clean count: 1.
+
+### Cycle C6 — Cairns cold-logistics compressor repair (clean 2 of 2)
+
+- **Scenario:** a seafood cold-storage distribution centre in Cairns, QLD needed a
+  licensed ammonia refrigeration contractor within four business days for a
+  vibrating compressor coupling/drive motor; approval was phrased as up to
+  `AUD 48,500`, with technical fit prioritised.
+- The 375×812 draft and report retained Cairns, exact timing, refrigeration category,
+  cold-logistics industry, temperature-critical constraint and labelled fixture
+  provenance. Two private links were prepared without external delivery.
+- PlantBridge offered AUD 45,200 with 6 August availability; Regional Maintenance
+  Partners offered AUD 39,800 with 7 August availability. Both token pages, receipts
+  and comparison values remained human-formatted and truthful. The buyer selected the
+  lower offer.
+- Explicit local-demo evidence secured the engagement without claiming Pinch.
+  Engineering progress moved through 13/25/38/50/63/75/88/100% across Site
+  Assessment, Approved Work, Validation and Handover.
+- **Final evidence:** speed receipt complete; selected supplier `Delivered`; other
+  respondent `Responded`; 20 ordered fixture-activity events; no invalid values,
+  horizontal overflow or console warnings/errors on buyer or supplier pages.
+- **Result:** fully clean. Consecutive clean count: 2.
+
+## Stop condition
+
+- Dedicated deterministic demo-button cycle: clean.
+- Dedicated adversarial/refresh/token-replay cycle: clean.
+- 320px mobile reasoning and served-page pass: complete.
+- Two consecutive complete clean journeys after all fixes: C5 and C6.
+- Final regression: 313 tests, typecheck and production build passed; documented
+  PLC and robotics demo resets both completed successfully.
