@@ -438,6 +438,15 @@ function render() {
   }
   syncBuyerHistory();
   const phase = currentPhase();
+  const workflowPhase = workspace
+    ? workflowJourneyPhase(workspace)
+    : "find";
+  const headerProfile = workspace?.needProfile;
+  const headerContextTitle =
+    headerProfile?.title ?? "Industrial sourcing workspace";
+  const headerContextMeta = headerProfile
+    ? `${headerProfile.location ? `${headerProfile.location} · ` : ""}№ ${shortId(headerProfile.id)}`
+    : "Find · Connect · Deploy";
   if (phase === "deploy") {
     document.body.dataset.phase = "deploy";
   } else {
@@ -447,13 +456,14 @@ function render() {
     <header class="product-header">
       <a class="product-wordmark" href="./index.html" aria-label="Veltact RapidMatch">
         <span class="product-wordmark-notch" aria-hidden="true"></span>
-        <span>Veltact</span>
+        <span>VELTACT</span>
       </a>
+      <div class="product-context">
+        <strong>${escapeHtml(headerContextTitle)}</strong>
+        <span>${escapeHtml(headerContextMeta)}</span>
+      </div>
       <div class="product-header-meta">
-        <div class="product-context">
-          <strong>RapidMatch</strong>
-          <span>Buyer workspace</span>
-        </div>
+        ${renderProductPhaseNavigation(phase, workflowPhase)}
         ${
           workspace
             ? `<button class="button button-quiet button-small" type="button" data-open-registry>Your suppliers</button>`
@@ -462,25 +472,32 @@ function render() {
       </div>
     </header>
 
+    ${renderJourney(phase, workflowPhase)}
+
     <section class="hero ${workspace ? "hero-compact" : ""}">
       <div class="hero-copy-block">
-        <p class="eyebrow">Industrial supplier response</p>
-        <h1>Describe what you need. The right industrial suppliers respond.</h1>
-        <p class="hero-copy">Submit one requirement and receive comparable responses from relevant, available providers.</p>
+        <p class="eyebrow">${workspace ? `${phaseLabel(phase)} workspace` : "Evidence intake"}</p>
+        <h1>${workspace ? escapeHtml(headerContextTitle) : "Describe the problem once."}</h1>
+        <p class="hero-copy">${
+          workspace
+            ? "Review the current decision state without losing the approved requirement context."
+            : "Veltact structures your evidence into a reviewed Need Profile with cited solution pathways. Decision support — never engineering sign-off."
+        }</p>
       </div>
       ${workspace ? renderWorkspaceStatus() : ""}
     </section>
 
-    ${renderJourney(
-      phase,
-      workspace ? workflowJourneyPhase(workspace) : "find"
-    )}
     ${renderBanner()}
 
     <section class="workspace" aria-busy="${loadState === "loading"}">
       ${renderAgentActivityTimeline()}
       ${booting ? renderLoadingSkeleton() : renderCurrentView()}
     </section>
+
+    <footer class="workspace-footer">
+      <span>Problem evidence → Need Profile → selected solution → RapidMatch response → Pinch commitment → delivery progress</span>
+      <span>Decision support — never engineering sign-off.</span>
+    </footer>
   `;
   bindEvents();
   configurePolling();
@@ -564,9 +581,9 @@ function scrollBuyerWorkspaceToTop() {
 
 function renderJourney(phase: JourneyPhase, workflowPhase: JourneyPhase) {
   const phases = [
-    ["find", "Find", "Structure and choose a path"],
-    ["connect", "Connect", "Match, invite and compare"],
-    ["deploy", "Deploy", "Commit and track delivery"]
+    ["find", "Find", "Evidence → plan"],
+    ["connect", "Connect", "Matches → responses"],
+    ["deploy", "Deploy", "Commitment → delivery"]
   ] as const;
   const activeIndex = phases.findIndex(([key]) => key === phase);
   const workflowIndex = phases.findIndex(([key]) => key === workflowPhase);
@@ -601,6 +618,39 @@ function renderJourney(phase: JourneyPhase, workflowPhase: JourneyPhase) {
         .join("")}
     </nav>
   `;
+}
+
+function renderProductPhaseNavigation(
+  phase: JourneyPhase,
+  workflowPhase: JourneyPhase
+) {
+  const phases = [
+    ["find", "Find"],
+    ["connect", "Connect"],
+    ["deploy", "Deploy"]
+  ] as const;
+  const activeIndex = journeyPhaseIndex(phase);
+  const workflowIndex = journeyPhaseIndex(workflowPhase);
+  return `
+    <nav class="product-phase-nav" aria-label="Workspace views">
+      ${phases
+        .map(([key, label], index) => {
+          const current = index === activeIndex;
+          const reachable = Boolean(workspace) && index <= workflowIndex && !current;
+          if (reachable) {
+            return `<button type="button" data-journey-phase="${key}" aria-label="View ${label} stage">${label}</button>`;
+          }
+          return `<span class="${current ? "is-current" : ""}" ${current ? 'aria-current="page"' : ""}>${label}</span>`;
+        })
+        .join("")}
+    </nav>
+  `;
+}
+
+function phaseLabel(phase: JourneyPhase) {
+  if (phase === "connect") return "Connect";
+  if (phase === "deploy") return "Deploy";
+  return "Find";
 }
 
 function focusPrimaryHeadingAfterViewChange() {
@@ -788,8 +838,8 @@ function renderIntake() {
     <form id="requirement-form" class="panel intake-form">
       <div class="panel-heading">
         <div>
-          <p class="eyebrow">Find / Requirement intake</p>
-          <h2>Turn factory context into a supplier-ready Need Profile</h2>
+          <p class="eyebrow">Factory evidence</p>
+          <h2>Context and supporting files</h2>
         </div>
         ${
           demoControlsAvailable
@@ -829,13 +879,13 @@ function renderIntake() {
         </div>
         <div class="file-grid">
           <label class="file-control">
-            <span class="file-control-title">PDF document</span>
-            <span>Manual, alarm report or scope</span>
+            <span class="file-control-title">Attach PDF report</span>
+            <span>Maintenance log, fault export or scope — max 10 MB</span>
             <input name="pdfEvidence" type="file" accept="application/pdf,.pdf" />
           </label>
           <label class="file-control">
-            <span class="file-control-title">Equipment photo</span>
-            <span>Nameplate, HMI or visible condition</span>
+            <span class="file-control-title">Attach photographs</span>
+            <span>Status lights, panel wiring, nameplate or visible condition</span>
             <input name="photoEvidence" type="file" accept="image/jpeg,image/png,image/webp" />
           </label>
         </div>
@@ -977,17 +1027,17 @@ function renderManualFields(open: boolean, missing: string[]) {
         </div>
 
         <fieldset class="priority-fieldset">
-          <legend>Buyer priority</legend>
+          <legend>What matters most?</legend>
           <div class="priority-grid">
             ${priorityButton("speed", "Speed", "Fastest credible response")}
+            ${priorityButton("price", "Price", "Lowest credible cost")}
+            ${priorityButton("quality", "Quality", "Strongest delivery standard")}
             ${priorityButton(
               "technical_fit",
               "Technical fit",
               "Best capability alignment"
             )}
-            ${priorityButton("quality", "Quality", "Strongest delivery standard")}
             ${priorityButton("trust", "Trust", "Most proven supplier")}
-            ${priorityButton("price", "Price", "Lowest credible cost")}
           </div>
         </fieldset>
       </div>

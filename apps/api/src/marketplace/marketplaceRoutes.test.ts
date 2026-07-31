@@ -2022,6 +2022,22 @@ describe("marketplace core routes", () => {
       )
     );
     assert.match(returnText, />Return to Veltact<\/a>/);
+    assert.match(returnText, /data-workspace-theme="light"/);
+    assert.match(returnText, /veltact:workspace-theme:v1/);
+    assert.match(returnText, /href="\/workspace-v5\.css\?v=workspace-v5-1"/);
+    assert.match(
+      returnText,
+      /src="\/assets\/workspaceTheme\.js\?v=workspace-v5-1"/
+    );
+    assert.match(returnText, /class="payment-return-header"/);
+    assert.match(
+      returnText,
+      /html\[data-workspace-theme\] \.payment-return-card > a/
+    );
+    assert.match(
+      returnText,
+      /html\[data-workspace-theme\] \.payment-return-wordmark/
+    );
 
     const eventPayload = {
       Id: "evt_payment_approved",

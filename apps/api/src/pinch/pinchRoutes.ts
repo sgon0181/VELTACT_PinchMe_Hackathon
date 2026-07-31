@@ -132,100 +132,186 @@ pinchRouter.get("/return/:engagementId?", (request, response) => {
     .status(200)
     .type("html")
     .send(`<!doctype html>
-<html lang="en">
+<html lang="en" data-workspace-theme="light">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script>
+      (() => {
+        const storageKey = "veltact:workspace-theme:v1";
+        let theme = "light";
+        try {
+          const storedTheme = window.localStorage.getItem(storageKey);
+          if (storedTheme === "light" || storedTheme === "dark") {
+            theme = storedTheme;
+          }
+        } catch {}
+        document.documentElement.dataset.workspaceTheme = theme;
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
     <title>${localDemoReturn ? "Local demo commitment" : "Payment awaiting confirmation"}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Chakra+Petch:wght@500;600;700&family=Geist+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/workspace-v5.css?v=workspace-v5-1" />
     <style>
       * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100vh;
-        background: #f2f5f1;
-        color: #14231b;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--v5-text);
+        background-color: var(--v5-canvas);
+        background-image: var(--v5-page-ambient);
+        font-family: var(--v5-font-body);
+      }
+      .payment-return-header {
+        position: sticky;
+        z-index: 20;
+        top: 0;
+        display: flex;
+        min-height: var(--v5-header-height);
+        align-items: center;
+        gap: 24px;
+        padding: 0 var(--v5-header-padding-inline);
+        color: var(--v5-header-text);
+        border-bottom: 1px solid var(--v5-header-line);
+        background-color: rgba(40, 26, 38, 0.55);
+        background-image: var(--v5-header-background);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+        backdrop-filter: blur(18px) saturate(1.25);
+      }
+      html[data-workspace-theme] .payment-return-wordmark {
+        color: var(--v5-header-text);
+        font-family: var(--v5-font-brand);
+        font-size: 16.5px;
+        font-weight: 600;
+        letter-spacing: 4px;
+        text-decoration: none;
+      }
+      .payment-return-context {
+        color: var(--v5-header-muted);
+        font-size: 13px;
       }
       main {
-        width: min(100%, 720px);
-        min-height: 100vh;
+        width: min(calc(100% - 64px), 860px);
+        min-height: calc(100vh - var(--v5-header-height));
         margin: 0 auto;
-        padding: 64px 28px;
+        padding: 68px 0 110px;
         display: flex;
         flex-direction: column;
         justify-content: center;
         align-items: flex-start;
       }
-      .brand {
-        margin: 0 0 40px;
-        color: #126b4f;
-        font-size: 14px;
-        font-weight: 800;
-        text-transform: uppercase;
+      .payment-return-card {
+        width: 100%;
+        padding: clamp(28px, 6vw, 52px);
+        border: 1px solid var(--v5-line);
+        border-radius: var(--v5-radius-card);
+        background-color: var(--v5-surface);
+        background-image: var(--v5-card-background-strong);
       }
       .status {
         margin: 0 0 12px;
-        color: #5c6c63;
+        color: var(--v5-red-text, var(--v5-red));
         font-size: 13px;
-        font-weight: 700;
-        text-transform: uppercase;
+        font-weight: 600;
       }
       h1 {
         max-width: 640px;
         margin: 0 0 24px;
-        font-size: clamp(36px, 7vw, 56px);
-        line-height: 1.05;
+        color: var(--v5-text);
+        font-size: clamp(36px, 7vw, 42px);
+        font-weight: 500;
+        line-height: 1.1;
+        letter-spacing: -1px;
       }
       p {
         max-width: 640px;
         margin: 0 0 14px;
-        color: #435249;
-        font-size: 18px;
-        line-height: 1.55;
+        color: var(--v5-muted);
+        font-size: 15.5px;
+        line-height: 1.6;
       }
       .notice {
-        margin: 10px 0 30px;
-        padding: 4px 0 4px 18px;
-        border-left: 3px solid #e3a51a;
+        width: 100%;
+        margin: 22px 0 32px;
+        padding: 18px 20px;
+        border: 1px solid color-mix(in srgb, var(--v5-warning) 44%, var(--v5-line));
+        border-radius: var(--v5-radius-control);
+        background: color-mix(in srgb, var(--v5-warning) 9%, transparent);
       }
-      a {
+      html[data-workspace-theme] .payment-return-card > a {
         display: inline-flex;
-        min-height: 48px;
+        min-height: var(--v5-control-height);
         align-items: center;
         justify-content: center;
-        padding: 12px 20px;
-        border-radius: 6px;
-        background: #147a58;
-        color: #fff;
-        font-size: 16px;
-        font-weight: 750;
+        padding: 0 24px;
+        border: 1px solid transparent;
+        border-radius: var(--v5-radius-pill);
+        background-color: var(--v5-primary-hover);
+        background-image: var(--v5-primary-background);
+        color: var(--v5-primary-text);
+        font-size: 14.5px;
+        font-weight: 600;
         text-decoration: none;
       }
-      a:focus-visible {
-        outline: 3px solid #e3a51a;
+      html[data-workspace-theme] .payment-return-card > a:hover {
+        color: var(--v5-primary-text);
+        filter: brightness(1.04);
+      }
+      html[data-workspace-theme] .payment-return-card > a:focus-visible,
+      html[data-workspace-theme] .payment-return-wordmark:focus-visible {
+        outline: 2px solid var(--v5-red-text, var(--v5-red));
         outline-offset: 3px;
+      }
+      @media (max-width: 640px) {
+        .payment-return-header {
+          gap: 12px;
+        }
+        .payment-return-context {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        main {
+          width: min(calc(100% - 32px), 860px);
+          padding: 44px 0 88px;
+        }
+        .payment-return-card {
+          padding: 24px 20px;
+        }
       }
     </style>
   </head>
   <body>
+    <header class="payment-return-header">
+      <a class="payment-return-wordmark" href="/index.html">VELTACT</a>
+      <span class="payment-return-context">Pinch commitment return</span>
+    </header>
     <main>
-      <p class="brand">Veltact</p>
-      <p class="status">${localDemoReturn ? "Local demo evidence" : "Pinch checkout return"}</p>
-      ${
-        localDemoReturn
-          ? `<h1>Local demo commitment</h1>
-      <div class="notice">
-        <p>No Pinch transaction or external payment was created.</p>
-        <p>Use the clearly labelled local demo action in Veltact to record non-authoritative demo evidence.</p>
-      </div>`
-          : `<h1>Payment awaiting confirmation</h1>
-      <div class="notice">
-        <p>Pinch redirected you back to Veltact. This page does not confirm payment success.</p>
-        <p>The engagement is secured only after the backend verifies payment with Pinch.</p>
-      </div>`
-      }
-      <a href="${buyerReturnUrl}">Return to Veltact</a>
+      <section class="payment-return-card">
+        <p class="status">${localDemoReturn ? "Local demo evidence" : "Pinch checkout return"}</p>
+        ${
+          localDemoReturn
+            ? `<h1>Local demo commitment</h1>
+        <div class="notice">
+          <p>No Pinch transaction or external payment was created.</p>
+          <p>Use the clearly labelled local demo action in Veltact to record non-authoritative demo evidence.</p>
+        </div>`
+            : `<h1>Payment awaiting confirmation</h1>
+        <div class="notice">
+          <p>Pinch redirected you back to Veltact. This page does not confirm payment success.</p>
+          <p>The engagement is secured only after the backend verifies payment with Pinch.</p>
+        </div>`
+        }
+        <a href="${buyerReturnUrl}">Return to Veltact</a>
+      </section>
     </main>
+    <script type="module" src="/assets/workspaceTheme.js?v=workspace-v5-1"></script>
   </body>
 </html>`);
 });

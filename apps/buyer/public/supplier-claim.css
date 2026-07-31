@@ -1,59 +1,142 @@
-@import url("./v2.css?v=logos-1");
+@import url("./v2.css?v=workspace-v5");
 
 .claim-app {
-  width: min(980px, calc(100% - 28px));
+  width: min(1160px, calc(100% - 44px));
   margin: 0 auto;
-  padding: 18px 0 56px;
+  padding: 0 0 80px;
 }
 
 .claim-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   display: flex;
-  min-height: 60px;
+  min-height: 62px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  border-bottom: 1px solid var(--line);
+  gap: 18px;
+  margin-inline: calc(50% - 50vw);
+  padding-inline: max(22px, calc((100vw - 1160px) / 2 + 22px));
+  color: #f2f7fc;
+  background-color: var(--v5-header-fallback, rgba(40, 26, 38, 0.55));
+  background-image: var(--v5-header-background);
+  border-bottom: 1px solid rgba(216, 56, 63, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+}
+
+.claim-header .wordmark {
+  color: inherit;
+}
+
+.claim-header .micro-label {
+  color: #c3d1de;
 }
 
 .claim-header-context {
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
 }
 
+.claim-header-context .status-badge {
+  color: #f2f7fc;
+  background: rgba(5, 13, 24, 0.26);
+}
+
+.claim-header-context .status-badge.invited,
+.claim-header-context .status-badge.claimed,
+.claim-header-context .status-badge.supplier_profile_approved,
+.claim-header-context .status-badge.buyer_approved {
+  border-color: rgba(156, 196, 232, 0.55);
+  color: #d9ecfb;
+  background: rgba(29, 90, 138, 0.28);
+}
+
+.claim-header-context .status-badge.active_supplier,
+.claim-header-context .status-badge.accepted {
+  border-color: rgba(121, 201, 154, 0.6);
+  color: #c9f4da;
+  background: rgba(46, 125, 79, 0.3);
+}
+
+.claim-header-context .status-badge.failed,
+.claim-header-context .status-badge.declined {
+  border-color: rgba(255, 156, 162, 0.62);
+  color: #ffdadd;
+  background: rgba(180, 35, 47, 0.28);
+}
+
 .claim-hero {
-  padding: 34px 0 22px;
+  position: relative;
+  overflow: hidden;
+  margin: 42px 0 30px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 42px 40px;
+  background-color: var(--surface);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.14'/%3E%3C/svg%3E"),
+    radial-gradient(
+      380px circle at var(--mx, 25%) var(--my, 20%),
+      rgba(120, 170, 215, 0.35) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      90% 130% at 0% 0%,
+      rgba(120, 170, 215, 0.42) 0%,
+      rgba(170, 200, 230, 0.18) 45%,
+      transparent 72%
+    ),
+    radial-gradient(
+      60% 80% at 100% 100%,
+      rgba(216, 56, 63, 0.14) 0%,
+      transparent 62%
+    );
+  box-shadow: var(--v2-shadow);
 }
 
 .claim-hero h1 {
-  max-width: 760px;
-  margin: 5px 0 12px;
+  max-width: 800px;
+  margin: 10px 0 14px;
+  color: var(--text);
   font-family: var(--font-display);
-  font-size: 2.45rem;
-  line-height: 1.08;
+  font-size: clamp(2.15rem, 5vw, 2.625rem);
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.04em;
 }
 
 .claim-hero p {
   max-width: 720px;
+  margin: 0;
   color: var(--muted);
-  line-height: 1.55;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.claim-hero .chip-row {
+  margin-top: 22px;
 }
 
 .claim-stack {
   display: grid;
-  gap: 16px;
+  gap: 18px;
 }
 
 .claim-form {
   display: grid;
-  gap: 16px;
+  gap: 18px;
 }
 
 .claim-stage {
   display: grid;
+  min-height: 68px;
   grid-template-columns: 42px minmax(0, 1fr);
-  gap: 12px;
+  gap: 13px;
   align-items: start;
   border-bottom: 1px solid var(--line);
   padding: 14px 0;
@@ -70,7 +153,11 @@
   place-items: center;
   border: 1px solid var(--line-strong);
   border-radius: 50%;
+  color: var(--red);
+  background: rgba(216, 56, 63, 0.07);
   font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .claim-stage h3,
@@ -81,14 +168,16 @@
 .claim-stage p {
   margin-top: 4px;
   color: var(--muted);
+  line-height: 1.5;
 }
 
 .provenance-note {
-  border: 1px solid rgba(230, 166, 63, 0.38);
-  border-radius: 4px;
-  padding: 12px;
-  background: rgba(230, 166, 63, 0.06);
-  color: #e7ca91;
+  border: 1px solid color-mix(in srgb, var(--amber) 42%, transparent);
+  border-radius: 12px;
+  padding: 13px 14px;
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 7%, transparent);
+  line-height: 1.5;
 }
 
 .claim-actions {
@@ -97,15 +186,88 @@
   gap: 10px;
   align-items: center;
   border-top: 1px solid var(--line);
-  padding-top: 18px;
+  padding-top: 20px;
+}
+
+.claim-actions .micro-label {
+  color: var(--faint);
+}
+
+.claim-app > .banner {
+  margin-top: 28px;
 }
 
 @media (max-width: 680px) {
+  .claim-app {
+    width: min(100% - 24px, 1160px);
+    padding-bottom: 64px;
+  }
+
+  .claim-header {
+    min-height: 58px;
+    margin-inline: -12px;
+    padding: 7px 12px;
+  }
+
   .claim-header-context .micro-label {
     display: none;
   }
 
+  .claim-header-context .status-badge {
+    max-width: 148px;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+
+  .claim-hero {
+    margin-top: 24px;
+    border-radius: 16px;
+    padding: 28px 22px;
+  }
+
   .claim-hero h1 {
     font-size: 2rem;
+  }
+
+  .claim-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .claim-actions .button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media print {
+  .claim-header {
+    position: static;
+    margin-inline: 0;
+    padding-inline: 0;
+    color: #12263c;
+    background: none;
+    border-bottom-color: rgba(18, 38, 60, 0.16);
+    box-shadow: none;
+  }
+
+  .claim-header .micro-label,
+  .claim-header-context .status-badge {
+    color: #4a627a;
+  }
+
+  .claim-hero {
+    background: #fff;
+    box-shadow: none;
   }
 }

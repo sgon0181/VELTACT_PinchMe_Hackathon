@@ -1,19 +1,58 @@
 :root {
+  color-scheme: light;
+  --account-bg: var(--v5-canvas, #e9f0f7);
+  --account-surface: var(--v5-surface, #f7fafd);
+  --account-surface-raised: var(--v5-surface-raised, #fbfdff);
+  --account-line: var(--v5-line, rgba(18, 38, 60, 0.1));
+  --account-line-strong: var(--v5-line-strong, rgba(18, 38, 60, 0.2));
+  --account-text: var(--v5-text, #12263c);
+  --account-muted: var(--v5-muted, #4a627a);
+  --account-faint: var(--v5-faint-readable, #537089);
+  --account-blue: var(--v5-blue, #1d5a8a);
+  --account-red: var(--v5-red-text, #c22f3a);
+  --account-green: var(--v5-success-text, #256b42);
+  --account-amber: var(--v5-warning-text, #755f22);
+  --account-error: #b4232f;
+  --account-header-text: #f2f7fc;
+  --account-shadow: 0 24px 64px rgba(18, 38, 60, 0.14);
+  --account-font-display: var(
+    --v5-font-display,
+    "Instrument Sans",
+    ui-sans-serif,
+    system-ui,
+    sans-serif
+  );
+  --account-font-body: var(
+    --v5-font-body,
+    "Instrument Sans",
+    ui-sans-serif,
+    system-ui,
+    sans-serif
+  );
+  --account-font-mono: var(
+    --v5-font-mono,
+    "Geist Mono",
+    ui-monospace,
+    monospace
+  );
+}
+
+html[data-workspace-theme="dark"] {
   color-scheme: dark;
-  --account-bg: #050b13;
-  --account-surface: #101e2e;
-  --account-surface-raised: #16283c;
-  --account-line: rgba(169, 181, 191, 0.24);
-  --account-text: #f3f6f8;
-  --account-muted: #a9b5bf;
-  --account-blue: #2e7fc6;
-  --account-blue-lit: #8fc8f5;
-  --account-red: #d6283f;
-  --account-green: #2ab17e;
-  --account-amber: #e6a63f;
-  --account-font-display: "Archivo", ui-sans-serif, system-ui, sans-serif;
-  --account-font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --account-font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --account-bg: var(--v5-canvas, #050d18);
+  --account-surface: var(--v5-surface, #0a1728);
+  --account-surface-raised: var(--v5-surface-raised, #0e1e33);
+  --account-line: var(--v5-line, rgba(220, 232, 245, 0.1));
+  --account-line-strong: var(--v5-line-strong, rgba(220, 232, 245, 0.2));
+  --account-text: var(--v5-text, #e8f0f9);
+  --account-muted: var(--v5-muted, #9db2c8);
+  --account-faint: var(--v5-faint-readable, #8aa5c0);
+  --account-blue: var(--v5-blue, #9cc4e8);
+  --account-red: var(--v5-red-text, #e34b53);
+  --account-green: var(--v5-success-text, #79c99a);
+  --account-amber: var(--v5-warning-text, #c4b592);
+  --account-error: #ff9ca2;
+  --account-shadow: 0 28px 72px rgba(0, 0, 0, 0.32);
 }
 
 * {
@@ -24,16 +63,62 @@
   display: none !important;
 }
 
+html {
+  min-width: 320px;
+  min-height: 100%;
+  background: var(--account-bg);
+}
+
 body.account-page {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.014) 1px, transparent 1px),
-    var(--account-bg);
-  background-size: 100% 5px;
   color: var(--account-text);
+  background-color: var(--account-bg);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='280' height='280'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.07'/%3E%3C/svg%3E"),
+    radial-gradient(
+      110% 80% at 80% -15%,
+      rgba(150, 185, 220, 0.5) 0%,
+      rgba(200, 218, 238, 0.3) 45%,
+      transparent 70%
+    ),
+    radial-gradient(
+      90% 70% at -10% 105%,
+      rgba(170, 200, 230, 0.5) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      68% 55% at 100% 100%,
+      rgba(216, 56, 63, 0.13) 0%,
+      rgba(216, 56, 63, 0.04) 45%,
+      transparent 68%
+    );
+  background-attachment: fixed;
   font-family: var(--account-font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+html[data-workspace-theme="dark"] body.account-page {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='280' height='280'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.07'/%3E%3C/svg%3E"),
+    radial-gradient(
+      110% 80% at 80% -15%,
+      rgba(30, 60, 98, 0.5) 0%,
+      rgba(12, 26, 46, 0.3) 45%,
+      transparent 70%
+    ),
+    radial-gradient(
+      90% 70% at -10% 105%,
+      rgba(22, 46, 76, 0.55) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      68% 55% at 100% 100%,
+      rgba(216, 56, 63, 0.13) 0%,
+      rgba(216, 56, 63, 0.04) 45%,
+      transparent 68%
+    );
 }
 
 button,
@@ -45,114 +130,166 @@ a {
   color: inherit;
 }
 
+::selection {
+  color: var(--account-text);
+  background: rgba(140, 185, 230, 0.55);
+}
+
 .account-shell {
-  width: min(1180px, calc(100% - 32px));
+  width: min(1160px, calc(100% - 44px));
   margin: 0 auto;
-  padding-bottom: 40px;
+  padding-bottom: 48px;
 }
 
 .account-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   display: flex;
-  min-height: 72px;
+  min-height: 62px;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  border-bottom: 1px solid var(--account-line);
+  margin-inline: calc(50% - 50vw);
+  padding-inline: max(22px, calc((100vw - 1160px) / 2 + 22px));
+  color: var(--account-header-text);
+  background-color: var(--v5-header-fallback, rgba(40, 26, 38, 0.55));
+  background-image: var(--v5-header-background);
+  border-bottom: 1px solid rgba(216, 56, 63, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
 }
 
 .account-wordmark {
   display: inline-flex;
+  min-height: 44px;
   align-items: center;
   gap: 11px;
-  color: var(--account-text);
-  font-family: var(--account-font-display);
-  font-weight: 800;
+  color: inherit;
+  font-family: var(--v5-font-brand, "Chakra Petch", var(--account-font-display));
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
   text-decoration: none;
   text-transform: uppercase;
 }
 
+html[data-workspace-theme] .account-wordmark {
+  color: inherit;
+}
+
 .account-wordmark-mark {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
   transform: rotate(45deg);
-  border: 2px solid var(--account-red);
-  box-shadow: 0 0 12px rgba(214, 40, 63, 0.42);
+  border: 2px solid #ff737a;
 }
 
 .account-nav {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
 }
 
 .account-nav a {
-  min-height: 40px;
-  border-bottom: 2px solid transparent;
-  padding: 10px 12px 8px;
-  color: var(--account-muted);
-  font-family: var(--account-font-mono);
-  font-size: 0.73rem;
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 8px 14px;
+  color: #c0cedb;
+  font-size: 0.84rem;
+  font-weight: 500;
   text-decoration: none;
-  text-transform: uppercase;
+}
+
+.account-nav a:hover {
+  color: #fff;
+  background: rgba(242, 247, 252, 0.08);
 }
 
 .account-nav a[aria-current="page"] {
-  border-bottom-color: var(--account-blue);
-  color: var(--account-text);
+  border-color: rgba(242, 247, 252, 0.2);
+  color: #fff;
+  background: rgba(242, 247, 252, 0.1);
 }
 
 .account-nav .try-demo {
-  border: 1px solid rgba(230, 166, 63, 0.7);
-  color: #f4d59a;
+  border-color: rgba(255, 184, 191, 0.36);
+  color: #ffe6e8;
+  background: rgba(216, 56, 63, 0.12);
 }
 
 .account-main {
   display: grid;
-  min-height: calc(100vh - 112px);
-  grid-template-columns: minmax(0, 0.9fr) minmax(360px, 1.1fr);
-  gap: 48px;
+  min-height: calc(100vh - 110px);
+  grid-template-columns: minmax(0, 1.02fr) minmax(360px, 0.98fr);
+  gap: clamp(26px, 5vw, 62px);
   align-items: center;
-  padding: 54px 0;
+  padding: 56px 0;
 }
 
 .account-context {
+  position: relative;
   align-self: stretch;
-  border-left: 3px solid var(--account-red);
-  padding: clamp(36px, 7vw, 90px) clamp(28px, 5vw, 64px);
-  background:
-    linear-gradient(135deg, rgba(122, 20, 37, 0.9), rgba(7, 17, 29, 0.82)),
-    url("./assets/brand/brushed-steel.jpg") center / cover;
+  overflow: hidden;
+  border: 1px solid var(--account-line);
+  border-radius: 18px;
+  padding: clamp(34px, 6vw, 68px);
+  background-color: var(--account-surface);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.14'/%3E%3C/svg%3E"),
+    radial-gradient(
+      380px circle at var(--mx, 25%) var(--my, 20%),
+      rgba(120, 170, 215, 0.35) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      90% 120% at 0% 0%,
+      rgba(120, 170, 215, 0.45) 0%,
+      rgba(170, 200, 230, 0.2) 45%,
+      transparent 72%
+    ),
+    radial-gradient(
+      60% 80% at 100% 100%,
+      rgba(216, 56, 63, 0.14) 0%,
+      transparent 62%
+    );
+  box-shadow: var(--account-shadow);
 }
 
 .account-context h1 {
   max-width: 620px;
-  margin: 10px 0 18px;
+  margin: 12px 0 18px;
+  color: var(--account-text);
   font-family: var(--account-font-display);
-  font-size: clamp(2.2rem, 5vw, 4.6rem);
-  line-height: 1;
-  letter-spacing: 0;
+  font-size: clamp(2.35rem, 5vw, 4.35rem);
+  font-weight: 500;
+  line-height: 1.02;
+  letter-spacing: -0.045em;
 }
 
 .account-context p {
   max-width: 570px;
-  color: #d5dde3;
-  font-size: 1.05rem;
+  color: var(--account-muted);
+  font-size: 1rem;
   line-height: 1.65;
 }
 
 .account-eyebrow,
 .account-label {
-  color: var(--account-blue-lit);
-  font-family: var(--account-font-mono);
-  font-size: 0.72rem;
-  text-transform: uppercase;
+  color: var(--account-red);
+  font-size: 0.875rem;
+  font-weight: 600;
 }
 
 .account-boundary {
   margin-top: 32px;
-  border-top: 1px solid rgba(243, 246, 248, 0.24);
+  border-top: 1px solid var(--account-line);
   padding-top: 18px;
-  color: #d5dde3;
+  color: var(--account-muted);
   font-size: 0.9rem;
 }
 
@@ -164,20 +301,36 @@ a {
 .account-form-panel,
 .account-session {
   border: 1px solid var(--account-line);
-  padding: clamp(24px, 4vw, 42px);
-  background: linear-gradient(180deg, var(--account-surface-raised), var(--account-surface));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 24px 60px rgba(0, 0, 0, 0.46);
+  border-radius: 18px;
+  padding: clamp(25px, 4vw, 38px);
+  background-color: var(--account-surface);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E"),
+    radial-gradient(
+      340px circle at var(--mx, 25%) var(--my, 20%),
+      rgba(120, 170, 215, 0.24) 0%,
+      transparent 70%
+    ),
+    linear-gradient(
+      150deg,
+      var(--account-surface-raised) 0%,
+      var(--account-surface) 100%
+    );
+  box-shadow: var(--account-shadow);
 }
 
 .account-form-panel h2,
 .account-session h2 {
-  margin: 7px 0 10px;
+  margin: 8px 0 10px;
+  color: var(--account-text);
   font-family: var(--account-font-display);
   font-size: 2rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
 }
 
 .account-intro {
-  margin: 0 0 24px;
+  margin: 0 0 25px;
   color: var(--account-muted);
   line-height: 1.55;
 }
@@ -191,38 +344,49 @@ a {
   display: grid;
   gap: 8px;
   color: var(--account-muted);
-  font-size: 0.88rem;
-  font-weight: 600;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 .account-field input {
   width: 100%;
-  min-height: 48px;
-  border: 1px solid var(--account-line);
-  border-radius: 4px;
-  padding: 11px 12px;
-  background: #08131f;
+  min-height: 46px;
+  border: 1px solid var(--account-line-strong);
+  border-radius: 10px;
+  padding: 11px 15px;
   color: var(--account-text);
+  background: rgba(18, 38, 60, 0.05);
+}
+
+html[data-workspace-theme="dark"] .account-field input {
+  background: rgba(220, 232, 245, 0.05);
 }
 
 .account-field input:focus {
-  border-color: var(--account-blue);
-  outline: 2px solid rgba(46, 127, 198, 0.22);
-  outline-offset: 1px;
+  border-color: var(--account-red);
+  outline: 2px solid var(--account-red);
+  outline-offset: 2px;
 }
 
 .password-rule {
   margin: -8px 0 0;
-  color: var(--account-muted);
+  color: var(--account-faint);
   font-size: 0.82rem;
 }
 
 .password-visibility {
   display: flex;
+  min-height: 44px;
   align-items: center;
   gap: 9px;
   color: var(--account-muted);
   font-size: 0.86rem;
+}
+
+.password-visibility input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--account-blue);
 }
 
 .account-primary,
@@ -231,25 +395,81 @@ a {
   min-height: 46px;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--account-blue);
-  border-radius: 4px;
-  padding: 11px 18px;
-  background: linear-gradient(180deg, #2e7fc6, #174f7c);
-  color: white;
-  font-weight: 700;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 28px;
+  color: var(--account-header-text);
+  background:
+    radial-gradient(
+      140px circle at var(--mx, 82%) var(--my, 30%),
+      rgba(216, 56, 63, 0.45) 0%,
+      transparent 72%
+    ),
+    linear-gradient(115deg, #12263c 0%, #1d2c44 55%, #4b2733 135%);
+  font-size: 0.9rem;
+  font-weight: 600;
   text-decoration: none;
   cursor: pointer;
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    filter 0.22s ease;
 }
 
-.account-secondary {
-  border-color: var(--account-line);
+html[data-workspace-theme] .account-primary {
+  color: var(--account-header-text);
+}
+
+html[data-workspace-theme="dark"] .account-primary {
+  color: #0b1b2e;
+  background:
+    radial-gradient(
+      140px circle at var(--mx, 82%) var(--my, 30%),
+      rgba(216, 56, 63, 0.35) 0%,
+      transparent 72%
+    ),
+    linear-gradient(115deg, #eaf2fa 0%, #dde9f4 55%, #eed9dd 135%);
+}
+
+.account-primary:hover:not(:disabled),
+.account-secondary:hover:not(:disabled) {
+  box-shadow: 0 14px 28px -18px rgba(9, 22, 38, 0.72);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.account-secondary,
+html[data-workspace-theme="dark"] .account-secondary {
+  border: 1px solid var(--account-line-strong);
+  color: var(--account-text);
   background: transparent;
+}
+
+html[data-workspace-theme] .account-secondary {
+  color: var(--account-text);
+}
+
+.account-secondary:hover:not(:disabled) {
+  border-color: var(--account-blue);
+  background: rgba(120, 170, 215, 0.16);
 }
 
 .account-primary:disabled,
 .account-secondary:disabled {
+  color: var(--v5-disabled-text, #405d77);
+  background: var(--account-line);
   cursor: wait;
-  opacity: 0.55;
+  opacity: 1;
+  box-shadow: none;
+}
+
+.account-wordmark:focus-visible,
+.account-nav a:focus-visible,
+.account-primary:focus-visible,
+.account-secondary:focus-visible,
+.account-switch a:focus-visible {
+  outline: 2px solid var(--account-red);
+  outline-offset: 3px;
 }
 
 .account-switch {
@@ -258,30 +478,42 @@ a {
 }
 
 .account-switch a {
-  color: var(--account-blue-lit);
+  color: var(--account-blue);
+  font-weight: 600;
+}
+
+html[data-workspace-theme] .account-switch a {
+  color: var(--account-blue);
 }
 
 .account-status {
   min-height: 24px;
   margin: 18px 0 0;
   font-size: 0.9rem;
+  font-weight: 500;
 }
 
 .account-status[data-kind="error"] {
-  color: #ffc1ca;
+  color: var(--account-error);
 }
 
 .account-status[data-kind="success"] {
-  color: #a9ebd3;
+  color: var(--account-green);
 }
 
 .account-status[data-kind="neutral"] {
   color: var(--account-muted);
 }
 
+.account-status[data-kind="pending"],
+.account-status[data-kind="working"] {
+  color: var(--account-amber);
+}
+
 .session-email {
   overflow-wrap: anywhere;
-  color: var(--account-blue-lit);
+  color: var(--account-blue);
+  font-weight: 600;
 }
 
 .session-actions {
@@ -293,14 +525,13 @@ a {
 
 @media (max-width: 820px) {
   .account-header {
-    align-items: flex-start;
-    flex-direction: column;
-    padding: 18px 0;
+    min-height: 58px;
+    gap: 8px;
+    padding-block: 7px;
   }
 
   .account-nav {
-    width: 100%;
-    justify-content: space-between;
+    justify-content: flex-end;
   }
 
   .account-main {
@@ -310,26 +541,36 @@ a {
   }
 
   .account-context {
-    min-height: 240px;
-    padding: 30px 24px;
+    min-height: 260px;
+    padding: 32px 26px;
   }
 
   .account-context h1 {
-    font-size: 2.5rem;
+    font-size: clamp(2.4rem, 9vw, 3.5rem);
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 560px) {
   .account-shell {
-    width: min(100% - 22px, 1180px);
+    width: min(100% - 24px, 1160px);
+  }
+
+  .account-header {
+    align-items: flex-start;
+    flex-direction: column;
+    margin-inline: -12px;
+    padding: 10px 12px;
   }
 
   .account-nav {
     display: grid;
+    width: 100%;
     grid-template-columns: 1fr 1fr;
   }
 
   .account-nav a {
+    justify-content: center;
+    padding-inline: 10px;
     text-align: center;
   }
 
@@ -337,7 +578,77 @@ a {
     grid-column: 1 / -1;
   }
 
+  .account-context,
+  .account-form-panel,
+  .account-session {
+    border-radius: 16px;
+  }
+
+  .account-context {
+    padding: 28px 22px;
+  }
+
+  .account-form-panel,
+  .account-session {
+    padding: 24px 20px;
+  }
+
+  .account-field input {
+    font-size: 1rem;
+  }
+
   .session-actions {
     display: grid;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media print {
+  :root,
+  html[data-workspace-theme] {
+    color-scheme: light;
+    --account-bg: #fff;
+    --account-surface: #fff;
+    --account-surface-raised: #fff;
+    --account-text: #12263c;
+    --account-muted: #4a627a;
+    --account-faint: #537089;
+  }
+
+  body.account-page {
+    background: #fff;
+  }
+
+  .account-header {
+    position: static;
+    color: #12263c;
+    background: none;
+    border-bottom-color: rgba(18, 38, 60, 0.16);
+    box-shadow: none;
+  }
+
+  .account-nav {
+    display: none;
+  }
+
+  .account-main {
+    min-height: 0;
+  }
+
+  .account-context,
+  .account-form-panel,
+  .account-session {
+    background: #fff;
+    box-shadow: none;
   }
 }

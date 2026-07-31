@@ -50,6 +50,16 @@ test("presents exactly the three highest-confidence solution pathways", () => {
 });
 
 test("keeps the canonical report and outreach controls visible", () => {
+  assert.match(mainBundle, /class="product-phase-nav"/);
+  assert.match(mainBundle, /Describe the problem once\./);
+  assert.match(mainBundle, /Evidence → plan/);
+  assert.match(mainBundle, /Matches → responses/);
+  assert.match(mainBundle, /Commitment → delivery/);
+  assert.match(mainBundle, /class="workspace-footer"/);
+  assert.match(
+    mainBundle,
+    /Decision support — never engineering sign-off\./
+  );
   assert.match(mainBundle, />\s*Analyse requirement\s*</);
   assert.match(mainBundle, /structureRequirement\(requirementForm, true\)/);
   assert.doesNotMatch(mainBundle, /class="mode-switch"/);

@@ -1,8 +1,22 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-workspace-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (() => {
+        const storageKey = "veltact:workspace-theme:v1";
+        let theme = "light";
+        try {
+          const storedTheme = window.localStorage.getItem(storageKey);
+          if (storedTheme === "light" || storedTheme === "dark") {
+            theme = storedTheme;
+          }
+        } catch {}
+        document.documentElement.dataset.workspaceTheme = theme;
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
     <meta
       name="description"
       content="Veltact Find, Connect, Deploy industrial procurement workspace."
@@ -11,15 +25,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Chakra+Petch:wght@500;600;700&family=Geist+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./v2.css?v=logos-1" />
+    <link rel="stylesheet" href="./workspace-v5.css?v=workspace-v5-1" />
+    <link rel="stylesheet" href="./v2.css?v=workspace-v5-1" />
   </head>
   <body>
     <a class="skip-link" href="#v2-app">Skip to procurement workspace</a>
     <main id="v2-app" class="v2-app" aria-live="polite"></main>
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="./assets/v2.js?v=logos-1"></script>
+    <script type="module" src="./assets/v2.js?v=workspace-v5-1"></script>
+    <script type="module" src="./assets/workspaceTheme.js?v=workspace-v5-1"></script>
   </body>
 </html>
