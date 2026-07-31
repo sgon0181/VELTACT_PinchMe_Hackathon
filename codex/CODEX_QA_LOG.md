@@ -114,3 +114,16 @@ accessibility, console, or responsive-layout defects.
   textareas; checkbox/radio focus remains preserved. The 297-test, typecheck and
   production-build gate passed again. This attempt does not count as a clean demo
   cycle and both button journeys will be rerun.
+
+### Cycle D1 — Deterministic demo buttons (clean)
+
+- Reran both the PLC and Robotic integration buttons from fresh intake workspaces.
+  Their exact titles, budgets, locations, priorities, evidence, pathways, fixture
+  response families and scenario-specific milestone names remained deterministic.
+- Each subjourney used two private supplier links, two fixture responses, buyer
+  comparison and selection, a labelled local-demo commitment, four separately funded
+  releases and four accepted delivery outcomes.
+- Both selected registry relationships reached `Delivered`; fixture agent activity
+  and complete speed receipts remained available; buyer and supplier tabs recorded
+  zero console warnings/errors.
+- **Result:** clean. The required demo-button special cycle has passed.
