@@ -19,6 +19,10 @@ export function intakeRawRequirementGuidance(value) {
         const remaining = AI_INTAKE_RAW_REQUIREMENT_MIN_LENGTH - length;
         return `Add ${remaining} more character${remaining === 1 ? "" : "s"} so Veltact has enough factory context.`;
     }
+    if (length > AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH) {
+        const excess = length - AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH;
+        return `${AI_INTAKE_RAW_REQUIREMENT_MAX_MESSAGE} Remove ${excess.toLocaleString("en-AU")} character${excess === 1 ? "" : "s"}.`;
+    }
     return `${length.toLocaleString("en-AU")} of ${AI_INTAKE_RAW_REQUIREMENT_MAX_LENGTH.toLocaleString("en-AU")} characters used.`;
 }
 export function serializePreNeedIntakeDraft(draft) {

@@ -121,5 +121,9 @@ describe("pre-Need intake draft persistence", () => {
       validateIntakeRawRequirement("x".repeat(8_001)),
       /8,000 characters or fewer/i
     );
+    assert.match(
+      intakeRawRequirementGuidance("x".repeat(8_001)),
+      /Remove 1 character/i
+    );
   });
 });

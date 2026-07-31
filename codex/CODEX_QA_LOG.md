@@ -127,3 +127,16 @@ accessibility, console, or responsive-layout defects.
   and complete speed receipts remained available; buyer and supplier tabs recorded
   zero console warnings/errors.
 - **Result:** clean. The required demo-button special cycle has passed.
+
+### Cycle A0 — Adversarial Port Lincoln intake (restart required)
+
+- Empty intake stayed disabled with nearby minimum-context guidance. A 40-character
+  repeated-letter payload was rejected before analysis with actionable copy and its
+  input remained available for correction.
+- An 8,001-character payload was disabled in the buyer UI and rejected by the API
+  with JSON before provider selection.
+- **Defect:** the oversized helper exposed the numeric overage but did not explicitly
+  tell the user how to recover.
+- **Fix:** oversized guidance now states the 8,000-character limit and the exact
+  number of characters to remove, with a boundary regression test. The adversarial
+  cycle restarts after the full gate.
