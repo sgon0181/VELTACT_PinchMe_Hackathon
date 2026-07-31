@@ -23,8 +23,7 @@ For the free hackathon deployment and the `veltact.com` DNS cutover, see
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 # PLEASE WATCH THIS VIDEO AS IT WILL BE REALLY HELPFUL: 
-Feel free to bring the speed to 1x and not 1.2 x haha. 
-https://www.loom.com/share/78842dc66a984bb18dbca402c7949854
+https://youtu.be/9KbbfCHaQrA
 
 There is one canonical RapidMatch-based workflow:
 
