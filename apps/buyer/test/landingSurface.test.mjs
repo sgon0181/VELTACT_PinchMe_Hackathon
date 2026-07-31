@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const landingHtmlUrl = new URL("../public/landing.html", import.meta.url);
 const landingCssUrl = new URL("../public/landing.css", import.meta.url);
 const landingSourceUrl = new URL("../src/landing.ts", import.meta.url);
-const landingSceneSourceUrl = new URL("../src/landingScene.ts", import.meta.url);
-const landingAssetsSourceUrl = new URL("../src/landingAssets.ts", import.meta.url);
+const sceneSourceUrl = new URL("../src/landingScene.ts", import.meta.url);
+const pinchLogoUrl = new URL("../public/assets/brand/pinch-logo.svg", import.meta.url);
 
 function relativeLuminance(hex) {
   const channels = hex
@@ -45,158 +45,121 @@ test("public landing exposes only the canonical account and demo header actions"
   assert.equal(
     [...html.matchAll(/href="\.\/(?:signin|create-account|index)\.html(?:\?start=new)?"/g)].length,
     3,
-    "expected account and demo routes only in the sticky header",
+    "expected account and demo routes only in the fixed header",
   );
   assert.doesNotMatch(html, /(?:href|src)="[^"]*v2/i);
 });
 
-test("landing includes a non-blocking reduced-motion loading treatment", async () => {
-  const [html, landingCss, source] = await Promise.all([
-    readFile(landingHtmlUrl, "utf8"),
-    readFile(landingCssUrl, "utf8"),
-    readFile(landingSourceUrl, "utf8"),
-  ]);
-
-  assert.match(html, /data-landing-loader/);
-  assert.match(html, /class="factory-story-canvas"/);
-  assert.match(landingCss, /\.landing-loader\s*\{/);
-  assert.match(landingCss, /body\.landing-ready \.landing-loader/);
-  assert.match(landingCss, /\.landing-loader\s*\{[\s\S]*?pointer-events: none;/);
-  assert.match(landingCss, /@media \(prefers-reduced-motion: reduce\)/);
-  assert.match(
-    landingCss,
-    /@media \(prefers-reduced-motion: reduce\)[\s\S]*?body\[data-theme="landing"\] \.button-primary::after\s*\{[\s\S]*?display: none;/,
-  );
-  assert.match(landingCss, /\.site-header\s*\{[\s\S]*?position: sticky;/);
-  assert.match(source, /DOMContentLoaded/);
-  assert.match(source, /const loaderDwellMs = reducedMotion \? 0 : 520;/);
-  assert.match(source, /if \(loaderDwellMs === 0\)\s*\{\s*revealLanding\(\);/);
-  assert.match(source, /if \(reducedMotion \|\| !\("IntersectionObserver" in window\)\)/);
-  assert.match(source, /classList\.add\("landing-ready"\)/);
-  assert.doesNotMatch(source, /fetch\(|api\/demo\/reset/);
-});
-
-test("landing tells the canonical Find, Connect and Deploy story", async () => {
+test("landing animation remains separate from the real product workflow", async () => {
   const html = await readFile(landingHtmlUrl, "utf8");
+  const chapters = [...html.matchAll(/data-story-panel="([^"]+)"/g)].map(
+    ([, chapter]) => chapter,
+  );
+  const jumpTargets = [...html.matchAll(/data-story-jump="([^"]+)"/g)].map(
+    ([, chapter]) => chapter,
+  );
 
-  assert.match(html, /From line stop to committed specialist, in one workflow\./);
-  assert.match(html, /01 \/ <em>Find<\/em>/);
-  assert.match(html, /02 \/ <em>Connect<\/em>/);
-  assert.match(html, /03 \/ <em>Deploy<\/em>/);
-  assert.match(html, /Pinch-hosted checkout/);
-  assert.match(html, /Payment is confirmed only by backend evidence/);
-
-  const storyPanels = [...html.matchAll(/<article class="factory-story-panel[^"]*"[^>]*>([\s\S]*?)<\/article>/g)];
-  assert.equal(storyPanels.length, 5);
-  storyPanels.forEach(([, panel]) => {
-    assert.equal([...panel.matchAll(/<h[12][^>]*>/g)].length, 1);
-    assert.equal([...panel.matchAll(/<p(?:\s|>)/g)].length, 1);
-  });
-  assert.doesNotMatch(html, /factory-story-output/);
+  assert.deepEqual(chapters, ["intro", "find", "connect", "deploy", "outcome"]);
+  assert.deepEqual(jumpTargets, ["find", "connect", "deploy"]);
+  assert.match(html, /Turn the problem into a plan\./);
+  assert.match(html, /Make the right suppliers respond\./);
+  assert.match(html, /Secure the supplier\. Start the work\./);
+  assert.match(
+    html,
+    /Find the path\. Connect with the right supplier\. Deploy with control\./,
+  );
+  assert.match(html, /class="story-proof story-proof-find"/);
+  assert.match(html, /class="story-proof story-proof-connect"/);
+  assert.match(html, /class="story-proof story-proof-deploy"/);
+  assert.match(html, /RapidMatch shortlist/);
+  assert.match(html, /2 responses ready/);
+  assert.match(html, /assets\/brand\/pinch-logo\.svg/);
+  assert.match(html, /Verified payment evidence/);
+  assert.doesNotMatch(html, /placeholder|image-slot|Drop the real/i);
+  assert.match(html, /type="button"[\s\S]*?data-story-jump="find"/);
+  assert.match(html, /type="button"[\s\S]*?data-story-jump="connect"/);
+  assert.match(html, /type="button"[\s\S]*?data-story-jump="deploy"/);
+  assert.doesNotMatch(html, /data-story-jump="[^"]+"[^>]+href=/);
 });
 
-test("landing factory story is local, progressive and accessible", async () => {
-  const [html, source, sceneSource, assetSource] = await Promise.all([
+test("landing uses a local Three runtime and does not depend on the design export runtime", async () => {
+  const [html, pinchLogo] = await Promise.all([
     readFile(landingHtmlUrl, "utf8"),
-    readFile(landingSourceUrl, "utf8"),
-    readFile(landingSceneSourceUrl, "utf8"),
-    readFile(landingAssetsSourceUrl, "utf8"),
+    readFile(pinchLogoUrl, "utf8"),
   ]);
 
   assert.match(html, /"three": "\.\/assets\/vendor\/three\/three\.module\.min\.js"/);
-  assert.match(html, /"three\/addons\/": "\.\/assets\/vendor\/three\/addons\/"/);
-  assert.match(html, /data-factory-story\s+data-story-state="static"/);
-  assert.equal([...html.matchAll(/class="factory-story-panel/g)].length, 5);
-  assert.doesNotMatch(html, /support\.js|DCLogic|cdn\.jsdelivr\.net|unpkg\.com/);
-
-  assert.match(source, /const reducedMotion = window\.matchMedia/);
-  assert.match(source, /supportsWebGL\(\)/);
-  assert.match(source, /import\("\.\/landingScene\.js"\)/);
-  assert.match(source, /factoryStory\.dataset\.storyState = "fallback"/);
-
-  assert.match(sceneSource, /import \* as THREE from "three"/);
-  assert.match(sceneSource, /new IntersectionObserver/);
-  assert.match(sceneSource, /new ResizeObserver/);
-  assert.match(sceneSource, /window\.devicePixelRatio/);
-  assert.match(sceneSource, /visibilitychange/);
-  assert.match(sceneSource, /forceContextLoss/);
-  assert.match(sceneSource, /new THREE\.CatmullRomCurve3/);
-  assert.match(sceneSource, /"centripetal"/);
-  assert.match(
-    sceneSource,
-    /return withinWindow \? 1 : 0;/,
-  );
-  assert.match(
-    sceneSource,
-    /\["intro", \[0, 0\.1\]\][\s\S]*?\["find", \[0\.1, 0\.38\]\][\s\S]*?\["connect", \[0\.38, 0\.7\]\][\s\S]*?\["deploy", \[0\.7, 0\.93\]\][\s\S]*?\["outcome", \[0\.93, 1\]\]/,
-  );
-  assert.doesNotMatch(sceneSource, /const cameraPosition = vectorAt/);
-  assert.match(sceneSource, /\[gripperReleaseProgress, gripperReleasePosition\]/);
-  assert.match(sceneSource, /THREE\.ACESFilmicToneMapping/);
-  assert.match(sceneSource, /THREE\.SRGBColorSpace/);
-  assert.match(sceneSource, /new SSAOPass/);
-  assert.match(sceneSource, /new UnrealBloomPass/);
-  assert.match(sceneSource, /new ShaderPass\(VignetteShader\)/);
-  assert.match(sceneSource, /composer\.render\(0\)/);
-  assert.match(sceneSource, /const bulbScale = 0\.13;/);
-  assert.match(sceneSource, /new GLTFLoader/);
-  assert.match(sceneSource, /factoryAssetManifest\.robotArm/);
-  assert.match(sceneSource, /factoryAssetManifest\.conveyor/);
-  assert.match(sceneSource, /factoryAssetManifest\.machineWindow/);
-  assert.match(sceneSource, /factoryAssetManifest\.shelf/);
-  assert.match(sceneSource, /factoryAssetManifest\.pallet/);
-  assert.match(sceneSource, /factoryAssetManifest\.deliveryVan/);
-  assert.match(sceneSource, /factoryAssetManifest\.dockDoor/);
-  assert.match(sceneSource, /factoryAssetManifest\.catwalkStairs/);
-  assert.match(sceneSource, /factoryAssetManifest\.pipeLong/);
-
-  const modelPaths = [...assetSource.matchAll(/"(\.\/assets\/models\/[^"]+\.glb)"/g)].map(
-    ([, path]) => new URL(`../public/${path.slice(2)}`, import.meta.url),
-  );
-  assert.ok(modelPaths.length >= 12);
-  const modelStats = await Promise.all(modelPaths.map((path) => stat(path)));
-  assert.ok(modelStats.every((modelStat) => modelStat.size > 0));
-  assert.ok(modelStats.reduce((total, modelStat) => total + modelStat.size, 0) < 8 * 1024 * 1024);
+  assert.match(html, /src="\.\/assets\/landing\.js"/);
+  assert.doesNotMatch(html, /support\.js|text\/x-dc|DCLogic|cdn\.jsdelivr\.net/);
+  assert.doesNotMatch(html, /unpkg\.com\/(?:react|@babel)/);
+  assert.match(pinchLogo, /<svg[^>]+viewBox="0 0 161 40"/);
+  assert.match(pinchLogo, /#FF5263/);
 });
 
-test("landing preserves visible focus, readable contrast and mobile fit", async () => {
-  const landingCss = await readFile(landingCssUrl, "utf8");
-  const readableRed = landingCss.match(/--signal-red-readable:\s*(#[\da-f]{6})/i)?.[1];
+test("landing controller fails open without gating Trial Demo", async () => {
+  const source = await readFile(landingSourceUrl, "utf8");
 
-  assert.ok(readableRed, "expected a readable signal-red token");
-  for (const background of ["#040a11", "#07111d", "#16283c", "#26141c"]) {
-    assert.ok(contrastRatio(readableRed, background) >= 4.5);
-  }
-  assert.match(landingCss, /:where\(a, button\):focus-visible\s*\{/);
-  assert.match(landingCss, /\.hero h1\s*\{[\s\S]*?line-height: 1\.08;/);
-  assert.match(landingCss, /\.factory-story-stage\s*\{[\s\S]*?isolation: isolate;/);
-  assert.match(landingCss, /\.factory-story-canvas\s*\{[\s\S]*?z-index: 0;/);
+  assert.match(source, /prefers-reduced-motion: reduce/);
+  assert.match(source, /supportsWebGL/);
+  assert.match(source, /story\.dataset\.storyState = "fallback"/);
+  assert.match(source, /import\("\.\/landingScene\.js"\)/);
+  assert.match(source, /classList\.remove\("story-locked"\)/);
+  assert.match(source, /classList\.add\("landing-ready"\)/);
+  assert.doesNotMatch(source, /fetch\(|api\/|socket|payment/i);
+});
+
+test("scene keeps the protagonist right-weighted and chapters seekable", async () => {
+  const source = await readFile(sceneSourceUrl, "utf8");
+
+  assert.match(source, /const desiredX = isNarrow \? 0\.04 : 0\.34;/);
+  assert.match(source, /const desiredY = isNarrow \? 0\.34 : 0;/);
+  assert.match(source, /camera\.projectionMatrix\.elements\[8\] -= correctionX;/);
+  assert.match(source, /camera\.projectionMatrix\.elements\[9\] -= correctionY;/);
+  assert.match(source, /root\.dataset\.protagonistX/);
+  assert.match(source, /root\.dataset\.protagonistY/);
+  assert.match(source, /find: 0\.145/);
+  assert.match(source, /connect: 0\.505/);
+  assert.match(source, /deploy: 0\.765/);
+  assert.match(source, /window\.scrollTo\(\{ behavior: "smooth", top \}\)/);
+  assert.match(source, /button\.addEventListener\("click", handler\)/);
+  assert.match(source, /button\.removeEventListener\("click", handler\)/);
+  assert.match(source, /addSign\("FIND"[^;]+signPalette\);/);
+  assert.match(source, /addSign\("CONNECT"[^;]+signPalette\);/);
+  assert.match(source, /addSign\("DEPLOY"[^;]+signPalette\);/);
+  assert.doesNotMatch(source, /BIN 01|FIT 02|DOCK 03/);
+  assert.doesNotMatch(source, /signPalettes|faceStart: "#b7e5f5"/);
+  assert.match(source, /const signWidth = 2\.45;/);
+  assert.match(source, /const signHeight = 1\.3;/);
+  assert.match(source, /new THREE\.PointLight\(palette\.light, 5\.5, 5\.2, 2\)/);
+});
+
+test("landing is progressive, responsive and keyboard accessible", async () => {
+  const [html, css] = await Promise.all([
+    readFile(landingHtmlUrl, "utf8"),
+    readFile(landingCssUrl, "utf8"),
+  ]);
+  const signal = css.match(/--signal:\s*(#[\da-f]{6})/i)?.[1];
+
+  assert.ok(signal, "expected a signal color token");
+  assert.ok(contrastRatio(signal, "#070d16") >= 4.5);
+  assert.match(html, /class="skip-link"/);
+  assert.match(html, /aria-label="Animation chapters"/);
+  assert.match(html, /aria-label="Go to Find animation"/);
+  assert.match(css, /:where\(a, button\):focus-visible/);
+  assert.match(css, /\.story\s*\{[\s\S]*?min-height: 700svh;/);
+  assert.match(css, /\.story-stage\s*\{[\s\S]*?position: sticky;/);
+  assert.match(css, /\.story-panel\s*\{[\s\S]*?left: 7vw;/);
+  assert.match(css, /\.story-index\s*\{[\s\S]*?font-size: 0\.95rem;/);
+  assert.match(css, /\.story-rail\s*\{[\s\S]*?width: 146px;[\s\S]*?height: 405px;/);
+  assert.match(css, /\.story-rail-step strong\s*\{[\s\S]*?font-size: 0\.9rem;/);
+  assert.match(css, /@media \(max-width: 680px\)/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(
-    landingCss,
-    /\.factory-story-overlay\s*\{[\s\S]*?z-index: 4;[\s\S]*?transform: translate3d\(0, 0, 1px\);/,
+    css,
+    /@media \(max-width: 680px\)[\s\S]*?\.header-link\s*\{[\s\S]*?min-height: 44px;/,
   );
   assert.match(
-    landingCss,
-    /\.factory-story-panel\s*\{[\s\S]*?background: var\(--midnight-deep\);/,
-  );
-  assert.match(
-    landingCss,
-    /\.factory-story\[data-story-state="animated"\] \.factory-story-meta\s*\{[\s\S]*?background: rgba\(10, 23, 40, 0\.7\);[\s\S]*?backdrop-filter: blur\(10px\);/,
-  );
-  assert.match(
-    landingCss,
-    /\.factory-story\[data-story-state="animated"\] \.factory-story-rail\s*\{[\s\S]*?background-color: rgba\(10, 23, 40, 0\.7\);[\s\S]*?backdrop-filter: blur\(10px\);/,
-  );
-  assert.match(
-    landingCss,
-    /@media \(max-width: 640px\)[\s\S]*?\.header-link\s*\{[\s\S]*?min-width: 44px;[\s\S]*?min-height: 44px;/,
-  );
-  assert.match(
-    landingCss,
-    /@media \(max-width: 640px\)[\s\S]*?\.header-demo\s*\{[\s\S]*?min-height: 44px;/,
-  );
-  assert.match(
-    landingCss,
-    /@media \(max-width: 390px\)[\s\S]*?\.header-demo\s*\{[\s\S]*?min-height: 44px;/,
+    css,
+    /@media \(max-width: 680px\)[\s\S]*?\.header-demo\s*\{[\s\S]*?min-height: 44px;/,
   );
 });
