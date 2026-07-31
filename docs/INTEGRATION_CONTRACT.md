@@ -332,5 +332,5 @@ Historical A1-A6 branches are implementation evidence, not merge inputs for
 this run. A0 owns shared contracts, route/event names, root configuration and
 integration decisions. No agent merges directly into `main`; a reviewed release
 must start from the committed `feature-polish` tip recorded in
-`CODEX_RUN_REPORT.md`.
+`codex/CODEX_RUN_REPORT.md`.
 without redesigning product surfaces.

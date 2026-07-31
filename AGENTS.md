@@ -1,19 +1,26 @@
 # AGENTS.md — Veltact Overnight Autopilot Directives
 
+> **STATUS (2026-07-31):** Phase A (`codex/CODEX_FIX_SPEC_30-JUL-NIGHT.md`) and Phase B
+> (`codex/CODEX_FEATURE_SPEC_FEATURE-POLISH.md`) are COMPLETE on `feature-polish` —
+> see `codex/CODEX_RUN_REPORT.md`. Do not redo them. Active work is whatever the
+> operator's current task prompt assigns (e.g. the QA marathon or the style specs in
+> `codex/CODEX_STYLE_0*.md`). The autonomy contract, verification loop, and hard
+> boundaries below still govern ALL work in this repo.
+
 You (Codex) are running an UNATTENDED OVERNIGHT SHIFT. The operator is asleep and will
 review in the morning. Your mission is to complete, verify, and polish the two
 specification files below to hackathon-final quality. Work as far and as hard as the
 specs allow. Do not stop to ask questions — every question you would ask has an answer
 in the documents below, and where it genuinely does not, make the spec-compliant choice,
-record it in `CODEX_RUN_REPORT.md`, and keep moving.
+record it in `codex/CODEX_RUN_REPORT.md`, and keep moving.
 
 ## Authority order (highest first)
 
-1. `CODEX_FIX_SPEC_30-JUL-NIGHT.md` — Phase A. Correctness and demo-credibility fixes.
+1. `codex/CODEX_FIX_SPEC_30-JUL-NIGHT.md` — Phase A. Correctness and demo-credibility fixes.
    Branch: `30-jul-night`.
-2. `CODEX_FEATURE_SPEC_FEATURE-POLISH.md` — Phase B. The snowball feature set.
+2. `codex/CODEX_FEATURE_SPEC_FEATURE-POLISH.md` — Phase B. The snowball feature set.
    Branch: `feature-polish` (created from the finished `30-jul-night`).
-3. `CODEX_UX_DEMO_ADDENDUM.md` — cross-cutting HCI / UI / UX / demo-choreography
+3. `codex/CODEX_UX_DEMO_ADDENDUM.md` — cross-cutting HCI / UI / UX / demo-choreography
    standards. Apply to EVERYTHING you touch in both phases.
 4. `docs/PRODUCT.md` — product boundary and truthfulness rules. Never violate these,
    even where a spec could be read otherwise.
@@ -55,7 +62,7 @@ demo buttons' flows. The deterministic demos must never drift.
 
 1. All Phase A work committed on `30-jul-night`; `feature-polish` created from its tip;
    all Phase B work committed on `feature-polish`.
-2. Write and commit `CODEX_RUN_REPORT.md` (repo root): per-item status
+2. Write and commit `codex/CODEX_RUN_REPORT.md` (in `codex/`): per-item status
    (done/partial/skipped + reason), decisions made where specs were open-ended, new env
    vars, new endpoints, test counts before/after each phase, known remaining issues
    ranked by demo risk, and a step-by-step MORNING SMOKE CHECKLIST for the operator
