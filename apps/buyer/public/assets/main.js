@@ -2873,14 +2873,23 @@ function captureRenderInteractionState(root) {
         activeElement instanceof HTMLTextAreaElement
         ? activeElement
         : undefined;
+    const selectableTextControl = textControl instanceof HTMLTextAreaElement ||
+        (textControl instanceof HTMLInputElement &&
+            textControl.selectionStart !== null)
+        ? textControl
+        : undefined;
     return {
         view,
         ...(focusedPath
             ? {
                 focusedPath,
-                focusedSignature: renderElementSignature(activeElement),
-                selectionStart: textControl?.selectionStart,
-                selectionEnd: textControl?.selectionEnd
+                focusedSignature: renderElementSignature(activeElement)
+            }
+            : {}),
+        ...(selectableTextControl
+            ? {
+                selectionStart: selectableTextControl.selectionStart,
+                selectionEnd: selectableTextControl.selectionEnd
             }
             : {}),
         openDetailsPaths: Array.from(root.querySelectorAll("details[open]"))

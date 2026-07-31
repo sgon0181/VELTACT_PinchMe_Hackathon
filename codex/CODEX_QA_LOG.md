@@ -92,3 +92,25 @@ accessibility, console, or responsive-layout defects.
   `1 Aug 2026` / `2 Aug 2026` with no raw date-only ISO; receipt and comparison
   headings receive focus; typed and structured pre-Need drafts survive reload; and a
   priority choice retains keyboard focus through its same-view rerender.
+
+### Cycle D0 — Deterministic demo buttons (complete, defect found)
+
+- **PLC button:** preserved the exact HarbourPack PLC title, $1,800 tolerance,
+  Western Sydney location, speed priority, fixture evidence and three documented
+  pathways. Two fixture suppliers responded through private links. The selected
+  supplier was locally secured and all Diagnosis / Recovery / Validation / Handover
+  releases were funded and completed.
+- **Robotic integration button:** preserved the exact ABB/Siemens integration scope,
+  $180,000 upper budget, technical-fit priority and robotics-only fixture responses.
+  The selected supplier completed Site Assessment / Scoping Visit, Design,
+  Installation and Commissioning.
+- Both journeys finished at 100%, upgraded the selected registry relationship to
+  `Delivered`, retained the complete labelled-fixture activity timeline and recorded
+  every funding event in the speed receipt.
+- **Defect:** buyer radio and checkbox rerenders restored focus but attempted
+  `setSelectionRange` on non-text inputs, generating six console errors across the two
+  journeys.
+- **Fix:** caret capture/restore is now limited to text-selection-capable inputs and
+  textareas; checkbox/radio focus remains preserved. The 297-test, typecheck and
+  production-build gate passed again. This attempt does not count as a clean demo
+  cycle and both button journeys will be rerun.

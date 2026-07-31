@@ -38,6 +38,7 @@ test("buyer rerenders preserve focus, disclosures and text selection", () => {
   assert.match(mainBundle, /restoreRenderInteractionState\(app,/);
   assert.match(mainBundle, /querySelectorAll\("details\[open\]"\)/);
   assert.match(mainBundle, /setSelectionRange\(/);
+  assert.match(mainBundle, /textControl\.selectionStart !== null/);
   assert.match(
     mainBundle,
     /presentationChanged && !milestoneUpdateFormHasFocus\(\)/
