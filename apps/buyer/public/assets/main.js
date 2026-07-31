@@ -500,7 +500,7 @@ function renderSupplierRegistry() {
                     <div class="registry-row" role="row">
                       <div role="cell">
                         <strong>${escapeHtml(entry.supplierName)}</strong>
-                        <small>${escapeHtml(entry.location)}</small>
+                        <small>${escapeHtml(formatLocationLabel(entry.location))}</small>
                         <small>${escapeHtml(entry.source === "live_discovery"
             ? "Live public evidence"
             : entry.source === "catalog"
@@ -511,7 +511,9 @@ function renderSupplierRegistry() {
                         <span class="registry-state registry-state-${escapeHtml(entry.provenanceState)}">${escapeHtml(statusLabel(entry.provenanceState))}</span>
                       </div>
                       <div role="cell">
-                        ${tagList(entry.capabilities.slice(0, 4))}
+                        ${tagList(entry.capabilities
+            .slice(0, 4)
+            .map((capability) => formatCapabilityLabel(capability)))}
                       </div>
                       <div role="cell">
                         <strong>${entry.engagementHistory.length} requirement${entry.engagementHistory.length === 1 ? "" : "s"}</strong>
@@ -3795,6 +3797,30 @@ function priorityLabel(value) {
         price: "Price"
     };
     return labels[value];
+}
+const AU_STATE_TOKENS = new Set(["nsw", "vic", "qld", "sa", "wa", "tas", "nt", "act"]);
+// Catalog records store locations/capabilities lowercase ("sydney", "wa",
+// "plc diagnostics") while live-discovery entries arrive properly cased. Only
+// transform strings that are entirely lowercase so real names pass through.
+function formatLocationLabel(value) {
+    const trimmed = value.trim();
+    if (!trimmed || /[A-Z]/.test(trimmed)) {
+        return trimmed.replace(/\b[a-z]{2,3}\b/g, (word) => AU_STATE_TOKENS.has(word) ? word.toUpperCase() : word);
+    }
+    return trimmed
+        .split(/\s+/)
+        .map((word) => AU_STATE_TOKENS.has(word)
+        ? word.toUpperCase()
+        : word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+}
+const CAPABILITY_ACRONYMS = new Set(["plc", "scada", "hmi", "cnc", "vfd", "ups", "io"]);
+function formatCapabilityLabel(value) {
+    const trimmed = value.trim();
+    if (!trimmed || /[A-Z]/.test(trimmed))
+        return trimmed;
+    const acronymised = trimmed.replace(/\b[a-z]{2,5}\b/g, (word) => CAPABILITY_ACRONYMS.has(word) ? word.toUpperCase() : word);
+    return acronymised.charAt(0).toUpperCase() + acronymised.slice(1);
 }
 function humanFieldName(value) {
     const spaced = value.replaceAll("_", " ").trim();
