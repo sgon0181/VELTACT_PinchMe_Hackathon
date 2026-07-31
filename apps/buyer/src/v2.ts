@@ -136,7 +136,6 @@ function render() {
   app.innerHTML = `
     <header class="topbar">
       <a class="wordmark" href="./landing.html" aria-label="Veltact home">
-        <span class="wordmark-mark" aria-hidden="true"></span>
         <span>Veltact</span>
       </a>
       <div class="topbar-meta">

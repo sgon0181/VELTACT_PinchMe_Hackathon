@@ -48,6 +48,35 @@ describe("supplier response fixture form compatibility", () => {
     );
   });
 
+  test("keeps the deterministic robotics offers visibly distinct", () => {
+    const responses = demoResponsesForRequirement(
+      "Plan an ABB mixed-carton robotic palletising cell"
+    );
+    const axisForge = responses.find(
+      (response) => response.indicativePriceAud === 18500
+    );
+    const harbourMotion = responses.find(
+      (response) => response.indicativePriceAud === 12800
+    );
+
+    assert.ok(axisForge);
+    assert.ok(harbourMotion);
+    assert.equal(axisForge.earliestAvailability, "2026-08-01");
+    assert.equal(harbourMotion.earliestAvailability, "2026-07-31");
+    assert.match(axisForge.relevantExperience, /AxisForge/i);
+    assert.match(harbourMotion.relevantExperience, /Harbour Motion/i);
+    assert.match(axisForge.proposedApproach, /proof of process/i);
+    assert.match(harbourMotion.proposedApproach, /offline cycle simulation/i);
+    assert.match(axisForge.conditions.join(" "), /tooling and vision proof plan/i);
+    assert.match(harbourMotion.conditions.join(" "), /controls-interface review/i);
+    assert.ok(
+      harbourMotion.indicativePriceAud < axisForge.indicativePriceAud
+    );
+    assert.match(harbourMotion.label, /earlier value/i);
+    assert.doesNotMatch(axisForge.label, /lower|earliest|fastest/i);
+    assert.notEqual(axisForge.proposedApproach, harbourMotion.proposedApproach);
+  });
+
   test("spreads deterministic invitation tokens across available presets", () => {
     const indices = new Set(
       [

@@ -124,13 +124,6 @@ h3 {
   white-space: nowrap;
 }
 
-.product-wordmark-notch {
-  width: 14px;
-  height: 14px;
-  transform: rotate(45deg);
-  border: 3px solid var(--red);
-}
-
 .product-context {
   display: flex;
   align-items: baseline;
@@ -1795,20 +1788,6 @@ dl .is-missing dd,
   margin: 0 auto;
 }
 
-.success-mark {
-  display: grid;
-  width: 48px;
-  height: 48px;
-  margin-bottom: 18px;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--green);
-  color: #fff;
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
 .terminal-panel h2,
 .selection-panel h2 {
   margin: 0;
@@ -3404,13 +3383,6 @@ body[data-theme="buyer"] .product-wordmark:hover {
   color: #fff;
 }
 
-body[data-theme="buyer"] .product-wordmark-notch {
-  width: 11px;
-  height: 11px;
-  border: 0;
-  background: linear-gradient(140deg, #dd4a55 0%, #a81f2a 100%);
-}
-
 body[data-theme="buyer"] .product-context {
   align-items: center;
   gap: 8px;
@@ -4117,29 +4089,30 @@ body[data-theme="buyer"] .priority-option.is-selected small {
   color: var(--v5-priority-selected-muted, #9db6cf);
 }
 
-body[data-theme="buyer"] .priority-radio,
+body[data-theme="buyer"] .priority-radio {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin: 0;
+  border: 2px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+body[data-theme="buyer"] .priority-option.is-selected .priority-radio {
+  border: 5px solid var(--blue);
+  background: var(--surface);
+}
+
 body[data-theme="buyer"] .solution-choice > input,
 body[data-theme="buyer"] .candidate-select input,
 body[data-theme="buyer"] .outreach-mode input,
 body[data-theme="buyer"] .response-select input {
-  appearance: none;
-  width: 12px;
-  height: 12px;
-  flex: 0 0 12px;
-  margin: 2px;
-  border: 2px solid var(--v5-diamond-border, var(--ink));
-  border-radius: 0;
-  background: transparent;
-  transform: rotate(45deg);
-}
-
-body[data-theme="buyer"] .priority-option.is-selected .priority-radio,
-body[data-theme="buyer"] .solution-choice > input:checked,
-body[data-theme="buyer"] .candidate-select input:checked,
-body[data-theme="buyer"] .outreach-mode input:checked,
-body[data-theme="buyer"] .response-select input:checked {
-  border: 2px solid var(--v5-diamond-active-border, #a81f2a);
-  background: linear-gradient(140deg, #dd4a55 0%, #a81f2a 100%);
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  margin: 2px 0 0;
+  accent-color: var(--blue);
 }
 
 body[data-theme="buyer"] .primary-action-row {
@@ -4581,17 +4554,6 @@ body[data-theme="buyer"] .comparison-facts dd {
 }
 
 /* Selection, payment, delivery and receipt. */
-body[data-theme="buyer"] .success-mark {
-  width: 14px;
-  height: 14px;
-  margin-bottom: 22px;
-  border-radius: 0;
-  background: linear-gradient(140deg, #dd4a55 0%, #a81f2a 100%);
-  color: transparent;
-  font-size: 0;
-  transform: rotate(45deg);
-}
-
 body[data-theme="buyer"] .terminal-panel h2,
 body[data-theme="buyer"] .selection-panel h2 {
   font-family: var(--font-body);

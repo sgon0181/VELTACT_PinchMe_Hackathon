@@ -50,6 +50,35 @@ describe("deterministic supplier response fixtures", () => {
       assert.ok(entry.response.conditions.length >= 2);
     }
 
+    const axisForge = firstRead.find(
+      (entry) => entry.response.indicativePriceAud === 18500
+    );
+    const harbourMotion = firstRead.find(
+      (entry) => entry.response.indicativePriceAud === 12800
+    );
+    assert.ok(axisForge);
+    assert.ok(harbourMotion);
+    assert.equal(axisForge.response.earliestAvailability, "2026-08-01");
+    assert.equal(harbourMotion.response.earliestAvailability, "2026-07-31");
+    assert.match(axisForge.response.relevantExperience, /AxisForge/i);
+    assert.match(harbourMotion.response.relevantExperience, /Harbour Motion/i);
+    assert.match(axisForge.response.proposedApproach, /proof of process/i);
+    assert.match(harbourMotion.response.proposedApproach, /offline cycle simulation/i);
+    assert.match(axisForge.response.conditions.join(" "), /tooling and vision proof plan/i);
+    assert.match(harbourMotion.response.conditions.join(" "), /controls-interface review/i);
+    assert.ok(
+      harbourMotion.response.indicativePriceAud <
+        axisForge.response.indicativePriceAud
+    );
+    assert.match(harbourMotion.label, /earlier, lower offer/i);
+    assert.doesNotMatch(axisForge.label, /lower.price|earliest|fastest/i);
+    assert.equal(harbourMotion.tradeOff, "fastest_response");
+    assert.equal(axisForge.tradeOff, "proof_first_scope");
+    assert.notEqual(
+      axisForge.response.proposedApproach,
+      harbourMotion.response.proposedApproach
+    );
+
     firstRead[0].response.assumptions.push("Mutation from one caller");
     assert.equal(secondRead[0].response.assumptions.length, 2);
   });

@@ -245,6 +245,7 @@ html[data-workspace-theme] body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
+  overflow-x: clip;
   color: var(--v5-text);
   background-color: var(--v5-canvas);
   background-image: var(--v5-page-ambient);
@@ -269,12 +270,12 @@ html[data-workspace-theme] :where(button) {
     box-shadow 0.22s ease;
 }
 
-html[data-workspace-theme] :where(a) {
+:where(html[data-workspace-theme]) :where(a) {
   color: var(--v5-blue);
   text-decoration-color: color-mix(in srgb, var(--v5-blue) 44%, transparent);
 }
 
-html[data-workspace-theme] :where(a:hover) {
+:where(html[data-workspace-theme]) :where(a:hover) {
   color: var(--v5-text);
 }
 

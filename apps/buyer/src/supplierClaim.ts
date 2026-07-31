@@ -78,7 +78,7 @@ function render() {
   app.innerHTML = `
     <header class="claim-header">
       <a class="wordmark" href="./landing.html">
-        <span class="wordmark-mark" aria-hidden="true"></span><span>Veltact</span>
+        <span>Veltact</span>
       </a>
       <div class="claim-header-context">
         <span class="micro-label">Private supplier invitation</span>
@@ -129,7 +129,7 @@ function renderShell(content: string) {
   return `
     <header class="claim-header">
       <a class="wordmark" href="./landing.html">
-        <span class="wordmark-mark" aria-hidden="true"></span><span>Veltact</span>
+        <span>Veltact</span>
       </a>
       <span class="micro-label">Supplier claim</span>
     </header>

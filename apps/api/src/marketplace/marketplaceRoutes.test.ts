@@ -957,7 +957,9 @@ describe("marketplace core routes", () => {
             (path: { tradeOff: string }) => path.tradeOff
           )
         ),
-        new Set(["fastest_response", "lower_price"])
+        scenario === "robotics"
+          ? new Set(["fastest_response", "proof_first_scope"])
+          : new Set(["fastest_response", "lower_price"])
       );
       assert.ok(
         reset.body.supplierPaths.every(
@@ -984,6 +986,39 @@ describe("marketplace core routes", () => {
         ["responded", "responded", "pending"]
       );
       assert.equal(reset.body.workspace.responses.length, 2);
+      if (scenario === "robotics") {
+        const axisForgeLead =
+          reset.body.workspace.discoveredSuppliers.find(
+            (lead: { companyName: string }) =>
+              /AxisForge Robotics/.test(lead.companyName)
+          );
+        const harbourMotionLead =
+          reset.body.workspace.discoveredSuppliers.find(
+            (lead: { companyName: string }) =>
+              /Harbour Motion Systems/.test(lead.companyName)
+          );
+        assert.ok(axisForgeLead);
+        assert.ok(harbourMotionLead);
+
+        const axisForgeResponse = reset.body.workspace.responses.find(
+          (supplierResponse: { supplierId: string }) =>
+            supplierResponse.supplierId === axisForgeLead.id
+        );
+        const harbourMotionResponse = reset.body.workspace.responses.find(
+          (supplierResponse: { supplierId: string }) =>
+            supplierResponse.supplierId === harbourMotionLead.id
+        );
+        assert.ok(axisForgeResponse);
+        assert.ok(harbourMotionResponse);
+        assert.equal(axisForgeResponse.availability, "2026-08-01");
+        assert.equal(axisForgeResponse.indicativePrice.amount, 1_850_000);
+        assert.equal(harbourMotionResponse.availability, "2026-07-31");
+        assert.equal(harbourMotionResponse.indicativePrice.amount, 1_280_000);
+        assert.notEqual(
+          axisForgeResponse.proposedApproach,
+          harbourMotionResponse.proposedApproach
+        );
+      }
       assert.equal(reset.body.workspace.status, "supplier_selection");
       assert.equal(reset.body.workspace.nextAction, "compare_responses");
       assert.deepEqual(
@@ -2037,6 +2072,10 @@ describe("marketplace core routes", () => {
     assert.match(
       returnText,
       /html\[data-workspace-theme\] \.payment-return-wordmark/
+    );
+    assert.doesNotMatch(
+      returnText,
+      /product-wordmark-notch|brand-notch|wordmark-mark|success-mark/
     );
 
     const eventPayload = {

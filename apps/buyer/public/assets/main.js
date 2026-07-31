@@ -300,7 +300,6 @@ function render() {
     app.innerHTML = `
     <header class="product-header">
       <a class="product-wordmark" href="./index.html" aria-label="Veltact RapidMatch">
-        <span class="product-wordmark-notch" aria-hidden="true"></span>
         <span>VELTACT</span>
       </a>
       <div class="product-context">
@@ -1414,7 +1413,6 @@ function renderSelected(data) {
     }
     return `
     <section class="panel selection-panel">
-      <div class="success-mark" aria-hidden="true">OK</div>
       <p class="eyebrow">Deploy / Supplier selected</p>
       <h2>${renderCompanyIdentity(supplierName(selection.supplier, selection.response.supplierId), true)}</h2>
       <p class="terminal-copy">The engagement exists, but the supplier is not secured until payment evidence is confirmed by the backend.</p>

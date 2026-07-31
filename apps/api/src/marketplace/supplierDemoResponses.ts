@@ -5,7 +5,7 @@ export type SupplierDemoResponse = {
   scenario: SupplierDemoScenario;
   label: string;
   evidenceLabel: "Fixture";
-  tradeOff: "fastest_response" | "lower_price";
+  tradeOff: "fastest_response" | "lower_price" | "proof_first_scope";
   company: {
     companyName: string;
     contactName: string;
@@ -93,60 +93,60 @@ const supplierDemoResponses: Record<
     {
       key: "robotics-fastest-response",
       scenario: "robotics",
-      label: "Precision Robotics / earliest assessment (Fixture)",
+      label: "Harbour Motion / earlier, lower offer (Fixture)",
       evidenceLabel: "Fixture",
       tradeOff: "fastest_response",
       company: {
-        companyName: "Precision Robotics Response",
-        contactName: "Mia Williams",
-        contactEmail: "mia@fixture.veltact.test",
-        contactPhone: "+61400000503"
-      },
-      response: {
-        canHelp: true,
-        earliestAvailability: "Site assessment within five business days",
-        indicativePriceAud: 18500,
-        relevantExperience:
-          "ABB palletising cells with Siemens controls for mixed-carton food production, including safety validation, gripper trials and operator handover.",
-        proposedApproach:
-          "Run a rapid site assessment, capture carton and pallet data, confirm guarding and controls interfaces, then issue a concept layout and staged integration proposal.",
-        assumptions: [
-          "Representative cartons and pallet patterns are available",
-          "Existing line drawings and safety documentation can be reviewed onsite"
-        ],
-        conditions: [
-          "Price covers assessment, concept design and preliminary risk review",
-          "Robot hardware and installation are excluded until design approval"
-        ]
-      }
-    },
-    {
-      key: "robotics-lower-price",
-      scenario: "robotics",
-      label: "Applied Automation / lower price (Fixture)",
-      evidenceLabel: "Fixture",
-      tradeOff: "lower_price",
-      company: {
-        companyName: "Applied Automation Response",
+        companyName: "Harbour Motion Systems (Demo)",
         contactName: "Jordan Lee",
         contactEmail: "jordan@fixture.veltact.test",
         contactPhone: "+61400000504"
       },
       response: {
         canHelp: true,
-        earliestAvailability: "Site survey within ten business days",
+        earliestAvailability: "2026-07-31",
         indicativePriceAud: 12800,
         relevantExperience:
-          "Palletising and end-of-line automation for Australian manufacturers, with Fanuc and ABB commissioning experience.",
+          "The Harbour Motion fixture team has delivered controls integration, offline robot simulation, commissioning and operator training for Australian packaging lines using ABB and Fanuc equipment.",
         proposedApproach:
-          "Complete a remote production-data review before a scheduled site survey, then compare two cell concepts against throughput, footprint and changeover needs.",
+          "Begin on 31 July with a controls and production-data review, build an offline cycle simulation, then survey the site to validate conveyor interfaces, commissioning stages and training needs.",
         assumptions: [
-          "The buyer can provide two weeks of production data",
-          "Site attendance can occur within ten business days"
+          "Two weeks of production and changeover data are supplied before the simulation review",
+          "Current PLC backups, network architecture and conveyor interface drawings are available"
         ],
         conditions: [
-          "Price excludes detailed engineering and simulation",
-          "Travel outside metropolitan Sydney is charged separately"
+          "The AUD 12,800 fixture price includes controls-interface review, preliminary simulation and one site survey",
+          "End-of-arm tooling, machine vision hardware, mechanical cell design and installation are excluded"
+        ]
+      }
+    },
+    {
+      key: "robotics-proof-first-scope",
+      scenario: "robotics",
+      label: "AxisForge / proof-first scope (Fixture)",
+      evidenceLabel: "Fixture",
+      tradeOff: "proof_first_scope",
+      company: {
+        companyName: "AxisForge Robotics (Demo)",
+        contactName: "Mia Williams",
+        contactEmail: "mia@fixture.veltact.test",
+        contactPhone: "+61400000503"
+      },
+      response: {
+        canHelp: true,
+        earliestAvailability: "2026-08-01",
+        indicativePriceAud: 18500,
+        relevantExperience:
+          "The AxisForge fixture team has delivered ABB mixed-carton palletising cells with Siemens controls, machine vision and end-of-arm tooling trials, including safety validation and operator handover.",
+        proposedApproach:
+          "Attend on 1 August for a sample-led proof of process: capture carton and pallet data, trial tooling and vision constraints, confirm guarding and controls interfaces, then issue a staged integration plan.",
+        assumptions: [
+          "Representative cartons and pallet patterns are available for the 1 August assessment",
+          "Existing line drawings, PLC interface details and safety documentation can be reviewed onsite"
+        ],
+        conditions: [
+          "The AUD 18,500 fixture price includes the site assessment, concept layout, tooling and vision proof plan, and preliminary risk review",
+          "Robot hardware, guarding, detailed engineering and installation are excluded until concept approval"
         ]
       }
     }

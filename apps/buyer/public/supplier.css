@@ -195,13 +195,6 @@ html[data-workspace-theme] .brand-identity {
   color: inherit;
 }
 
-.brand-notch {
-  width: 12px;
-  height: 12px;
-  transform: rotate(45deg);
-  border: 2px solid #ff737a;
-}
-
 .brand-mark,
 .brand-copy {
   display: block;

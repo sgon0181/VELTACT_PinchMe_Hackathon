@@ -20,11 +20,34 @@ const pages = new Map(
   )
 );
 
-const [themeStyles, buyerStyles, v2Styles, themeSource] = await Promise.all([
+const [
+  themeStyles,
+  buyerStyles,
+  supplierStyles,
+  supplierClaimStyles,
+  v2Styles,
+  accountStyles,
+  themeSource,
+  buyerSource,
+  supplierClaimSource,
+  v2Source,
+  buyerRuntime,
+  supplierClaimRuntime,
+  v2Runtime
+] = await Promise.all([
   readFile(new URL("../public/workspace-v5.css", import.meta.url), "utf8"),
   readFile(new URL("../public/styles.css", import.meta.url), "utf8"),
+  readFile(new URL("../public/supplier.css", import.meta.url), "utf8"),
+  readFile(new URL("../public/supplier-claim.css", import.meta.url), "utf8"),
   readFile(new URL("../public/v2.css", import.meta.url), "utf8"),
-  readFile(new URL("../src/workspaceTheme.ts", import.meta.url), "utf8")
+  readFile(new URL("../public/account.css", import.meta.url), "utf8"),
+  readFile(new URL("../src/workspaceTheme.ts", import.meta.url), "utf8"),
+  readFile(new URL("../src/main.ts", import.meta.url), "utf8"),
+  readFile(new URL("../src/supplierClaim.ts", import.meta.url), "utf8"),
+  readFile(new URL("../src/v2.ts", import.meta.url), "utf8"),
+  readFile(new URL("../public/assets/main.js", import.meta.url), "utf8"),
+  readFile(new URL("../public/assets/supplierClaim.js", import.meta.url), "utf8"),
+  readFile(new URL("../public/assets/v2.js", import.meta.url), "utf8")
 ]);
 const themeRuntime = await import(
   new URL("../public/assets/workspaceTheme.js", import.meta.url)
@@ -45,6 +68,10 @@ describe("Workspace V5 shared theme", () => {
       /html\[data-workspace-theme="dark"\][\s\S]*?--v5-canvas:\s*#050d18;[\s\S]*?--v5-surface:\s*#0a1728;[\s\S]*?--v5-text:\s*#e8f0f9;[\s\S]*?--v5-red:\s*#d8383f;[\s\S]*?--v5-blue:\s*#9cc4e8;/
     );
     assert.match(themeStyles, /--v5-header-height:\s*62px;/);
+    assert.match(
+      themeStyles,
+      /html\[data-workspace-theme\] body\s*\{[\s\S]*?overflow-x:\s*clip;/
+    );
     assert.match(themeStyles, /linear-gradient\(\s*100deg,/);
     assert.match(themeStyles, /backdrop-filter:\s*blur\(18px\) saturate\(1\.25\)/);
     assert.match(
@@ -73,6 +100,14 @@ describe("Workspace V5 shared theme", () => {
     );
     assert.match(themeStyles, /outline:\s*2px solid var\(--v5-red\);/);
     assert.doesNotMatch(themeStyles, /outline:\s*1px solid/);
+    assert.match(
+      themeStyles,
+      /:where\(html\[data-workspace-theme\]\) :where\(a\)\s*\{/
+    );
+    assert.doesNotMatch(
+      themeStyles,
+      /^html\[data-workspace-theme\] :where\(a\)\s*\{/m
+    );
   });
 
   test("wires every product page before its page-specific stylesheet", () => {
@@ -137,6 +172,73 @@ describe("Workspace V5 shared theme", () => {
     );
     assert.doesNotMatch(pages.get("index.html"), /alloy\.css/);
     assert.doesNotMatch(pages.get("supplier.html"), /alloy\.css/);
+  });
+
+  test("keeps decorative diamonds out and uses conventional selection controls", () => {
+    const decorativeOrnament =
+      /product-wordmark-notch|brand-notch|wordmark-mark|success-mark/;
+    const productSurfaces = new Map([
+      ["buyer source", buyerSource],
+      ["buyer runtime", buyerRuntime],
+      ["buyer styles", buyerStyles],
+      ["supplier page", pages.get("supplier.html")],
+      ["supplier styles", supplierStyles],
+      ["supplier claim source", supplierClaimSource],
+      ["supplier claim runtime", supplierClaimRuntime],
+      ["supplier claim styles", supplierClaimStyles],
+      ["V2 source", v2Source],
+      ["V2 runtime", v2Runtime],
+      ["V2 styles", v2Styles],
+      ["account styles", accountStyles],
+      ["sign-in page", pages.get("signin.html")],
+      ["create-account page", pages.get("create-account.html")]
+    ]);
+
+    for (const [surface, content] of productSurfaces) {
+      assert.doesNotMatch(
+        content,
+        decorativeOrnament,
+        `${surface} must not reintroduce decorative brand or title diamonds`
+      );
+    }
+
+    assert.doesNotMatch(
+      buyerStyles,
+      /--v5-diamond-|rotate\(\s*45deg\s*\)/,
+      "buyer controls must not use diamond variables or rotation"
+    );
+    assert.match(
+      buyerStyles,
+      /body\[data-theme="buyer"\] \.priority-radio\s*\{[^}]*border-radius:\s*50%/,
+      "priority buttons must use a circular radio indicator"
+    );
+    assert.match(
+      buyerStyles,
+      /body\[data-theme="buyer"\] \.solution-choice > input,[\s\S]*accent-color:\s*var\(--blue\)/,
+      "native radio and checkbox controls must retain a conventional accented appearance"
+    );
+    assert.doesNotMatch(
+      buyerStyles,
+      /body\[data-theme="buyer"\][^{]*(?:solution-choice|candidate-select|outreach-mode|response-select)[^{]*\{[^}]*appearance:\s*none/,
+      "selection inputs must retain their native radio and checkbox shapes"
+    );
+    assert.match(buyerSource, /class="priority-radio"/);
+    assert.match(
+      buyerSource,
+      /type="radio"\s+name="solution-pathway"/
+    );
+    assert.match(
+      buyerSource,
+      /type="radio"\s+name="supplier-response"/
+    );
+    assert.match(
+      buyerSource,
+      /type="checkbox"\s+value="[^"]*"\s+data-candidate-id=/
+    );
+    assert.match(
+      buyerSource,
+      /type="checkbox"\s+name="outreach-choice"/
+    );
   });
 
   test("validates persistence and exposes a tiny accessible theme control", () => {
