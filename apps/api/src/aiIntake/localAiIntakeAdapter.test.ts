@@ -272,4 +272,26 @@ describe("structureRequirementLocally", () => {
       )
     );
   });
+
+  test("keeps refrigeration as the dominant category when a compressor motor is named", () => {
+    const result = structureRequirementLocally({
+      rawRequirement:
+        "At our ammonia cold store in Launceston TAS, the refrigeration compressor drive motor has high bearing vibration and intermittent overload trips. We need a licensed industrial refrigeration contractor within 3 business days to inspect and complete an authorised repair while the cold rooms remain temperature controlled. Our budget is roughly 60k AUD including callout and approved parts."
+    });
+
+    assert.ok(
+      result.generatedProfile.equipmentOrTechnology.includes(
+        "Industrial motor"
+      )
+    );
+    assert.ok(
+      result.generatedProfile.equipmentOrTechnology.includes(
+        "Ammonia refrigeration system"
+      )
+    );
+    assert.equal(
+      result.generatedProfile.category,
+      "Industrial refrigeration maintenance"
+    );
+  });
 });

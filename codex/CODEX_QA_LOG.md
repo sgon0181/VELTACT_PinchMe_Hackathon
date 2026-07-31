@@ -196,3 +196,27 @@ accessibility, console, or responsive-layout defects.
   ISO timestamps. Buyer, both supplier, malformed-token and local-return tabs recorded
   zero console warnings/errors.
 - **Result:** clean. The required adversarial special cycle has passed.
+
+### Cycle C1 — Launceston cold-store compressor motor (restart required)
+
+- **Scenario:** an ammonia cold store in Launceston, TAS needed a licensed
+  refrigeration contractor within three business days for a vibrating, intermittently
+  tripping compressor drive motor; the buyer phrased the budget as roughly `60k AUD`
+  and required cold-room temperature control.
+- **Planned response variation:** one can-help response and one explicit decline.
+- The mobile-width intake had no horizontal overflow and accurately retained the
+  location, timing, budget, ammonia system, compressor, motor, licence requirement and
+  temperature-critical constraint.
+- **Defect:** category inference evaluated the named drive motor before the dominant
+  refrigeration system and incorrectly labelled the requirement `Industrial
+  mechanical maintenance`.
+- **Fix:** refrigeration/compressor equipment now takes category precedence over a
+  component motor, while standalone motor/gearbox work remains industrial mechanical
+  maintenance. Shared, API and browser-fallback regressions cover both sides of the
+  precedence rule.
+- **Verification:** two consecutive 302-test gates, typecheck and production builds
+  passed; the served 375×812 intake retest reports `Industrial refrigeration
+  maintenance`, keeps zero horizontal overflow and renders no invalid placeholder
+  values.
+- **Result:** not clean because a classification defect interrupted the journey. The
+  clean-streak cycle restarts after the second verification pass.

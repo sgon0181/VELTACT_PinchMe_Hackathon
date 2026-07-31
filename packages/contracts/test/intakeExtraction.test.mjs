@@ -6,6 +6,7 @@ import {
   detectIntakeEquipment,
   detectIntakeLocation,
   detectIntakeUrgency,
+  intakeCategoryFromEquipment,
   intakeTitleFromRequirement,
   isIntakeRecoveryRequirement,
   isIntakeUrgent,
@@ -64,6 +65,13 @@ describe("shared deterministic intake extraction", () => {
     assert.ok(capabilities.includes("Refrigeration compressor maintenance"));
     assert.ok(capabilities.includes("Licensed refrigeration contractor"));
     assert.ok(capabilities.includes("Same-day onsite support"));
+    assert.equal(
+      intakeCategoryFromEquipment([
+        ...equipment,
+        "Industrial motor"
+      ]),
+      "Industrial refrigeration maintenance"
+    );
     assert.equal(isIntakeUrgent(normalised), true);
   });
 
@@ -89,6 +97,10 @@ describe("shared deterministic intake extraction", () => {
     assert.ok(capabilities.includes("Industrial motor repair"));
     assert.ok(capabilities.includes("Industrial mechanical maintenance"));
     assert.ok(capabilities.includes("Industrial electrical maintenance"));
+    assert.equal(
+      intakeCategoryFromEquipment(equipment),
+      "Industrial mechanical maintenance"
+    );
   });
 
   test("supports compact Australian-dollar amounts and existing forms", () => {

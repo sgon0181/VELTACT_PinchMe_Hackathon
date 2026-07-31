@@ -276,11 +276,11 @@ export function intakeCategoryFromEquipment(equipmentOrTechnology) {
     if (equipmentOrTechnology.some((item) => /robot|palletis|machine vision/i.test(item))) {
         return "Robotics integration";
     }
-    if (equipmentOrTechnology.some((item) => /gearbox|motor|thermal protection/i.test(item))) {
-        return "Industrial mechanical maintenance";
-    }
     if (equipmentOrTechnology.some((item) => /refrigeration|compressor/i.test(item))) {
         return "Industrial refrigeration maintenance";
+    }
+    if (equipmentOrTechnology.some((item) => /gearbox|motor|thermal protection/i.test(item))) {
+        return "Industrial mechanical maintenance";
     }
     return equipmentOrTechnology.some((item) => /plc|scada|hmi|conveyor/i.test(item))
         ? "Industrial automation"

@@ -122,6 +122,39 @@ test("buyer fallback preserves grain-terminal contamination and repair scope", a
   }
 });
 
+test("buyer fallback classifies a compressor motor under refrigeration", async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    location: { origin: "http://localhost:4001" },
+    setTimeout(callback) {
+      queueMicrotask(callback);
+      return 0;
+    }
+  };
+
+  try {
+    const { DemoAiIntakeService } = await import(
+      `../public/assets/aiIntakeService.js?refrigeration-motor=${Date.now()}`
+    );
+    const service = new DemoAiIntakeService();
+    const result = await service.structureRequirement({
+      rawRequirement:
+        "At our ammonia cold store in Launceston TAS, the refrigeration compressor drive motor has high bearing vibration and intermittent overload trips. We need a licensed industrial refrigeration contractor within 3 business days to inspect and complete an authorised repair while the cold rooms remain temperature controlled. Our budget is roughly 60k AUD including callout and approved parts."
+    });
+
+    assert.equal(
+      result.generatedProfile.category,
+      "Industrial refrigeration maintenance"
+    );
+  } finally {
+    if (previousWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      globalThis.window = previousWindow;
+    }
+  }
+});
+
 test("buyer fallback rejects binary-only evidence instead of reading its filename as facts", async () => {
   const previousWindow = globalThis.window;
   globalThis.window = {
