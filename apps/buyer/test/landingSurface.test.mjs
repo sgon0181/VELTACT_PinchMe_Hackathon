@@ -80,9 +80,9 @@ test("landing tells the canonical Find, Connect and Deploy story", async () => {
   const html = await readFile(landingHtmlUrl, "utf8");
 
   assert.match(html, /From line stop to committed specialist, in one workflow\./);
-  assert.match(html, /01 \/ Find/);
-  assert.match(html, /02 \/ Connect/);
-  assert.match(html, /03 \/ Deploy/);
+  assert.match(html, /01 \/ <em>Find<\/em>/);
+  assert.match(html, /02 \/ <em>Connect<\/em>/);
+  assert.match(html, /03 \/ <em>Deploy<\/em>/);
   assert.match(html, /Pinch-hosted checkout/);
   assert.match(html, /Payment is confirmed only by backend evidence/);
 
@@ -181,11 +181,11 @@ test("landing preserves visible focus, readable contrast and mobile fit", async 
   );
   assert.match(
     landingCss,
-    /\.factory-story\[data-story-state="animated"\] \.factory-story-meta\s*\{[\s\S]*?background: rgba\(4, 10, 17, 0\.9\);[\s\S]*?backdrop-filter: blur\(10px\);/,
+    /\.factory-story\[data-story-state="animated"\] \.factory-story-meta\s*\{[\s\S]*?background: rgba\(10, 23, 40, 0\.7\);[\s\S]*?backdrop-filter: blur\(10px\);/,
   );
   assert.match(
     landingCss,
-    /\.factory-story\[data-story-state="animated"\] \.factory-story-rail\s*\{[\s\S]*?background: rgba\(4, 10, 17, 0\.88\);[\s\S]*?backdrop-filter: blur\(10px\);/,
+    /\.factory-story\[data-story-state="animated"\] \.factory-story-rail\s*\{[\s\S]*?background-color: rgba\(10, 23, 40, 0\.7\);[\s\S]*?backdrop-filter: blur\(10px\);/,
   );
   assert.match(
     landingCss,

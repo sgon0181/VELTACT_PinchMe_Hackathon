@@ -583,8 +583,10 @@ body[data-theme="landing"] .header-cta {
   position: relative;
   border: 0;
   border-radius: 99px;
-  background: #e8f0f9;
-  color: #071120;
+  background:
+    radial-gradient(140px circle at var(--mx, 82%) var(--my, 30%), rgba(216, 56, 63, 0.35) 0%, transparent 72%),
+    linear-gradient(115deg, #eaf2fa 0%, #dde9f4 55%, #eed9dd 135%);
+  color: #0b1b2e;
   font-family: var(--font-body);
   font-weight: 600;
   letter-spacing: 0;
@@ -610,13 +612,15 @@ body[data-theme="landing"] .button-secondary {
   text-transform: none;
   box-shadow: none;
 }
-body[data-theme="landing"] .buyer-lane {
-  background: linear-gradient(180deg, #16283c, #0b1725);
-  box-shadow: inset 3px 0 0 #2468a2;
-}
+/* v5: role lanes are standard v5 cards; recipe lives in landing.css. */
+body[data-theme="landing"] .buyer-lane,
 body[data-theme="landing"] .supplier-lane {
-  background: linear-gradient(180deg, #26141c, #180c12);
-  box-shadow: inset 3px 0 0 #d6283f;
+  background-color: #0a1728;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.09'/%3E%3C/svg%3E"),
+    radial-gradient(300px circle at var(--mx, 25%) var(--my, 20%), rgba(120, 170, 215, 0.3) 0%, transparent 70%),
+    linear-gradient(150deg, #0d1d31 0%, #081525 100%);
+  box-shadow: none;
 }
 
 @media (max-width: 420px) {
