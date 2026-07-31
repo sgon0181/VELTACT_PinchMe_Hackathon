@@ -1,4 +1,4 @@
-# Veltact
+# Veltact.com
 
 Veltact turns industrial requirements into cited solution options, qualified
 supplier responses and controlled deployments with a Pinch commitment payment.
