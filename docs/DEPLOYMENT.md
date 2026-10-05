@@ -13,7 +13,7 @@ This is a public product demonstration, not a production marketplace.
 
 The checked-in `render.yaml` intentionally:
 
-- deploys the `Recurssion` branch to the existing `veltact` service;
+- deploys the `main` branch to the existing `veltact` service;
 - keeps the service on Render's free plan;
 - uses deterministic fixture research while preserving the OpenAI adapter;
 - prepares clearly labelled local-demo email and SMS delivery evidence without
@@ -28,10 +28,10 @@ evidence as a Pinch transaction.
 
 ## Deploy
 
-Render automatically deploys pushed commits from `Recurssion`.
+Render automatically deploys pushed commits from `main`.
 
 1. Run the complete local release gate.
-2. Push the verified commit to `origin/Recurssion`.
+2. Merge the reviewed change to `main`; Render deploys the configured branch.
 3. Wait for `https://veltact.com/api/health` to return HTTP 200.
 4. Confirm `releaseRevision` matches the pushed commit.
 5. Confirm `providerModes` matches the claims planned for the rehearsal.
